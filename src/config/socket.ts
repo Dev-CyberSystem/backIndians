@@ -1,0 +1,38 @@
+import { Server as HttpServer } from 'http';
+import { Server as SocketServer, Socket } from 'socket.io';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+let io: SocketServer;
+
+export function initSocket(httpServer: HttpServer): SocketServer {
+  io = new SocketServer(httpServer, {
+    cors: {
+      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      methods: ['GET', 'POST'],
+      credentials: true,
+    },
+  });
+
+  io.on('connection', (socket: Socket) => {
+    console.log(`🔌 Cliente conectado: ${socket.id}`);
+
+    // El cliente se une al room de pedidos para recibir actualizaciones
+    socket.on('join:orders', () => {
+      socket.join('orders');
+    });
+
+    socket.on('disconnect', () => {
+      console.log(`🔌 Cliente desconectado: ${socket.id}`);
+    });
+  });
+
+  return io;
+}
+
+// Retorna la instancia de Socket.io para usarla en los services
+export function getIO(): SocketServer {
+  if (!io) throw new Error('Socket.io no inicializado');
+  return io;
+}
