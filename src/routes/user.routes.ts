@@ -19,7 +19,7 @@ router.post(
     body('password')
       .isLength({ min: 8 })
       .withMessage('La contraseña debe tener al menos 8 caracteres'),
-    body('role').isIn(['admin', 'billing', 'workshop']).withMessage('Rol inválido'),
+    body('role').isIn(['admin', 'billing', 'workshop', 'seller']).withMessage('Rol inválido'),
     validate,
   ],
   ctrl.createUser
@@ -30,10 +30,26 @@ router.put(
   [
     param('id').isInt({ min: 1 }),
     body('email').optional().isEmail(),
-    body('role').optional().isIn(['admin', 'billing', 'workshop']),
+    body('role').optional().isIn(['admin', 'billing', 'workshop', 'seller']),
     validate,
   ],
   ctrl.updateUser
+);
+
+router.patch(
+  '/:id/toggle',
+  [param('id').isInt({ min: 1 }), validate],
+  ctrl.toggleUser
+);
+
+router.patch(
+  '/:id/password',
+  [
+    param('id').isInt({ min: 1 }),
+    body('password').isLength({ min: 8 }).withMessage('Mínimo 8 caracteres'),
+    validate,
+  ],
+  ctrl.changeUserPassword
 );
 
 router.delete(
