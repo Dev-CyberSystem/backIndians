@@ -8,6 +8,8 @@ import { OrderImage } from './OrderImage';
 import { OrderStatusHistory } from './OrderStatusHistory';
 import { Invoice } from './Invoice';
 import { StockItem } from './StockItem';
+import { StockCategory } from './StockCategory';
+import { StockMovement } from './StockMovement';
 import { GarmentType } from './GarmentType';
 import { FabricType } from './FabricType';
 import { SizeChart } from './SizeChart';
@@ -62,6 +64,18 @@ Order.hasMany(Invoice, { foreignKey: 'order_id', as: 'invoices' });
 PasswordResetToken.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 User.hasMany(PasswordResetToken, { foreignKey: 'user_id', as: 'reset_tokens' });
 
+// StockItem ↔ StockCategory
+StockItem.belongsTo(StockCategory, { foreignKey: 'category_id', as: 'category' });
+StockCategory.hasMany(StockItem, { foreignKey: 'category_id', as: 'items' });
+
+// StockMovement ↔ StockItem
+StockMovement.belongsTo(StockItem, { foreignKey: 'stock_item_id', as: 'item' });
+StockItem.hasMany(StockMovement, { foreignKey: 'stock_item_id', as: 'movements' });
+
+// StockMovement ↔ User
+StockMovement.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+User.hasMany(StockMovement, { foreignKey: 'user_id', as: 'stock_movements' });
+
 export {
   User,
   Client,
@@ -77,4 +91,6 @@ export {
   SizeChart,
   PasswordResetToken,
   Settings,
+  StockCategory,
+  StockMovement,
 };

@@ -49,7 +49,6 @@ Invoice.init(
     invoice_number: {
       type: DataTypes.STRING(50),
       allowNull: false,
-      unique: true,
     },
     issue_date: {
       type: DataTypes.DATEONLY,

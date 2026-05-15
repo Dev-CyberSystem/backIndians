@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import { Client } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 
@@ -11,9 +12,20 @@ interface ClientInput {
   notes?: string;
 }
 
-export async function listClients(page: number, limit: number) {
+export async function listClients(page: number, limit: number, search?: string) {
   const offset = (page - 1) * limit;
+  const where = search
+    ? {
+        [Op.or]: [
+          { name:         { [Op.like]: `%${search}%` } },
+          { email:        { [Op.like]: `%${search}%` } },
+          { cuit:         { [Op.like]: `%${search}%` } },
+          { contact_name: { [Op.like]: `%${search}%` } },
+        ],
+      }
+    : {};
   const { rows, count } = await Client.findAndCountAll({
+    where,
     order: [['name', 'ASC']],
     limit,
     offset,

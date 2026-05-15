@@ -28,9 +28,8 @@ export async function connectDB(): Promise<void> {
   await sequelize.authenticate();
   console.log('✅ Conexión a MySQL establecida');
 
-  // sync({ alter: true }) en desarrollo para mantener el esquema actualizado
-  if (process.env.NODE_ENV === 'development') {
-    await sequelize.sync({ alter: true });
-    console.log('✅ Modelos sincronizados con la base de datos');
-  }
+  // sync() sin alter — solo crea tablas que no existen, nunca modifica las existentes
+  // Para cambios de esquema usar migraciones (migrations/)
+  await sequelize.sync();
+  console.log('✅ Modelos sincronizados con la base de datos');
 }
