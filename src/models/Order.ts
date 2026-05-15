@@ -44,7 +44,6 @@ Order.init(
     order_number: {
       type: DataTypes.STRING(20),
       allowNull: true,
-      unique: true,
     },
     client_id: {
       type: DataTypes.INTEGER.UNSIGNED,

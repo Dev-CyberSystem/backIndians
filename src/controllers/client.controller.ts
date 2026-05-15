@@ -5,8 +5,12 @@ import * as clientService from '../services/client.service';
 export async function listClients(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const page = parseInt(req.query.page as string) || 1;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-    const result = await clientService.listClients(page, limit);
+    const limit = Math.min(
+      parseInt((req.query.limit ?? req.query.per_page) as string) || 20,
+      100
+    );
+    const search = (req.query.search as string) || undefined;
+    const result = await clientService.listClients(page, limit, search);
     res.json({
       success: true,
       data: result.clients,

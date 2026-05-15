@@ -37,7 +37,6 @@ PasswordResetToken.init(
     token: {
       type: DataTypes.STRING(100),
       allowNull: false,
-      unique: true,
     },
     expires_at: {
       type: DataTypes.DATE,

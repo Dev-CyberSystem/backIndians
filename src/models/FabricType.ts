@@ -29,7 +29,6 @@ FabricType.init(
     name: {
       type: DataTypes.STRING(150),
       allowNull: false,
-      unique: true,
     },
     active: {
       type: DataTypes.BOOLEAN,
