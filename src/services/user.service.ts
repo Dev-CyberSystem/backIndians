@@ -69,6 +69,30 @@ export async function updateUser(
   return updated!;
 }
 
+export async function toggleUserActive(id: number, requesterId: number): Promise<User> {
+  const user = await User.findByPk(id);
+  if (!user) throw new AppError('Usuario no encontrado', 404);
+
+  if (id === requesterId) throw new AppError('No podés desactivarte a vos mismo', 400);
+
+  // Si va a quedar inactivo y es admin, verificar que quede al menos un admin activo
+  if (user.active && user.role === 'admin') {
+    const activeAdmins = await User.count({ where: { role: 'admin', active: true } });
+    if (activeAdmins <= 1) throw new AppError('No podés desactivar el único administrador activo', 400);
+  }
+
+  await user.update({ active: !user.active });
+  const updated = await User.findByPk(id, { attributes: { exclude: ['password_hash'] } });
+  return updated!;
+}
+
+export async function changeUserPassword(id: number, newPassword: string): Promise<void> {
+  const user = await User.findByPk(id);
+  if (!user) throw new AppError('Usuario no encontrado', 404);
+  const password_hash = await bcrypt.hash(newPassword, 12);
+  await user.update({ password_hash });
+}
+
 // Soft delete: desactiva el usuario en lugar de eliminarlo
 export async function softDeleteUser(id: number): Promise<void> {
   const user = await User.findByPk(id);

@@ -2,6 +2,15 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../types';
 import * as stockService from '../services/stock.service';
 
+// ── Dropdown de telas ─────────────────────────────────────────────────────────
+
+export async function getAvailableForDropdown(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const items = await stockService.getAvailableForDropdown();
+    res.json({ success: true, data: items });
+  } catch (err) { next(err); }
+}
+
 // ── Categorías ────────────────────────────────────────────────────────────────
 
 export async function listCategories(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {

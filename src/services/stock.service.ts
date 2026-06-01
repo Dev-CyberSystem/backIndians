@@ -4,6 +4,16 @@ import { StockItem, StockCategory, StockMovement, User } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { JwtPayload } from '../types';
 
+// ── Dropdown de telas disponibles (para selección en pedidos) ────────────────
+
+export async function getAvailableForDropdown() {
+  return StockItem.findAll({
+    where: { active: true, current_quantity: { [Op.gt]: 0 } },
+    attributes: ['id', 'name', 'unit', 'current_quantity'],
+    order: [['name', 'ASC']],
+  });
+}
+
 // ── Categorías ────────────────────────────────────────────────────────────────
 
 export async function listCategories() {
