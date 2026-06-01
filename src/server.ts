@@ -1,5 +1,6 @@
 import http from 'http';
 import dotenv from 'dotenv';
+import path from 'path';
 import { app } from './app';
 import { connectDB } from './config/db';
 import { initSocket } from './config/socket';
@@ -7,7 +8,7 @@ import { initSocket } from './config/socket';
 // Importar modelos para que Sequelize los registre y se creen las asociaciones
 import './models/index';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 

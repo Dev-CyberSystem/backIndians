@@ -136,18 +136,18 @@ router.delete(
   ctrl.deleteOrder
 );
 
-// POST /orders/:id/images — billing y admin
+// POST /orders/:id/images — billing, admin y seller
 router.post(
   '/:id/images',
-  authorize('admin', 'billing'),
+  authorize('admin', 'billing', 'seller'),
   upload.single('image'),
   ctrl.uploadImage
 );
 
-// DELETE /orders/:id/images/:imgId — billing y admin
+// DELETE /orders/:id/images/:imgId — billing, admin y seller
 router.delete(
   '/:id/images/:imgId',
-  authorize('admin', 'billing'),
+  authorize('admin', 'billing', 'seller'),
   [
     param('id').isInt({ min: 1 }),
     param('imgId').isInt({ min: 1 }),

@@ -116,7 +116,7 @@ async function generateOrderNumber(): Promise<string> {
 
 // Incluye las relaciones comunes al cargar un pedido
 const orderIncludes = [
-  { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name', 'phone'] },
+  { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name', 'phone', 'email', 'address', 'cuit'] },
   { model: User, as: 'creator', attributes: ['id', 'name', 'email', 'role'] },
   { model: User, as: 'seller', attributes: ['id', 'name', 'email'] },
   {
@@ -437,6 +437,8 @@ export async function deleteOrder(id: number): Promise<void> {
   await order.destroy();
 }
 
+const MAX_IMAGES_PER_ORDER = 5;
+
 export async function uploadOrderImage(
   orderId: number,
   file: Express.Multer.File,
@@ -445,6 +447,11 @@ export async function uploadOrderImage(
 ): Promise<OrderImage> {
   const order = await Order.findByPk(orderId);
   if (!order) throw new AppError('Pedido no encontrado', 404);
+
+  const imageCount = await OrderImage.count({ where: { order_id: orderId } });
+  if (imageCount >= MAX_IMAGES_PER_ORDER) {
+    throw new AppError(`El pedido ya tiene el máximo de ${MAX_IMAGES_PER_ORDER} imágenes`, 422);
+  }
 
   const result = await new Promise<{ secure_url: string; public_id: string }>(
     (resolve, reject) => {

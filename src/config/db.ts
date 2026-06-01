@@ -1,7 +1,8 @@
 import { Sequelize } from 'sequelize';
 import dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
 
 export const sequelize = new Sequelize({
   dialect: 'mysql',

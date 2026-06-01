@@ -1,8 +1,9 @@
 import { Server as HttpServer } from 'http';
 import { Server as SocketServer, Socket } from 'socket.io';
 import dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
 
 let io: SocketServer;
 

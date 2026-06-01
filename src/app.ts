@@ -3,10 +3,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import path from 'path';
 import { errorHandler } from './middlewares/errorHandler';
 import { router as apiRouter } from './routes/index';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 
 const app = express();
 
