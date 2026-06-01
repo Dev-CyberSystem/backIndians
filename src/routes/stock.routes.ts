@@ -7,7 +7,14 @@ import * as ctrl from '../controllers/stock.controller';
 
 const router = Router();
 
-router.use(authenticate, authorize('admin', 'billing', 'workshop'));
+// Todos los endpoints requieren autenticación
+router.use(authenticate);
+
+// Disponible para todos los roles autenticados (se usa en el formulario de pedidos)
+router.get('/available', ctrl.getAvailableForDropdown);
+
+// El resto de stock requiere rol admin, billing o workshop
+router.use(authorize('admin', 'billing', 'workshop'));
 
 // ── Métricas (antes de /:id para evitar conflictos de ruta) ──────────────────
 router.get('/metrics', ctrl.getMetrics);

@@ -10,6 +10,7 @@ import {
   User,
   GarmentType,
   FabricType,
+  StockItem,
 } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import {
@@ -24,7 +25,8 @@ import { getIO } from '../config/socket';
 export interface OrderItemInput {
   // Prenda y tela
   garment_type_id: number;
-  fabric_type_id: number;
+  stock_fabric_id?: number;  // tela desde inventario (reemplaza fabric_type_id)
+  fabric_type_id?: number;   // legacy
 
   // Diseño
   color: string;
@@ -123,6 +125,7 @@ const orderIncludes = [
     include: [
       { model: GarmentType, as: 'garmentType', attributes: ['id', 'name'] },
       { model: FabricType, as: 'fabricType', attributes: ['id', 'name'] },
+      { model: StockItem, as: 'stockFabric', attributes: ['id', 'name', 'unit'] },
     ],
   },
   {
@@ -178,7 +181,8 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
   return items.map((item) => ({
     order_id: orderId,
     garment_type_id: item.garment_type_id,
-    fabric_type_id: item.fabric_type_id,
+    fabric_type_id: item.fabric_type_id ?? null,
+    stock_fabric_id: item.stock_fabric_id ?? null,
     // Diseño y colores
     color: item.color,
     color_secondary: item.color_secondary || null,

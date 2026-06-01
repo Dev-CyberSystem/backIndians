@@ -50,7 +50,7 @@ router.post(
     body('items').isArray({ min: 1 }).withMessage('Se requiere al menos un ítem'),
     // Campos obligatorios del ítem
     body('items.*.garment_type_id').isInt({ min: 1 }).withMessage('garment_type_id requerido'),
-    body('items.*.fabric_type_id').isInt({ min: 1 }).withMessage('fabric_type_id requerido'),
+    body('items.*.stock_fabric_id').optional().isInt({ min: 1 }),
     body('items.*.color').notEmpty().withMessage('color requerido'),
     body('items.*.sizes').isObject().withMessage('sizes debe ser un objeto'),
     // Diseño — opcionales
@@ -101,7 +101,7 @@ router.put(
     ]),
     body('items').optional().isArray({ min: 1 }),
     body('items.*.garment_type_id').optional().isInt({ min: 1 }),
-    body('items.*.fabric_type_id').optional().isInt({ min: 1 }),
+    body('items.*.stock_fabric_id').optional().isInt({ min: 1 }),
     body('items.*.color').optional().notEmpty(),
     body('items.*.sizes').optional().isObject(),
     body('items.*.color_secondary').optional().isString(),

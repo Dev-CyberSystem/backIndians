@@ -38,9 +38,13 @@ OrderItem.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
 OrderItem.belongsTo(GarmentType, { foreignKey: 'garment_type_id', as: 'garmentType' });
 GarmentType.hasMany(OrderItem, { foreignKey: 'garment_type_id', as: 'order_items' });
 
-// OrderItem ↔ FabricType
+// OrderItem ↔ FabricType (legacy)
 OrderItem.belongsTo(FabricType, { foreignKey: 'fabric_type_id', as: 'fabricType' });
 FabricType.hasMany(OrderItem, { foreignKey: 'fabric_type_id', as: 'order_items' });
+
+// OrderItem ↔ StockItem (tela desde stock)
+OrderItem.belongsTo(StockItem, { foreignKey: 'stock_fabric_id', as: 'stockFabric' });
+StockItem.hasMany(OrderItem, { foreignKey: 'stock_fabric_id', as: 'fabric_order_items' });
 
 // Order ↔ OrderImage
 Order.hasMany(OrderImage, { foreignKey: 'order_id', as: 'images', onDelete: 'CASCADE' });

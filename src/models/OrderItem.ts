@@ -16,9 +16,10 @@ export class OrderItem extends Model<
   declare id: CreationOptional<number>;
   declare order_id: number;
 
-  // ─── Tipo de prenda y tela (tablas maestras) ────────────────────────────
+  // ─── Tipo de prenda y tela ────────────────────────────────────────────────
   declare garment_type_id: number;
-  declare fabric_type_id: number;
+  declare fabric_type_id: CreationOptional<number | null>;   // legacy
+  declare stock_fabric_id: CreationOptional<number | null>;  // stock_items.id
 
   // ─── Diseño y colores ───────────────────────────────────────────────────
   declare color: string;                               // Color principal
@@ -82,14 +83,18 @@ OrderItem.init(
       allowNull: false,
     },
 
-    // Tablas maestras
+    // Prenda y tela
     garment_type_id: {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
     },
     fabric_type_id: {
       type: DataTypes.INTEGER.UNSIGNED,
-      allowNull: false,
+      allowNull: true,
+    },
+    stock_fabric_id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
     },
 
     // Diseño
