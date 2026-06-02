@@ -19,7 +19,8 @@ module.exports = {
     dialect:  'mysql',
   },
   production: {
-    url:     process.env.MYSQL_URL,
+    // MYSQL_PUBLIC_URL funciona local y en Railway; MYSQL_URL solo dentro de Railway
+    url:     process.env.MYSQL_PUBLIC_URL || process.env.MYSQL_URL,
     dialect: 'mysql',
     dialectOptions: { charset: 'utf8mb4' },
   },
