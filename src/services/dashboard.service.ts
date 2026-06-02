@@ -1,6 +1,6 @@
 import { Op, fn, col, literal, QueryTypes } from 'sequelize';
 import { sequelize } from '../config/db';
-import { Order, Client, Invoice, StockItem } from '../models';
+import { Order, Client, Invoice, StockItem, User } from '../models';
 
 function monthRange(year: number, month: number) {
   return {
@@ -104,56 +104,127 @@ function buildRecommendations(opts: {
   return recs;
 }
 
-export async function getDashboardSummary() {
+// ── Resolución de período ──────────────────────────────────────────────────
+
+interface PeriodRange {
+  periodStart: Date; periodEnd: Date;
+  prevStart: Date; prevEnd: Date;
+  chartFrom: Date; chartTo: Date;
+}
+
+function resolvePeriod(period?: string): PeriodRange {
   const now = new Date();
-  const thisMonth = monthRange(now.getFullYear(), now.getMonth());
-  const lastMonth = monthRange(now.getFullYear(), now.getMonth() - 1);
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+  // Año calendario: "2026", "2025", …
+  if (period && /^\d{4}$/.test(period)) {
+    const y = Number(period);
+    return {
+      periodStart: new Date(y, 0, 1),
+      periodEnd:   new Date(y, 11, 31, 23, 59, 59, 999),
+      prevStart:   new Date(y - 1, 0, 1),
+      prevEnd:     new Date(y - 1, 11, 31, 23, 59, 59, 999),
+      chartFrom:   new Date(y, 0, 1),
+      chartTo:     new Date(y, 11, 31, 23, 59, 59, 999),
+    };
+  }
+
+  // Últimos 6 meses cerrados (excluye el mes en curso)
+  if (period === 'last6') {
+    const periodStart = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+    const periodEnd   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    const prevStart   = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+    const prevEnd     = new Date(periodStart.getTime() - 1);
+    return { periodStart, periodEnd, prevStart, prevEnd, chartFrom: periodStart, chartTo: periodEnd };
+  }
+
+  // Mes específico: "YYYY-MM" o mes actual por defecto
+  let y: number, m: number;
+  if (period && /^\d{4}-\d{2}$/.test(period)) {
+    [y, m] = period.split('-').map(Number);
+  } else {
+    y = now.getFullYear(); m = now.getMonth() + 1;
+  }
+  const curr = monthRange(y, m - 1);
+  const prev = monthRange(y, m - 2);
+  return {
+    periodStart: curr.start, periodEnd: curr.end,
+    prevStart:   prev.start, prevEnd:   prev.end,
+    chartFrom:   new Date(y, m - 6, 1), chartTo: curr.end,
+  };
+}
+
+export async function getDashboardSummary(period?: string) {
+  const now = new Date();
+  const { periodStart, periodEnd, prevStart, prevEnd, chartFrom, chartTo } = resolvePeriod(period);
 
   // ── KPIs principales ───────────────────────────────────────────────────────
   const [
-    totalOrders,
     ordersThisMonth,
     ordersLastMonth,
     pendingOrders,
+    readyOrders,
+    cancelledOrders,
     revenueThisMonthRaw,
     revenueLastMonthRaw,
     pendingRevenueRaw,
     overdueInvoiceRows,
     criticalStockRows,
   ] = await Promise.all([
-    Order.count(),
-
+    // Todos los pedidos del período
     Order.count({
-      where: { createdAt: { [Op.between]: [thisMonth.start, thisMonth.end] } },
+      where: { createdAt: { [Op.between]: [periodStart, periodEnd] } },
     }),
 
+    // Pedidos del período anterior (para tendencia)
     Order.count({
-      where: { createdAt: { [Op.between]: [lastMonth.start, lastMonth.end] } },
+      where: { createdAt: { [Op.between]: [prevStart, prevEnd] } },
     }),
 
+    // Pedidos activos del período (en proceso, sin cancelados ni listos)
     Order.count({
-      where: { status: { [Op.in]: ['pending', 'in_progress', 'quality_check', 'ready'] } },
+      where: {
+        createdAt: { [Op.between]: [periodStart, periodEnd] },
+        status: { [Op.notIn]: ['cancelled', 'ready'] },
+      },
     }),
 
-    // Facturación del mes (facturas emitidas/pagadas)
+    // Pedidos listos del período
+    Order.count({
+      where: {
+        createdAt: { [Op.between]: [periodStart, periodEnd] },
+        status: 'ready',
+      },
+    }),
+
+    // Pedidos cancelados del período
+    Order.count({
+      where: {
+        createdAt: { [Op.between]: [periodStart, periodEnd] },
+        status: 'cancelled',
+      },
+    }),
+
+    // Facturación del período (facturas emitidas/pagadas)
     Invoice.sum('total_amount', {
       where: {
         status: { [Op.in]: ['issued', 'paid'] },
-        issue_date: { [Op.between]: [thisMonth.start, thisMonth.end] },
+        issue_date: { [Op.between]: [periodStart, periodEnd] },
       },
     }),
 
     Invoice.sum('total_amount', {
       where: {
         status: { [Op.in]: ['issued', 'paid'] },
-        issue_date: { [Op.between]: [lastMonth.start, lastMonth.end] },
+        issue_date: { [Op.between]: [prevStart, prevEnd] },
       },
     }),
 
-    // Por cobrar (issued, no vencidas ni pagadas)
+    // Por cobrar del período: facturas emitidas aún sin pagar
     Invoice.sum('total_amount', {
-      where: { status: 'issued' },
+      where: {
+        status: 'issued',
+        issue_date: { [Op.between]: [periodStart, periodEnd] },
+      },
     }),
 
     // Facturas vencidas
@@ -205,10 +276,10 @@ export async function getDashboardSummary() {
      FROM orders o
      LEFT JOIN invoices i
        ON i.order_id = o.id AND i.status IN ('issued','paid')
-     WHERE o.createdAt >= :from
+     WHERE o.createdAt BETWEEN :from AND :to
      GROUP BY month
      ORDER BY month ASC`,
-    { replacements: { from: sixMonthsAgo }, type: QueryTypes.SELECT }
+    { replacements: { from: chartFrom, to: chartTo }, type: QueryTypes.SELECT }
   );
 
   // ── Distribución por estado ────────────────────────────────────────────────
@@ -231,10 +302,11 @@ export async function getDashboardSummary() {
      JOIN clients c ON c.id = o.client_id
      LEFT JOIN invoices i
        ON i.order_id = o.id AND i.status IN ('issued','paid')
+     WHERE o.createdAt BETWEEN :periodStart AND :periodEnd
      GROUP BY c.id, c.name
      ORDER BY total_revenue DESC
      LIMIT 5`,
-    { type: QueryTypes.SELECT }
+    { replacements: { periodStart, periodEnd }, type: QueryTypes.SELECT }
   );
 
   // ── Formatear facturas vencidas ────────────────────────────────────────────
@@ -278,10 +350,12 @@ export async function getDashboardSummary() {
 
   return {
     // KPIs
-    total_orders: totalOrders,
+    total_orders: ordersThisMonth,
     orders_this_month: ordersThisMonth,
     orders_last_month: ordersLastMonth,
     pending_orders: pendingOrders,
+    ready_orders: readyOrders,
+    cancelled_orders: cancelledOrders,
     revenue_this_month: revenueThisMonth,
     revenue_last_month: revenueLastMonth,
     pending_revenue: pendingRevenue,
@@ -308,5 +382,160 @@ export async function getDashboardSummary() {
     critical_stock: criticalStock,
     // Inteligencia
     recommendations,
+  };
+}
+
+// ── Estadísticas de vendedores ─────────────────────────────────────────────
+
+function sumSizes(sizes: unknown): number {
+  if (!sizes || typeof sizes !== 'object') return 0;
+  return Object.values(sizes as Record<string, unknown>)
+    .reduce((s, q) => s + (Number(q) || 0), 0);
+}
+
+export async function getSellerStats(filters: {
+  seller_id?: number;
+  month?: string;   // 'YYYY-MM'
+  sort_by?: string; // 'revenue' | 'orders' | 'units'
+}) {
+  const now = new Date();
+  let currentStart: Date, currentEnd: Date, prevStart: Date, prevEnd: Date;
+  let periodLabel: string, prevPeriodLabel: string;
+
+  if (filters.month) {
+    const [y, m] = filters.month.split('-').map(Number);
+    const curr = monthRange(y, m - 1);
+    const prev = monthRange(y, m - 2);
+    currentStart = curr.start; currentEnd = curr.end;
+    prevStart = prev.start; prevEnd = prev.end;
+    periodLabel = filters.month;
+    const prevDate = new Date(y, m - 2, 1);
+    prevPeriodLabel = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+  } else {
+    const curr = monthRange(now.getFullYear(), now.getMonth());
+    const prev = monthRange(now.getFullYear(), now.getMonth() - 1);
+    currentStart = curr.start; currentEnd = curr.end;
+    prevStart = prev.start; prevEnd = prev.end;
+    periodLabel = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    prevPeriodLabel = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  const sellerFilter = filters.seller_id ? 'AND u.id = :sellerId' : '';
+
+  // Stats del período actual
+  const currentRows = await sequelize.query<{
+    seller_id: number; seller_name: string;
+    total_orders: string; pending_orders: string;
+    ready_orders: string; cancelled_orders: string;
+    total_revenue: string;
+  }>(
+    `SELECT
+       u.id                AS seller_id,
+       u.name              AS seller_name,
+       COUNT(DISTINCT o.id)                                                               AS total_orders,
+       COUNT(DISTINCT CASE WHEN o.status NOT IN ('ready','cancelled') THEN o.id END)     AS pending_orders,
+       COUNT(DISTINCT CASE WHEN o.status = 'ready' THEN o.id END)                       AS ready_orders,
+       COUNT(DISTINCT CASE WHEN o.status = 'cancelled' THEN o.id END)                   AS cancelled_orders,
+       COALESCE(SUM(i.total_amount), 0)                                                   AS total_revenue
+     FROM users u
+     LEFT JOIN orders o
+       ON o.seller_id = u.id
+       AND o.createdAt BETWEEN :currentStart AND :currentEnd
+     LEFT JOIN invoices i
+       ON i.order_id = o.id AND i.status IN ('issued','paid')
+     WHERE u.role = 'seller' AND u.active = 1 ${sellerFilter}
+     GROUP BY u.id, u.name`,
+    {
+      replacements: { currentStart, currentEnd, sellerId: filters.seller_id ?? null },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  // Revenue período anterior (para comparación)
+  const prevRows = await sequelize.query<{ seller_id: number; prev_revenue: string }>(
+    `SELECT
+       u.id AS seller_id,
+       COALESCE(SUM(i.total_amount), 0) AS prev_revenue
+     FROM users u
+     LEFT JOIN orders o
+       ON o.seller_id = u.id
+       AND o.createdAt BETWEEN :prevStart AND :prevEnd
+     LEFT JOIN invoices i
+       ON i.order_id = o.id AND i.status IN ('issued','paid')
+     WHERE u.role = 'seller' AND u.active = 1 ${sellerFilter}
+     GROUP BY u.id`,
+    {
+      replacements: { prevStart, prevEnd, sellerId: filters.seller_id ?? null },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  // Unidades del período actual (procesadas en Node.js para compatibilidad con JSON)
+  const itemRows = await sequelize.query<{ seller_id: number; sizes: unknown }>(
+    `SELECT o.seller_id, oi.sizes
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+       AND o.createdAt BETWEEN :currentStart AND :currentEnd
+     JOIN users u ON u.id = o.seller_id AND u.role = 'seller' AND u.active = 1 ${sellerFilter}`,
+    {
+      replacements: { currentStart, currentEnd, sellerId: filters.seller_id ?? null },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  // Unidades por vendedor
+  const unitsBySeller: Record<number, number> = {};
+  for (const row of itemRows) {
+    unitsBySeller[row.seller_id] = (unitsBySeller[row.seller_id] ?? 0) + sumSizes(row.sizes);
+  }
+
+  // Mapa de revenue anterior
+  const prevRevMap: Record<number, number> = {};
+  for (const r of prevRows) prevRevMap[Number(r.seller_id)] = Number(r.prev_revenue);
+
+  // Combinar resultados
+  let sellers = currentRows.map((r) => {
+    const sid = Number(r.seller_id);
+    return {
+      seller_id: sid,
+      seller_name: r.seller_name,
+      total_orders: Number(r.total_orders),
+      pending_orders: Number(r.pending_orders),
+      ready_orders: Number(r.ready_orders),
+      cancelled_orders: Number(r.cancelled_orders),
+      total_revenue: Number(r.total_revenue),
+      prev_revenue: prevRevMap[sid] ?? 0,
+      total_units: unitsBySeller[sid] ?? 0,
+    };
+  });
+
+  // Ordenar
+  const sortBy = filters.sort_by ?? 'revenue';
+  sellers.sort((a, b) => {
+    if (sortBy === 'orders') return b.total_orders - a.total_orders;
+    if (sortBy === 'units')  return b.total_units - a.total_units;
+    return b.total_revenue - a.total_revenue;
+  });
+
+  // Resumen global del período
+  const global = sellers.reduce(
+    (acc, s) => ({
+      total_orders: acc.total_orders + s.total_orders,
+      total_revenue: acc.total_revenue + s.total_revenue,
+      prev_revenue: acc.prev_revenue + s.prev_revenue,
+      total_units: acc.total_units + s.total_units,
+      ready_orders: acc.ready_orders + s.ready_orders,
+      cancelled_orders: acc.cancelled_orders + s.cancelled_orders,
+      pending_orders: acc.pending_orders + s.pending_orders,
+    }),
+    { total_orders: 0, total_revenue: 0, prev_revenue: 0, total_units: 0, ready_orders: 0, cancelled_orders: 0, pending_orders: 0 }
+  );
+
+  return {
+    period: periodLabel,
+    prev_period: prevPeriodLabel,
+    sellers,
+    global,
   };
 }
