@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "build:start": "npm run build && npm start",
     "seed": "ts-node --project tsconfig.seed.json seeders/index.ts",
+    "seed:admin": "ts-node --project tsconfig.seed.json seeders/create-admin.ts",
     "seed:sellers": "ts-node --project tsconfig.seed.json seeders/sellers.ts",
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo:all",
