@@ -12,7 +12,17 @@ dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+function validateEnv(): void {
+  const required = ['JWT_SECRET', 'JWT_REFRESH_SECRET'];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length) {
+    console.error(`❌ Variables de entorno requeridas no configuradas: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+}
+
 async function main() {
+  validateEnv();
   try {
     // 1. Conectar a la base de datos (autentica y sincroniza en desarrollo)
     await connectDB();

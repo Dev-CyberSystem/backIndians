@@ -1,4 +1,4 @@
-import { QueryTypes, Op } from 'sequelize';
+import { QueryTypes, Op, Transaction } from 'sequelize';
 import { sequelize } from '../config/db';
 import { Invoice, Order, Client, OrderItem, GarmentType, FabricType, User, Settings } from '../models';
 import { AppError } from '../middlewares/errorHandler';
@@ -32,7 +32,7 @@ const invoiceIncludes = [
   },
 ];
 
-async function generateInvoiceNumber(): Promise<string> {
+async function generateInvoiceNumber(transaction?: Transaction): Promise<string> {
   const now = new Date();
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
@@ -42,7 +42,7 @@ async function generateInvoiceNumber(): Promise<string> {
 
   const rows = await sequelize.query<{ cnt: string }>(
     `SELECT COUNT(*) AS cnt FROM invoices WHERE DATE(createdAt) = :isoDate`,
-    { replacements: { isoDate }, type: QueryTypes.SELECT }
+    { replacements: { isoDate }, type: QueryTypes.SELECT, transaction }
   );
   const count = Number(rows[0]?.cnt ?? 0);
   return `FAC-${dateStr}-${String(count + 1).padStart(4, '0')}`;
@@ -53,15 +53,15 @@ function calcTotal(orderTotal: number, extraItems: InvoiceExtraItem[], discount:
   return Math.max(0, orderTotal + extras - discount);
 }
 
-export async function autoCreateInvoiceForOrder(order: Order): Promise<Invoice> {
-  const existing = await Invoice.findOne({ where: { order_id: order.id } });
+export async function autoCreateInvoiceForOrder(order: Order, transaction?: Transaction): Promise<Invoice> {
+  const existing = await Invoice.findOne({ where: { order_id: order.id }, transaction });
   if (existing) return existing;
 
-  const invoice_number = await generateInvoiceNumber();
+  const invoice_number = await generateInvoiceNumber(transaction);
   const today = new Date();
   const due = new Date(today);
 
-  const dueDaysSetting = await Settings.findOne({ where: { key: 'invoice_due_days' } });
+  const dueDaysSetting = await Settings.findOne({ where: { key: 'invoice_due_days' }, transaction });
   const dueDays = parseInt(dueDaysSetting?.value ?? '30') || 30;
   due.setDate(due.getDate() + dueDays);
 
@@ -74,7 +74,7 @@ export async function autoCreateInvoiceForOrder(order: Order): Promise<Invoice> 
     discount_amount: 0,
     extra_items: null,
     total_amount: Number(order.total_amount),
-  });
+  }, { transaction });
 }
 
 export interface ListInvoicesOptions {

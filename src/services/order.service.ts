@@ -1,4 +1,4 @@
-import { Op, QueryTypes, WhereOptions } from 'sequelize';
+import { Op, QueryTypes, WhereOptions, Transaction } from 'sequelize';
 import { autoCreateInvoiceForOrder } from './invoice.service';
 import { sequelize } from '../config/db';
 import {
@@ -172,7 +172,8 @@ async function recordStatusChange(
   previousStatus: OrderStatus | null,
   newStatus: OrderStatus,
   changedBy: number,
-  comment?: string
+  comment?: string,
+  transaction?: Transaction
 ): Promise<void> {
   await OrderStatusHistory.create({
     order_id: orderId,
@@ -180,7 +181,7 @@ async function recordStatusChange(
     new_status: newStatus,
     changed_by: changedBy,
     comment: comment || null,
-  });
+  }, { transaction });
 }
 
 // Construye el array de ítems para bulkCreate
@@ -351,26 +352,29 @@ export async function createOrder(
   if (!client) throw new AppError('Cliente no encontrado', 404);
 
   const total_amount = calcTotal(items);
-  const order_number = await generateOrderNumber();
-
-  // seller_id: si el creador es seller, se asigna a sí mismo
   const seller_id =
     currentUser.role === 'seller' ? currentUser.id : (sellerIdOverride ?? null);
+  const order_number = await generateOrderNumber();
 
-  const order = await Order.create({
-    order_number,
-    client_id,
-    created_by: currentUser.id,
-    seller_id,
-    status: 'pending',
-    delivery_date: delivery_date ? new Date(delivery_date) : null,
-    notes: notes || null,
-    total_amount,
+  // Transacción atómica: si cualquier paso falla, revierte todo
+  const order = await sequelize.transaction(async (t) => {
+    const o = await Order.create({
+      order_number,
+      client_id,
+      created_by: currentUser.id,
+      seller_id,
+      status: 'pending',
+      delivery_date: delivery_date ? new Date(delivery_date) : null,
+      notes: notes || null,
+      total_amount,
+    }, { transaction: t });
+
+    await OrderItem.bulkCreate(buildItemsPayload(o.id, items), { transaction: t });
+    await recordStatusChange(o.id, null, 'pending', currentUser.id, 'Pedido creado', t);
+    await autoCreateInvoiceForOrder(o, t);
+
+    return o;
   });
-
-  await OrderItem.bulkCreate(buildItemsPayload(order.id, items));
-  await recordStatusChange(order.id, null, 'pending', currentUser.id, 'Pedido creado');
-  await autoCreateInvoiceForOrder(order);
 
   return getOrderById(order.id);
 }
@@ -417,11 +421,13 @@ export async function updateOrder(
 
     if (Object.keys(updateData).length > 0) await order.update(updateData);
 
-    // Reemplazar ítems si se envían
+    // Reemplazar ítems en transacción (evita ventana de datos sin items)
     if (input.items?.length) {
-      await OrderItem.destroy({ where: { order_id: id } });
-      await OrderItem.bulkCreate(buildItemsPayload(id, input.items));
-      await order.update({ total_amount: calcTotal(input.items) });
+      await sequelize.transaction(async (t) => {
+        await OrderItem.destroy({ where: { order_id: id }, transaction: t });
+        await OrderItem.bulkCreate(buildItemsPayload(id, input.items!), { transaction: t });
+        await order.update({ total_amount: calcTotal(input.items!) }, { transaction: t });
+      });
     }
   }
 

@@ -1,4 +1,4 @@
-import { Op, QueryTypes } from 'sequelize';
+import { Op, QueryTypes, Transaction } from 'sequelize';
 import { sequelize } from '../config/db';
 import { StockItem, StockCategory, StockMovement, User } from '../models';
 import { AppError } from '../middlewares/errorHandler';
@@ -146,22 +146,30 @@ export async function createMovement(
   input: { stock_item_id: number; type: 'in' | 'out' | 'adjustment'; quantity: number; notes?: string },
   currentUser: JwtPayload
 ) {
-  const item = await StockItem.findByPk(input.stock_item_id);
-  if (!item) throw new AppError('Material no encontrado', 404);
-
-  const prevQty = Number(item.current_quantity);
-  let newQty: number;
-
-  if (input.type === 'in') {
-    newQty = prevQty + input.quantity;
-  } else if (input.type === 'out') {
-    newQty = prevQty - input.quantity;
-    if (newQty < 0) throw new AppError('Stock insuficiente', 400);
-  } else {
-    newQty = input.quantity;
-  }
+  // Verificación previa sin lock (falla rápido si no existe)
+  const exists = await StockItem.count({ where: { id: input.stock_item_id } });
+  if (!exists) throw new AppError('Material no encontrado', 404);
 
   await sequelize.transaction(async (t) => {
+    // Re-lee dentro de la transacción con lock exclusivo para prevenir race conditions
+    const item = await StockItem.findByPk(input.stock_item_id, {
+      lock: Transaction.LOCK.UPDATE,
+      transaction: t,
+    });
+    if (!item) throw new AppError('Material no encontrado', 404);
+
+    const prevQty = Number(item.current_quantity);
+    let newQty: number;
+
+    if (input.type === 'in') {
+      newQty = prevQty + input.quantity;
+    } else if (input.type === 'out') {
+      newQty = prevQty - input.quantity;
+      if (newQty < 0) throw new AppError('Stock insuficiente', 400);
+    } else {
+      newQty = input.quantity;
+    }
+
     await item.update({ current_quantity: newQty }, { transaction: t });
     await StockMovement.create(
       {
