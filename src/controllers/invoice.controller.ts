@@ -13,7 +13,8 @@ export async function listInvoices(req: AuthRequest, res: Response, next: NextFu
       limit,
       invoice_number: req.query.invoice_number as string | undefined,
       status:         req.query.status         as InvoiceStatus | undefined,
-      client_id:      req.query.client_id ? parseInt(req.query.client_id as string) : undefined,
+      client_id:      req.query.client_id  ? parseInt(req.query.client_id  as string) : undefined,
+      seller_id:      req.query.seller_id  ? parseInt(req.query.seller_id  as string) : undefined,
       date_from:      req.query.date_from  as string | undefined,
       date_to:        req.query.date_to    as string | undefined,
     });

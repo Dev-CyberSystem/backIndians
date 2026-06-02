@@ -83,6 +83,7 @@ export interface ListInvoicesOptions {
   invoice_number?: string;
   status?: InvoiceStatus;
   client_id?: number;
+  seller_id?: number;
   date_from?: string;
   date_to?: string;
 }
@@ -91,7 +92,7 @@ export async function listInvoices(
   currentUser: JwtPayload,
   options: ListInvoicesOptions
 ) {
-  const { page, limit, invoice_number, status, client_id, date_from, date_to } = options;
+  const { page, limit, invoice_number, status, client_id, seller_id, date_from, date_to } = options;
   const offset = (page - 1) * limit;
 
   const invoiceWhere: Record<string, unknown> = {};
@@ -106,6 +107,7 @@ export async function listInvoices(
 
   const orderWhere: Record<string, unknown> = {};
   if (currentUser.role === 'seller') orderWhere.seller_id = currentUser.id;
+  else if (seller_id) orderWhere.seller_id = seller_id;
   if (client_id) orderWhere.client_id = client_id;
 
   const { rows, count } = await Invoice.findAndCountAll({

@@ -11,6 +11,7 @@ import {
   GarmentType,
   FabricType,
   StockItem,
+  Invoice,
 } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import {
@@ -137,6 +138,12 @@ const orderIncludes = [
     model: OrderStatusHistory,
     as: 'status_history',
     include: [{ model: User, as: 'changer', attributes: ['id', 'name', 'role'] }],
+  },
+  {
+    model: Invoice,
+    as: 'invoices',
+    attributes: ['id', 'invoice_number', 'issue_date', 'status'],
+    required: false,
   },
 ];
 

@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "seed": "ts-node --project tsconfig.seed.json seeders/index.ts",
+    "seed:sellers": "ts-node --project tsconfig.seed.json seeders/sellers.ts",
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo:all",
     "typecheck": "tsc --noEmit"
