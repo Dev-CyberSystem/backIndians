@@ -390,7 +390,7 @@ export async function getDashboardSummary(period?: string) {
 function sumSizes(sizes: unknown): number {
   if (!sizes || typeof sizes !== 'object') return 0;
   return Object.values(sizes as Record<string, unknown>)
-    .reduce((s, q) => s + (Number(q) || 0), 0);
+    .reduce((s: number, q) => s + (Number(q) || 0), 0);
 }
 
 export async function getSellerStats(filters: {

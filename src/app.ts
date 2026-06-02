@@ -23,8 +23,10 @@ app.use(
 );
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
+} else if (process.env.NODE_ENV !== 'test') {
+  app.use(morgan('combined'));
 }
 
 // ─── Parseo de cuerpo ────────────────────────────────────────────────────────

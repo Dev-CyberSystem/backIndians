@@ -4,13 +4,8 @@ import path from 'path';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
 
-export const sequelize = new Sequelize({
-  dialect: 'mysql',
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '3306', 10),
-  database: process.env.DB_NAME || 'textil_db',
-  username: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
+const sharedOptions = {
+  dialect: 'mysql' as const,
   logging: process.env.NODE_ENV === 'development' ? console.log : false,
   define: {
     underscored: false,
@@ -23,14 +18,28 @@ export const sequelize = new Sequelize({
     acquire: 30000,
     idle: 10000,
   },
-});
+};
+
+// En Railway: MYSQL_URL contiene la URL de conexión interna (service-to-service).
+// En desarrollo: usar variables DB_* individuales del .env local.
+export const sequelize = process.env.MYSQL_URL
+  ? new Sequelize(process.env.MYSQL_URL, sharedOptions)
+  : new Sequelize({
+      ...sharedOptions,
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      database: process.env.DB_NAME || 'textil_db',
+      username: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+    });
 
 export async function connectDB(): Promise<void> {
   await sequelize.authenticate();
   console.log('✅ Conexión a MySQL establecida');
 
-  // sync() sin alter — solo crea tablas que no existen, nunca modifica las existentes
-  // Para cambios de esquema usar migraciones (migrations/)
-  await sequelize.sync();
-  console.log('✅ Modelos sincronizados con la base de datos');
+  if (process.env.NODE_ENV !== 'production') {
+    // En desarrollo: crea tablas faltantes. En producción usar migraciones.
+    await sequelize.sync();
+    console.log('✅ Modelos sincronizados con la base de datos');
+  }
 }
