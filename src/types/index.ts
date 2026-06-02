@@ -50,6 +50,7 @@ export interface JwtPayload {
   id: number;
   email: string;
   role: UserRole;
+  session_version: number;
 }
 
 import { Request } from 'express';

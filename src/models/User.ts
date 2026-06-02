@@ -18,6 +18,7 @@ export class User extends Model<
   declare password_hash: string;
   declare role: UserRole;
   declare active: CreationOptional<boolean>;
+  declare session_version: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -51,6 +52,11 @@ User.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
+    },
+    session_version: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+      defaultValue: 1,
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

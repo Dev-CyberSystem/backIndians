@@ -38,10 +38,15 @@ export async function loginService(
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) throw new AppError('Credenciales inválidas', 401);
 
+  // Incrementar session_version invalida todos los tokens anteriores de este usuario
+  await user.increment('session_version');
+  await user.reload();
+
   const payload: JwtPayload = {
     id: user.id,
     email: user.email,
     role: user.role as UserRole,
+    session_version: user.session_version as number,
   };
 
   const tokens = generateTokens(payload);
@@ -65,16 +70,21 @@ export async function refreshTokenService(
     throw new AppError('Refresh token inválido o expirado', 401);
   }
 
-  // Verificar que el usuario sigue activo
+  // Verificar que el usuario sigue activo y la sesión sigue siendo válida
   const user = await User.findOne({
     where: { id: payload.id, active: true },
   });
   if (!user) throw new AppError('Usuario no encontrado o inactivo', 401);
 
+  if ((user.session_version as number) !== payload.session_version) {
+    throw new AppError('Sesión cerrada desde otro dispositivo. Iniciá sesión nuevamente.', 401);
+  }
+
   return generateTokens({
     id: user.id,
     email: user.email,
     role: user.role as UserRole,
+    session_version: user.session_version as number,
   });
 }
 
