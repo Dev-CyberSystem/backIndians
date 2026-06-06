@@ -19,9 +19,9 @@ export function initSocket(httpServer: HttpServer): SocketServer {
   io.on('connection', (socket: Socket) => {
     console.log(`🔌 Cliente conectado: ${socket.id}`);
 
-    // El cliente se une al room de pedidos para recibir actualizaciones
-    socket.on('join:orders', () => {
-      socket.join('orders');
+    // El cliente solicita unirse a un room (ej: 'orders', 'notifications')
+    socket.on('join', (room: string) => {
+      socket.join(room);
     });
 
     socket.on('disconnect', () => {
@@ -32,7 +32,6 @@ export function initSocket(httpServer: HttpServer): SocketServer {
   return io;
 }
 
-// Retorna la instancia de Socket.io para usarla en los services
 export function getIO(): SocketServer {
   if (!io) throw new Error('Socket.io no inicializado');
   return io;

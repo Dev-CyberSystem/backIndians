@@ -156,14 +156,30 @@ function calcTotal(items: OrderItemInput[]): number {
   }, 0);
 }
 
-// Emite un evento Socket.io cuando cambia el estado de un pedido
-function emitStatusChange(orderId: number, newStatus: OrderStatus, orderNumber: string): void {
+function emitStatusChange(
+  orderId: number,
+  newStatus: OrderStatus,
+  orderNumber: string,
+  sellerId: number | null = null
+): void {
   try {
     const io = getIO();
-    io.to('orders').emit('order:status_changed', { orderId, orderNumber, newStatus });
-  } catch {
-    // Socket puede no estar inicializado en tests; no es un error crítico
-  }
+    const payload = { orderId, orderNumber, newStatus, sellerId };
+    // Broadcast a todos los clientes conectados (el front filtra por rol)
+    io.emit('order:status_changed', payload);
+    io.emit('notification:status_changed', payload);
+  } catch { /* Socket puede no estar inicializado en tests */ }
+}
+
+function emitOrderCreated(
+  orderId: number,
+  orderNumber: string,
+  clientName: string,
+  sellerId: number | null
+): void {
+  try {
+    getIO().emit('notification:order_created', { orderId, orderNumber, clientName, sellerId });
+  } catch { /* no crítico */ }
 }
 
 // Registra el cambio de estado en el historial
@@ -376,7 +392,30 @@ export async function createOrder(
     return o;
   });
 
-  return getOrderById(order.id);
+  const fullOrder = await getOrderById(order.id);
+
+  // Emitir notificaciones después de que la transacción commitea
+  emitOrderCreated(
+    order.id,
+    order.order_number ?? '',
+    (fullOrder as any).client?.name ?? '',
+    order.seller_id ?? null
+  );
+
+  const invoice = (fullOrder as any).invoices?.[0];
+  if (invoice) {
+    try {
+      getIO().emit('notification:invoice_created', {
+        invoiceId:     invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        orderId:       order.id,
+        orderNumber:   order.order_number ?? '',
+        clientName:    (fullOrder as any).client?.name ?? '',
+      });
+    } catch { /* no crítico */ }
+  }
+
+  return fullOrder;
 }
 
 export async function updateOrder(
@@ -407,7 +446,7 @@ export async function updateOrder(
     await order.update({ status });
 
     await recordStatusChange(order.id, previousStatus, status, currentUser.id, input.status_comment);
-    emitStatusChange(order.id, status, order.order_number);
+    emitStatusChange(order.id, status, order.order_number, order.seller_id ?? null);
   }
 
   // Actualizar datos del pedido (admin, billing, seller en pending)
