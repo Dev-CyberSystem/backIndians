@@ -4,13 +4,19 @@ import { login, refresh, logout, me, forgotPassword, resetPassword } from '../co
 import { authenticate } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
 
+const PWD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&._\-+])[A-Za-z\d@$!%*#?&._\-+]{6,10}$/;
+const PWD_MSG   = 'La contraseña debe tener entre 6 y 10 caracteres, incluir letras, números y al menos un carácter especial (@$!%*#?&)';
+
 const router = Router();
 
 router.post(
   '/login',
   [
-    body('email').isEmail().withMessage('Email inválido'),
-    body('password').notEmpty().withMessage('Contraseña requerida'),
+    body('email')
+      .trim()
+      .isEmail().withMessage('Email inválido').normalizeEmail(),
+    body('password')
+      .notEmpty().withMessage('Contraseña requerida'),
     validate,
   ],
   login
@@ -26,13 +32,12 @@ router.post(
 );
 
 router.post('/logout', authenticate, logout);
-
 router.get('/me', authenticate, me);
 
 router.post(
   '/forgot-password',
   [
-    body('email').isEmail().withMessage('Email inválido'),
+    body('email').trim().isEmail().withMessage('Email inválido').normalizeEmail(),
     validate,
   ],
   forgotPassword
@@ -43,8 +48,7 @@ router.post(
   [
     body('token').notEmpty().withMessage('Token requerido'),
     body('newPassword')
-      .isLength({ min: 8 })
-      .withMessage('La contraseña debe tener al menos 8 caracteres'),
+      .matches(PWD_REGEX).withMessage(PWD_MSG),
     validate,
   ],
   resetPassword
