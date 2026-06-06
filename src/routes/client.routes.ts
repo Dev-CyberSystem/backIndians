@@ -38,6 +38,13 @@ router.use(authenticate);
 
 router.get('/', authorize('admin', 'billing', 'seller'), ctrl.listClients);
 
+router.get(
+  '/:id',
+  authorize('admin', 'billing', 'seller'),
+  [param('id').isInt({ min: 1 }).withMessage('ID inválido'), validate],
+  ctrl.getClient
+);
+
 router.post(
   '/',
   authorize('admin', 'billing', 'seller'),
