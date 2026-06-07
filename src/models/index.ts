@@ -7,6 +7,8 @@ import { CatalogProductImage } from './CatalogProductImage';
 import { CatalogProductSize } from './CatalogProductSize';
 import { CatalogOrder } from './CatalogOrder';
 import { CatalogOrderItem } from './CatalogOrderItem';
+import { CatalogInvoice } from './CatalogInvoice';
+import { CatalogInvoiceImage } from './CatalogInvoiceImage';
 import { Order } from './Order';
 import { OrderItem } from './OrderItem';
 import { OrderImage } from './OrderImage';
@@ -115,6 +117,14 @@ CatalogOrderItem.belongsTo(CatalogOrder, { foreignKey: 'catalog_order_id', as: '
 CatalogOrderItem.belongsTo(CatalogProduct, { foreignKey: 'product_id', as: 'product' });
 CatalogProduct.hasMany(CatalogOrderItem, { foreignKey: 'product_id', as: 'order_items' });
 
+// CatalogInvoice ↔ CatalogOrder (1:1)
+CatalogOrder.hasOne(CatalogInvoice, { foreignKey: 'catalog_order_id', as: 'invoice', onDelete: 'CASCADE' });
+CatalogInvoice.belongsTo(CatalogOrder, { foreignKey: 'catalog_order_id', as: 'order' });
+
+// CatalogInvoiceImage ↔ CatalogInvoice
+CatalogInvoice.hasMany(CatalogInvoiceImage, { foreignKey: 'catalog_invoice_id', as: 'images', onDelete: 'CASCADE' });
+CatalogInvoiceImage.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
+
 export {
   User,
   Client,
@@ -124,6 +134,8 @@ export {
   CatalogProductSize,
   CatalogOrder,
   CatalogOrderItem,
+  CatalogInvoice,
+  CatalogInvoiceImage,
   Order,
   OrderItem,
   OrderImage,

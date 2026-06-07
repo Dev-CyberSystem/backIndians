@@ -7,6 +7,8 @@ import {
   CatalogProductSize,
   CatalogOrder,
   CatalogOrderItem,
+  CatalogInvoice,
+  CatalogInvoiceImage,
   Client,
   User,
 } from '../models';
@@ -21,6 +23,14 @@ const PRODUCT_INCLUDE: Includeable[] = [
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+async function generateInvoiceNumber(): Promise<string> {
+  const last = await CatalogInvoice.findOne({ order: [['id', 'DESC']] });
+  const lastNum = last
+    ? parseInt(last.invoice_number.replace('CATFACT-', '')) || 0
+    : 0;
+  return `CATFACT-${String(lastNum + 1).padStart(5, '0')}`;
+}
 
 async function generateOrderNumber(): Promise<string> {
   const year = new Date().getFullYear();
@@ -247,7 +257,7 @@ export interface OrderItemInput {
 }
 
 export interface CreateCatalogOrderInput {
-  client_id: number;
+  client_id?: number | null;
   seller_id: number;
   payment_type: 'full' | 'half';
   items: OrderItemInput[];
@@ -315,10 +325,15 @@ export async function createCatalogOrder(input: CreateCatalogOrderInput) {
       ? parseFloat((totalAmount / 2).toFixed(2))
       : totalAmount;
 
+    // Auto-detectar client_id si todos los ítems pertenecen al mismo cliente
+    const uniqueClientIds = [...new Set(products.map((p) => p.client_id))];
+    const resolvedClientId =
+      input.client_id ?? (uniqueClientIds.length === 1 ? uniqueClientIds[0] : null);
+
     const orderNumber = await generateOrderNumber();
     const order = await CatalogOrder.create({
       order_number: orderNumber,
-      client_id: input.client_id,
+      client_id: resolvedClientId,
       seller_id: input.seller_id,
       status: 'created',
       payment_type: input.payment_type,
@@ -351,6 +366,17 @@ export async function createCatalogOrder(input: CreateCatalogOrderInput) {
         await product.decrement('stock_quantity', { by: item.quantity, transaction: t });
       }
     }
+
+    // Auto-crear factura del catálogo
+    const invoiceNumber = await generateInvoiceNumber();
+    await CatalogInvoice.create({
+      catalog_order_id: order.id,
+      invoice_number: invoiceNumber,
+      issue_date: new Date().toISOString().split('T')[0],
+      status: 'issued',
+      total_amount: totalAmount,
+      payment_amount: paymentAmount,
+    }, { transaction: t });
 
     await t.commit();
 
@@ -409,6 +435,10 @@ export async function listCatalogOrders(
         model: CatalogOrderItem, as: 'items',
         include: [{ model: CatalogProduct, as: 'product', attributes: ['id', 'title', 'price'] }],
       },
+      {
+        model: CatalogInvoice, as: 'invoice',
+        include: [{ model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] }],
+      },
     ],
     order: [['createdAt', 'DESC']],
     limit,
@@ -428,13 +458,71 @@ export async function getCatalogOrder(id: number) {
         model: CatalogOrderItem, as: 'items',
         include: [{
           model: CatalogProduct, as: 'product',
-          include: [{ model: CatalogProductImage, as: 'images', order: [['sort_order', 'ASC']] }],
+          include: [{ model: CatalogProductImage, as: 'images', order: [['sort_order', 'ASC']] as [string, string][] }],
         }],
+      },
+      {
+        model: CatalogInvoice, as: 'invoice',
+        include: [{ model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] }],
       },
     ],
   });
   if (!order) throw new AppError('Pedido no encontrado', 404);
   return order;
+}
+
+export async function getCatalogInvoice(orderId: number) {
+  const invoice = await CatalogInvoice.findOne({
+    where: { catalog_order_id: orderId },
+    include: [{ model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] }],
+  });
+  if (!invoice) throw new AppError('Factura no encontrada', 404);
+  return invoice;
+}
+
+export async function updateCatalogInvoiceStatus(
+  orderId: number,
+  status: 'draft' | 'issued' | 'paid' | 'cancelled'
+) {
+  const invoice = await CatalogInvoice.findOne({ where: { catalog_order_id: orderId } });
+  if (!invoice) throw new AppError('Factura no encontrada', 404);
+  await invoice.update({ status });
+  return invoice;
+}
+
+export async function addInvoiceImage(
+  orderId: number,
+  file: Express.Multer.File,
+  uploadedBy?: number
+): Promise<CatalogInvoiceImage> {
+  const invoice = await CatalogInvoice.findOne({ where: { catalog_order_id: orderId } });
+  if (!invoice) throw new AppError('Factura no encontrada', 404);
+
+  const result = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
+    cloudinary.uploader.upload_stream(
+      { folder: 'indians/invoice-payments', resource_type: 'image' },
+      (err, res) => {
+        if (err || !res) return reject(err || new Error('Upload fallido'));
+        resolve({ secure_url: res.secure_url, public_id: res.public_id });
+      }
+    ).end(file.buffer);
+  });
+
+  return CatalogInvoiceImage.create({
+    catalog_invoice_id: invoice.id,
+    url: result.secure_url,
+    cloudinary_public_id: result.public_id,
+    uploaded_by: uploadedBy ?? null,
+  });
+}
+
+export async function deleteInvoiceImage(imageId: number): Promise<void> {
+  const image = await CatalogInvoiceImage.findByPk(imageId);
+  if (!image) throw new AppError('Imagen no encontrada', 404);
+  if (image.cloudinary_public_id) {
+    await cloudinary.uploader.destroy(image.cloudinary_public_id).catch(() => null);
+  }
+  await image.destroy();
 }
 
 export async function updateCatalogOrderStatus(

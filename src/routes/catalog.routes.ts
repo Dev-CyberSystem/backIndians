@@ -136,7 +136,7 @@ router.post(
   '/orders',
   authorize('admin', 'billing', 'seller'),
   [
-    body('client_id').isInt({ min: 1 }).withMessage('Cliente requerido'),
+    body('client_id').optional({ nullable: true }).isInt({ min: 1 }),
     body('payment_type').isIn(['full', 'half']).withMessage('Tipo de pago inválido'),
     body('items').isArray({ min: 1 }).withMessage('Se requiere al menos un ítem'),
     body('items.*.product_id').isInt({ min: 1 }),
@@ -164,6 +164,42 @@ router.post(
   '/orders/:id/payment',
   [param('id').isInt({ min: 1 }), validate],
   ctrl.initiateCatalogPayment
+);
+
+// ─── Facturas del catálogo ────────────────────────────────────────────────────
+
+// GET /catalog/orders/:id/invoice
+router.get(
+  '/orders/:id/invoice',
+  [param('id').isInt({ min: 1 }), validate],
+  ctrl.getCatalogInvoice
+);
+
+// PATCH /catalog/orders/:id/invoice/status
+router.patch(
+  '/orders/:id/invoice/status',
+  authorize('admin', 'billing'),
+  [
+    param('id').isInt({ min: 1 }),
+    body('status').isIn(['draft', 'issued', 'paid', 'cancelled']).withMessage('Estado de factura inválido'),
+    validate,
+  ],
+  ctrl.updateCatalogInvoiceStatus
+);
+
+// POST /catalog/orders/:id/invoice/images
+router.post(
+  '/orders/:id/invoice/images',
+  [param('id').isInt({ min: 1 }), validate],
+  upload.single('image'),
+  ctrl.uploadInvoiceImage
+);
+
+// DELETE /catalog/orders/:id/invoice/images/:imageId
+router.delete(
+  '/orders/:id/invoice/images/:imageId',
+  [param('id').isInt({ min: 1 }), param('imageId').isInt({ min: 1 }), validate],
+  ctrl.deleteInvoiceImage
 );
 
 export default router;

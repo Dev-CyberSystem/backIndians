@@ -16,7 +16,7 @@ export class CatalogOrder extends Model<
 > {
   declare id: CreationOptional<number>;
   declare order_number: string;
-  declare client_id: number;
+  declare client_id: CreationOptional<number | null>;
   declare seller_id: number;
   declare status: CreationOptional<CatalogOrderStatus>;
   declare payment_type: CreationOptional<PaymentType>;
@@ -44,7 +44,8 @@ CatalogOrder.init(
     },
     client_id: {
       type: DataTypes.INTEGER.UNSIGNED,
-      allowNull: false,
+      allowNull: true,
+      defaultValue: null,
     },
     seller_id: {
       type: DataTypes.INTEGER.UNSIGNED,

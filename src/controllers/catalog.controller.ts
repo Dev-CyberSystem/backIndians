@@ -148,6 +148,45 @@ export async function initiateCatalogPayment(req: AuthRequest, res: Response, ne
   } catch (err) { next(err); }
 }
 
+export async function getCatalogInvoice(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const invoice = await catalogService.getCatalogInvoice(parseInt(req.params.id));
+    res.json({ success: true, data: invoice });
+  } catch (err) { next(err); }
+}
+
+export async function updateCatalogInvoiceStatus(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const invoice = await catalogService.updateCatalogInvoiceStatus(
+      parseInt(req.params.id),
+      req.body.status
+    );
+    res.json({ success: true, data: invoice });
+  } catch (err) { next(err); }
+}
+
+export async function uploadInvoiceImage(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.file) {
+      res.status(400).json({ success: false, message: 'No se envió ninguna imagen' });
+      return;
+    }
+    const image = await catalogService.addInvoiceImage(
+      parseInt(req.params.id),
+      req.file,
+      req.user?.id
+    );
+    res.status(201).json({ success: true, data: image });
+  } catch (err) { next(err); }
+}
+
+export async function deleteInvoiceImage(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    await catalogService.deleteInvoiceImage(parseInt(req.params.imageId));
+    res.json({ success: true, data: { message: 'Imagen eliminada' } });
+  } catch (err) { next(err); }
+}
+
 export async function mpWebhook(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const paymentId = req.query['data.id'] as string || req.body?.data?.id;
