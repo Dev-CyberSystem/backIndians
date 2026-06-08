@@ -105,17 +105,18 @@ async function generateOrderNumber(): Promise<string> {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   const dateStr = `${y}${m}${d}`;
-  const isoDate = `${y}-${m}-${d}`;
+  const dayStart = new Date(y, now.getMonth(), now.getDate());
+  const dayEnd   = new Date(y, now.getMonth(), now.getDate() + 1);
 
   const rows = await sequelize.query<{ cnt: string }>(
-    `SELECT COUNT(*) AS cnt FROM orders WHERE DATE(createdAt) = :isoDate`,
-    { replacements: { isoDate }, type: QueryTypes.SELECT }
+    `SELECT COUNT(*) AS cnt FROM orders WHERE createdAt >= :dayStart AND createdAt < :dayEnd`,
+    { replacements: { dayStart, dayEnd }, type: QueryTypes.SELECT }
   );
   const count = Number(rows[0]?.cnt ?? 0);
   return `PED-${dateStr}-${String(count + 1).padStart(4, '0')}`;
 }
 
-// Incluye las relaciones comunes al cargar un pedido
+// Relaciones completas — usadas en detalle de pedido
 const orderIncludes = [
   { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name', 'phone', 'email', 'address', 'cuit'] },
   { model: User, as: 'creator', attributes: ['id', 'name', 'email', 'role'] },
@@ -139,6 +140,18 @@ const orderIncludes = [
     as: 'status_history',
     include: [{ model: User, as: 'changer', attributes: ['id', 'name', 'role'] }],
   },
+  {
+    model: Invoice,
+    as: 'invoices',
+    attributes: ['id', 'invoice_number', 'issue_date', 'status'],
+    required: false,
+  },
+];
+
+// Relaciones mínimas — usadas en listado de pedidos (solo lo que muestra la tabla)
+const listIncludes = [
+  { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name'] },
+  { model: User,   as: 'seller', attributes: ['id', 'name'] },
   {
     model: Invoice,
     as: 'invoices',
@@ -332,7 +345,7 @@ export async function listOrders(
 
   const { rows, count } = await Order.findAndCountAll({
     where,
-    include: orderIncludes,
+    include: listIncludes,
     limit,
     offset,
     order: [['createdAt', 'DESC']],

@@ -158,74 +158,45 @@ export async function getDashboardSummary(period?: string) {
   const { periodStart, periodEnd, prevStart, prevEnd, chartFrom, chartTo } = resolvePeriod(period);
 
   // ── KPIs principales ───────────────────────────────────────────────────────
+  // 5 Order.count + 3 Invoice.sum consolidados en 2 queries con CASE WHEN
   const [
-    ordersThisMonth,
-    ordersLastMonth,
-    pendingOrders,
-    readyOrders,
-    cancelledOrders,
-    revenueThisMonthRaw,
-    revenueLastMonthRaw,
-    pendingRevenueRaw,
+    orderKpiRows,
+    invoiceKpiRows,
     overdueInvoiceRows,
     criticalStockRows,
   ] = await Promise.all([
-    // Todos los pedidos del período
-    Order.count({
-      where: { createdAt: { [Op.between]: [periodStart, periodEnd] } },
-    }),
+    // Conteos de pedidos: período actual + anterior en una sola pasada
+    sequelize.query<{
+      this_total: string; prev_total: string;
+      pending: string; ready: string; cancelled: string;
+    }>(
+      `SELECT
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to THEN 1 ELSE 0 END)                                        AS this_total,
+         SUM(CASE WHEN createdAt BETWEEN :prevFrom AND :prevTo THEN 1 ELSE 0 END)                                AS prev_total,
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to
+                   AND status NOT IN ('cancelled','ready') THEN 1 ELSE 0 END)                                    AS pending,
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to AND status = 'ready' THEN 1 ELSE 0 END)                   AS ready,
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to AND status = 'cancelled' THEN 1 ELSE 0 END)               AS cancelled
+       FROM orders
+       WHERE createdAt BETWEEN :prevFrom AND :to`,
+      { replacements: { from: periodStart, to: periodEnd, prevFrom: prevStart, prevTo: prevEnd }, type: QueryTypes.SELECT }
+    ),
 
-    // Pedidos del período anterior (para tendencia)
-    Order.count({
-      where: { createdAt: { [Op.between]: [prevStart, prevEnd] } },
-    }),
-
-    // Pedidos activos del período (en proceso, sin cancelados ni listos)
-    Order.count({
-      where: {
-        createdAt: { [Op.between]: [periodStart, periodEnd] },
-        status: { [Op.notIn]: ['cancelled', 'ready'] },
-      },
-    }),
-
-    // Pedidos listos del período
-    Order.count({
-      where: {
-        createdAt: { [Op.between]: [periodStart, periodEnd] },
-        status: 'ready',
-      },
-    }),
-
-    // Pedidos cancelados del período
-    Order.count({
-      where: {
-        createdAt: { [Op.between]: [periodStart, periodEnd] },
-        status: 'cancelled',
-      },
-    }),
-
-    // Facturación del período (facturas emitidas/pagadas)
-    Invoice.sum('total_amount', {
-      where: {
-        status: { [Op.in]: ['issued', 'paid'] },
-        issue_date: { [Op.between]: [periodStart, periodEnd] },
-      },
-    }),
-
-    Invoice.sum('total_amount', {
-      where: {
-        status: { [Op.in]: ['issued', 'paid'] },
-        issue_date: { [Op.between]: [prevStart, prevEnd] },
-      },
-    }),
-
-    // Por cobrar del período: facturas emitidas aún sin pagar
-    Invoice.sum('total_amount', {
-      where: {
-        status: 'issued',
-        issue_date: { [Op.between]: [periodStart, periodEnd] },
-      },
-    }),
+    // Revenue de facturas: período actual + anterior + pendiente en una sola pasada
+    sequelize.query<{
+      this_revenue: string; prev_revenue: string; pending_revenue: string;
+    }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status IN ('issued','paid')
+                            AND issue_date BETWEEN :from AND :to THEN total_amount END), 0) AS this_revenue,
+         COALESCE(SUM(CASE WHEN status IN ('issued','paid')
+                            AND issue_date BETWEEN :prevFrom AND :prevTo THEN total_amount END), 0) AS prev_revenue,
+         COALESCE(SUM(CASE WHEN status = 'issued'
+                            AND issue_date BETWEEN :from AND :to THEN total_amount END), 0) AS pending_revenue
+       FROM invoices
+       WHERE issue_date BETWEEN :prevFrom AND :to`,
+      { replacements: { from: periodStart, to: periodEnd, prevFrom: prevStart, prevTo: prevEnd }, type: QueryTypes.SELECT }
+    ),
 
     // Facturas vencidas
     Invoice.findAll({
@@ -261,9 +232,17 @@ export async function getDashboardSummary(period?: string) {
     ),
   ]);
 
-  const revenueThisMonth = Number(revenueThisMonthRaw ?? 0);
-  const revenueLastMonth = Number(revenueLastMonthRaw ?? 0);
-  const pendingRevenue   = Number(pendingRevenueRaw ?? 0);
+  const orderKpi = orderKpiRows[0] ?? {};
+  const ordersThisMonth  = Number(orderKpi.this_total  ?? 0);
+  const ordersLastMonth  = Number(orderKpi.prev_total  ?? 0);
+  const pendingOrders    = Number(orderKpi.pending     ?? 0);
+  const readyOrders      = Number(orderKpi.ready       ?? 0);
+  const cancelledOrders  = Number(orderKpi.cancelled   ?? 0);
+
+  const invoiceKpi = invoiceKpiRows[0] ?? {};
+  const revenueThisMonth = Number(invoiceKpi.this_revenue    ?? 0);
+  const revenueLastMonth = Number(invoiceKpi.prev_revenue    ?? 0);
+  const pendingRevenue   = Number(invoiceKpi.pending_revenue ?? 0);
 
   // ── Facturación últimos 6 meses ────────────────────────────────────────────
   const ordersByMonth = await sequelize.query<{
@@ -282,9 +261,10 @@ export async function getDashboardSummary(period?: string) {
     { replacements: { from: chartFrom, to: chartTo }, type: QueryTypes.SELECT }
   );
 
-  // ── Distribución por estado ────────────────────────────────────────────────
+  // ── Distribución por estado (período actual) ──────────────────────────────
   const ordersByStatus = await Order.findAll({
     attributes: ['status', [fn('COUNT', col('id')), 'count']],
+    where: { createdAt: { [Op.between]: [periodStart, periodEnd] } },
     group: ['status'],
     raw: true,
   }) as unknown as Array<{ status: string; count: string }>;

@@ -11,6 +11,7 @@ export interface UpdateInvoiceInput {
   notes?: string;
   discount_amount?: number;
   extra_items?: InvoiceExtraItem[];
+  payment_amount?: number | null;
 }
 
 const invoiceIncludes = [
@@ -161,9 +162,10 @@ export async function updateInvoice(
 
   const updateData: Partial<Invoice> = {};
 
-  if (input.status     !== undefined) updateData.status    = input.status;
-  if (input.due_date   !== undefined) updateData.due_date  = new Date(input.due_date);
-  if (input.notes      !== undefined) updateData.notes     = input.notes;
+  if (input.status          !== undefined) updateData.status         = input.status;
+  if (input.due_date        !== undefined) updateData.due_date       = new Date(input.due_date);
+  if (input.notes           !== undefined) updateData.notes          = input.notes;
+  if ('payment_amount' in input)           updateData.payment_amount = input.payment_amount ?? null;
 
   const newDiscount = input.discount_amount !== undefined
     ? input.discount_amount

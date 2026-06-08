@@ -20,6 +20,7 @@ export interface CreatePreferenceInput {
   items: MPItem[];
   totalAmount: number;
   paymentType: 'full' | 'half';
+  overrideAmount?: number;
   backUrls: {
     success: string;
     failure: string;
@@ -31,12 +32,17 @@ export async function createPreference(input: CreatePreferenceInput) {
   const client = getClient();
   const preference = new Preference(client);
 
-  const amount = input.paymentType === 'half'
+  const amount = input.overrideAmount != null
+    ? parseFloat(input.overrideAmount.toFixed(2))
+    : input.paymentType === 'half'
     ? parseFloat((input.totalAmount / 2).toFixed(2))
     : input.totalAmount;
 
-  // Si es mitad, ajustamos los precios proporcionalmente
-  const items: MPItem[] = input.paymentType === 'half'
+  // Con monto personalizado, un solo ítem con ese monto
+  // Con tipo half/full, se ajustan los ítems del pedido
+  const items: MPItem[] = input.overrideAmount != null
+    ? [{ id: 'pago', title: `Pago pedido ${input.externalReference}`, quantity: 1, unit_price: amount, currency_id: 'ARS' }]
+    : input.paymentType === 'half'
     ? input.items.map((item) => ({
         ...item,
         unit_price: parseFloat((item.unit_price / 2).toFixed(2)),
@@ -51,7 +57,6 @@ export async function createPreference(input: CreatePreferenceInput) {
     external_reference: input.externalReference,
     items,
     back_urls: input.backUrls,
-    auto_return: 'approved' as const,
     statement_descriptor: 'Indians Textil',
   };
 

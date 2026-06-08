@@ -139,11 +139,16 @@ export async function updateCatalogOrderStatus(req: AuthRequest, res: Response, 
 export async function initiateCatalogPayment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const result = await catalogService.initiateCatalogPayment(parseInt(req.params.id), {
-      success: `${frontendUrl}/catalog/orders?payment=success`,
-      failure: `${frontendUrl}/catalog/orders?payment=failure`,
-      pending: `${frontendUrl}/catalog/orders?payment=pending`,
-    });
+    const customAmount = req.body.amount != null ? Number(req.body.amount) : undefined;
+    const result = await catalogService.initiateCatalogPayment(
+      parseInt(req.params.id),
+      {
+        success: `${frontendUrl}/catalog/orders?payment=success`,
+        failure: `${frontendUrl}/catalog/orders?payment=failure`,
+        pending: `${frontendUrl}/catalog/orders?payment=pending`,
+      },
+      customAmount
+    );
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 }
@@ -159,7 +164,8 @@ export async function updateCatalogInvoiceStatus(req: AuthRequest, res: Response
   try {
     const invoice = await catalogService.updateCatalogInvoiceStatus(
       parseInt(req.params.id),
-      req.body.status
+      req.body.status,
+      req.body.payment_amount != null ? Number(req.body.payment_amount) : undefined
     );
     res.json({ success: true, data: invoice });
   } catch (err) { next(err); }

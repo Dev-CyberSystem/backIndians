@@ -354,18 +354,16 @@ export async function createCatalogOrder(input: CreateCatalogOrderInput) {
       { transaction: t }
     );
 
-    // Decrementar stock
-    for (const item of resolvedItems) {
+    // Decrementar stock (paralelo — una query por ítem en lugar de secuencial)
+    await Promise.all(resolvedItems.map((item) => {
       const product = productMap.get(item.product_id)!;
       const sizes = (product as CatalogProduct & { sizes?: CatalogProductSize[] }).sizes ?? [];
-
       if (sizes.length > 0 && item.size_name) {
         const sizeRecord = sizes.find((s) => s.size_name === item.size_name)!;
-        await sizeRecord.decrement('stock_quantity', { by: item.quantity, transaction: t });
-      } else {
-        await product.decrement('stock_quantity', { by: item.quantity, transaction: t });
+        return sizeRecord.decrement('stock_quantity', { by: item.quantity, transaction: t });
       }
-    }
+      return product.decrement('stock_quantity', { by: item.quantity, transaction: t });
+    }));
 
     // Auto-crear factura del catálogo
     const invoiceNumber = await generateInvoiceNumber();
@@ -482,11 +480,16 @@ export async function getCatalogInvoice(orderId: number) {
 
 export async function updateCatalogInvoiceStatus(
   orderId: number,
-  status: 'draft' | 'issued' | 'paid' | 'cancelled'
+  status: 'draft' | 'issued' | 'paid' | 'cancelled',
+  payment_amount?: number | null
 ) {
   const invoice = await CatalogInvoice.findOne({ where: { catalog_order_id: orderId } });
   if (!invoice) throw new AppError('Factura no encontrada', 404);
-  await invoice.update({ status });
+  const updates: Partial<{ status: typeof status; payment_amount: number }> = { status };
+  if (payment_amount !== undefined && payment_amount !== null) {
+    updates.payment_amount = payment_amount;
+  }
+  await invoice.update(updates);
   return invoice;
 }
 
@@ -537,7 +540,8 @@ export async function updateCatalogOrderStatus(
 
 export async function initiateCatalogPayment(
   orderId: number,
-  backUrls: { success: string; failure: string; pending: string }
+  backUrls: { success: string; failure: string; pending: string },
+  customAmount?: number
 ) {
   const order = await getCatalogOrder(orderId);
   const items = (order as CatalogOrder & { items?: (CatalogOrderItem & { product?: CatalogProduct })[] }).items ?? [];
@@ -554,6 +558,7 @@ export async function initiateCatalogPayment(
     items: mpItems,
     totalAmount: order.total_amount,
     paymentType: order.payment_type,
+    overrideAmount: customAmount,
     backUrls,
   });
 
