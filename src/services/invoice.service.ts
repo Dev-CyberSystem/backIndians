@@ -1,6 +1,6 @@
 import { QueryTypes, Op, Transaction } from 'sequelize';
 import { sequelize } from '../config/db';
-import { Invoice, Order, Client, OrderItem, GarmentType, FabricType, User, Settings } from '../models';
+import { Invoice, Order, Client, OrderItem, GarmentType, FabricType, User, Settings, InvoicePayment } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { InvoiceStatus, JwtPayload } from '../types';
 import { InvoiceExtraItem } from '../models/Invoice';
@@ -30,6 +30,11 @@ const invoiceIncludes = [
         ],
       },
     ],
+  },
+  {
+    model: InvoicePayment,
+    as: 'payments',
+    order: [['paid_at', 'ASC']] as [string, string][],
   },
 ];
 
@@ -186,4 +191,28 @@ export async function updateInvoice(
 
 export async function getInvoiceByOrderId(orderId: number): Promise<Invoice | null> {
   return Invoice.findOne({ where: { order_id: orderId }, include: invoiceIncludes });
+}
+
+export async function addPaymentToInvoice(
+  id: number,
+  amount: number,
+  notes?: string
+): Promise<Invoice> {
+  const invoice = await Invoice.findByPk(id);
+  if (!invoice) throw new AppError('Factura no encontrada', 404);
+  if (invoice.status === 'cancelled') throw new AppError('No se puede pagar una factura anulada', 400);
+  if (invoice.status === 'paid') throw new AppError('La factura ya está completamente pagada', 400);
+
+  await InvoicePayment.create({ invoice_id: id, amount, notes: notes ?? null });
+
+  const rows = await InvoicePayment.findAll({ where: { invoice_id: id } });
+  const totalPaid = rows.reduce((s, p) => s + p.amount, 0);
+  const invoiceTotal = Number(invoice.total_amount ?? 0);
+
+  await invoice.update({
+    payment_amount: totalPaid,
+    status: invoiceTotal > 0 && totalPaid >= invoiceTotal ? 'paid' : invoice.status,
+  });
+
+  return getInvoiceById(id) as Promise<Invoice>;
 }

@@ -9,6 +9,8 @@ import { CatalogOrder } from './CatalogOrder';
 import { CatalogOrderItem } from './CatalogOrderItem';
 import { CatalogInvoice } from './CatalogInvoice';
 import { CatalogInvoiceImage } from './CatalogInvoiceImage';
+import { InvoicePayment } from './InvoicePayment';
+import { CatalogInvoicePayment } from './CatalogInvoicePayment';
 import { Order } from './Order';
 import { OrderItem } from './OrderItem';
 import { OrderImage } from './OrderImage';
@@ -125,6 +127,14 @@ CatalogInvoice.belongsTo(CatalogOrder, { foreignKey: 'catalog_order_id', as: 'or
 CatalogInvoice.hasMany(CatalogInvoiceImage, { foreignKey: 'catalog_invoice_id', as: 'images', onDelete: 'CASCADE' });
 CatalogInvoiceImage.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
 
+// InvoicePayment ↔ Invoice
+Invoice.hasMany(InvoicePayment, { foreignKey: 'invoice_id', as: 'payments', onDelete: 'CASCADE' });
+InvoicePayment.belongsTo(Invoice, { foreignKey: 'invoice_id', as: 'invoice' });
+
+// CatalogInvoicePayment ↔ CatalogInvoice
+CatalogInvoice.hasMany(CatalogInvoicePayment, { foreignKey: 'catalog_invoice_id', as: 'payments', onDelete: 'CASCADE' });
+CatalogInvoicePayment.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
+
 export {
   User,
   Client,
@@ -149,4 +159,6 @@ export {
   Settings,
   StockCategory,
   StockMovement,
+  InvoicePayment,
+  CatalogInvoicePayment,
 };

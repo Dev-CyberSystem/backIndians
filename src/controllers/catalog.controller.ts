@@ -89,6 +89,21 @@ export async function deleteProductImage(req: AuthRequest, res: Response, next: 
 
 // ─── Pedidos del catálogo ─────────────────────────────────────────────────────
 
+export async function listCatalogInvoices(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const result = await catalogService.listCatalogInvoices(page, limit, {
+      status:    req.query.status    as string | undefined,
+      client_id: req.query.client_id ? parseInt(req.query.client_id as string) : undefined,
+      seller_id: req.query.seller_id ? parseInt(req.query.seller_id as string) : undefined,
+      date_from: req.query.date_from as string | undefined,
+      date_to:   req.query.date_to   as string | undefined,
+    });
+    res.json({ success: true, data: result.invoices, meta: { page: result.page, limit: result.limit, total: result.total } });
+  } catch (err) { next(err); }
+}
+
 export async function listCatalogOrders(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const page = parseInt(req.query.page as string) || 1;
@@ -112,15 +127,9 @@ export async function getCatalogOrder(req: AuthRequest, res: Response, next: Nex
 
 export async function createCatalogOrder(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const order = await catalogService.createCatalogOrder({
       ...req.body,
       seller_id: req.body.seller_id || req.user!.id,
-      back_urls: {
-        success: `${frontendUrl}/catalog/orders?payment=success`,
-        failure: `${frontendUrl}/catalog/orders?payment=failure`,
-        pending: `${frontendUrl}/catalog/orders?payment=pending`,
-      },
     });
     res.status(201).json({ success: true, data: order });
   } catch (err) { next(err); }
@@ -157,6 +166,17 @@ export async function getCatalogInvoice(req: AuthRequest, res: Response, next: N
   try {
     const invoice = await catalogService.getCatalogInvoice(parseInt(req.params.id));
     res.json({ success: true, data: invoice });
+  } catch (err) { next(err); }
+}
+
+export async function addCatalogInvoicePayment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const invoice = await catalogService.addPaymentToCatalogInvoice(
+      parseInt(req.params.id),
+      Number(req.body.amount),
+      req.body.notes
+    );
+    res.status(201).json({ success: true, data: invoice });
   } catch (err) { next(err); }
 }
 

@@ -113,6 +113,22 @@ router.delete(
 
 // ─── Pedidos del catálogo ─────────────────────────────────────────────────────
 
+// GET /catalog/invoices?status=&client_id=&seller_id=&date_from=&date_to=&page=&limit=
+router.get(
+  '/invoices',
+  [
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+    query('status').optional().isIn(['draft', 'issued', 'paid', 'cancelled']),
+    query('client_id').optional().isInt({ min: 1 }),
+    query('seller_id').optional().isInt({ min: 1 }),
+    query('date_from').optional().isISO8601(),
+    query('date_to').optional().isISO8601(),
+    validate,
+  ],
+  ctrl.listCatalogInvoices
+);
+
 // GET /catalog/orders?client_id=&seller_id=&status=&page=&limit=
 router.get(
   '/orders',
@@ -185,6 +201,19 @@ router.patch(
     validate,
   ],
   ctrl.updateCatalogInvoiceStatus
+);
+
+// POST /catalog/orders/:id/invoice/payments
+router.post(
+  '/orders/:id/invoice/payments',
+  authorize('admin', 'billing'),
+  [
+    param('id').isInt({ min: 1 }),
+    body('amount').isFloat({ min: 0.01 }).withMessage('El monto debe ser mayor a 0'),
+    body('notes').optional().isString(),
+    validate,
+  ],
+  ctrl.addCatalogInvoicePayment
 );
 
 // POST /catalog/orders/:id/invoice/images

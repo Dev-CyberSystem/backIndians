@@ -1,5 +1,5 @@
 import { v2 as cloudinary } from 'cloudinary';
-import { type Includeable } from 'sequelize';
+import { type Includeable, Op } from 'sequelize';
 import { AppError } from '../middlewares/errorHandler';
 import {
   CatalogProduct,
@@ -9,6 +9,7 @@ import {
   CatalogOrderItem,
   CatalogInvoice,
   CatalogInvoiceImage,
+  CatalogInvoicePayment,
   Client,
   User,
 } from '../models';
@@ -373,7 +374,7 @@ export async function createCatalogOrder(input: CreateCatalogOrderInput) {
       issue_date: new Date().toISOString().split('T')[0],
       status: 'issued',
       total_amount: totalAmount,
-      payment_amount: paymentAmount,
+      payment_amount: 0,
     }, { transaction: t });
 
     await t.commit();
@@ -435,7 +436,10 @@ export async function listCatalogOrders(
       },
       {
         model: CatalogInvoice, as: 'invoice',
-        include: [{ model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] }],
+        include: [
+          { model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] },
+          { model: CatalogInvoicePayment, as: 'payments', order: [['paid_at', 'ASC']] as [string, string][] },
+        ],
       },
     ],
     order: [['createdAt', 'DESC']],
@@ -445,6 +449,47 @@ export async function listCatalogOrders(
   });
 
   return { orders: rows, total: count, page, limit };
+}
+
+export async function listCatalogInvoices(
+  page: number,
+  limit: number,
+  filters: { status?: string; client_id?: number; seller_id?: number; date_from?: string; date_to?: string } = {}
+) {
+  const offset = (page - 1) * limit;
+  const where: Record<string, unknown> = {};
+  if (filters.status) where['status'] = filters.status;
+  if (filters.date_from || filters.date_to) {
+    const dateFilter: Record<symbol, string> = {};
+    if (filters.date_from) dateFilter[Op.gte] = filters.date_from;
+    if (filters.date_to)   dateFilter[Op.lte] = filters.date_to;
+    where['issue_date'] = dateFilter;
+  }
+
+  const orderWhere: Record<string, unknown> = {};
+  if (filters.client_id) orderWhere['client_id'] = filters.client_id;
+  if (filters.seller_id) orderWhere['seller_id'] = filters.seller_id;
+  const hasOrderFilter = Object.keys(orderWhere).length > 0;
+
+  const { rows, count } = await CatalogInvoice.findAndCountAll({
+    where,
+    include: [
+      {
+        model: CatalogOrder, as: 'order',
+        ...(hasOrderFilter ? { where: orderWhere, required: true } : {}),
+        include: [
+          { model: Client, as: 'client', attributes: ['id', 'name'] },
+          { model: User, as: 'seller', attributes: ['id', 'name'] },
+        ],
+      },
+    ],
+    order: [['createdAt', 'DESC']],
+    limit,
+    offset,
+    distinct: true,
+  });
+
+  return { invoices: rows, total: count, page, limit };
 }
 
 export async function getCatalogOrder(id: number) {
@@ -461,7 +506,10 @@ export async function getCatalogOrder(id: number) {
       },
       {
         model: CatalogInvoice, as: 'invoice',
-        include: [{ model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] }],
+        include: [
+          { model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] },
+          { model: CatalogInvoicePayment, as: 'payments', order: [['paid_at', 'ASC']] as [string, string][] },
+        ],
       },
     ],
   });
@@ -472,7 +520,10 @@ export async function getCatalogOrder(id: number) {
 export async function getCatalogInvoice(orderId: number) {
   const invoice = await CatalogInvoice.findOne({
     where: { catalog_order_id: orderId },
-    include: [{ model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] }],
+    include: [
+      { model: CatalogInvoiceImage, as: 'images', order: [['createdAt', 'ASC']] as [string, string][] },
+      { model: CatalogInvoicePayment, as: 'payments', order: [['paid_at', 'ASC']] as [string, string][] },
+    ],
   });
   if (!invoice) throw new AppError('Factura no encontrada', 404);
   return invoice;
@@ -564,6 +615,30 @@ export async function initiateCatalogPayment(
 
   await order.update({ mp_preference_id: mpResult.preference_id ?? undefined });
   return mpResult;
+}
+
+export async function addPaymentToCatalogInvoice(
+  orderId: number,
+  amount: number,
+  notes?: string
+) {
+  const invoice = await CatalogInvoice.findOne({ where: { catalog_order_id: orderId } });
+  if (!invoice) throw new AppError('Factura no encontrada', 404);
+  if (invoice.status === 'cancelled') throw new AppError('No se puede pagar una factura cancelada', 400);
+  if (invoice.status === 'paid') throw new AppError('La factura ya está completamente pagada', 400);
+
+  await CatalogInvoicePayment.create({ catalog_invoice_id: invoice.id, amount, notes: notes ?? null });
+
+  const rows = await CatalogInvoicePayment.findAll({ where: { catalog_invoice_id: invoice.id } });
+  const totalPaid = rows.reduce((s, p) => s + p.amount, 0);
+  const invoiceTotal = Number(invoice.total_amount ?? 0);
+
+  await invoice.update({
+    payment_amount: totalPaid,
+    status: invoiceTotal > 0 && totalPaid >= invoiceTotal ? 'paid' : invoice.status,
+  });
+
+  return getCatalogInvoice(orderId);
 }
 
 export async function handleMPWebhook(paymentId: string) {
