@@ -19,6 +19,13 @@ export async function listClients(req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err); }
 }
 
+export async function getClient(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const client = await clientService.getClientById(parseInt(req.params.id));
+    res.json({ success: true, data: client });
+  } catch (err) { next(err); }
+}
+
 export async function createClient(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const client = await clientService.createClient(req.body);

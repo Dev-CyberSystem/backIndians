@@ -112,6 +112,35 @@ export async function deleteImage(req: AuthRequest, res: Response, next: NextFun
   }
 }
 
+export async function uploadItemSizeChart(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.file) {
+      res.status(400).json({ success: false, message: 'No se recibió ningún archivo' });
+      return;
+    }
+    const item = await orderService.uploadItemSizeChart(
+      parseInt(req.params.id),
+      parseInt(req.params.itemId),
+      req.file
+    );
+    res.status(201).json({ success: true, data: item });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteItemSizeChart(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    await orderService.deleteItemSizeChart(
+      parseInt(req.params.id),
+      parseInt(req.params.itemId)
+    );
+    res.json({ success: true, data: { message: 'Tabla de talles eliminada' } });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getOrderPDF(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const order = await orderService.getOrderById(parseInt(req.params.id), req.user!);

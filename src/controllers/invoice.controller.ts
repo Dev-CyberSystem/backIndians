@@ -65,3 +65,14 @@ export async function getInvoicePDF(req: AuthRequest, res: Response, next: NextF
     res.send(pdfBuffer);
   } catch (err) { next(err); }
 }
+
+export async function addInvoicePayment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const invoice = await invoiceService.addPaymentToInvoice(
+      parseInt(req.params.id),
+      Number(req.body.amount),
+      req.body.notes
+    );
+    res.status(201).json({ success: true, data: invoice });
+  } catch (err) { next(err); }
+}

@@ -158,74 +158,45 @@ export async function getDashboardSummary(period?: string) {
   const { periodStart, periodEnd, prevStart, prevEnd, chartFrom, chartTo } = resolvePeriod(period);
 
   // ── KPIs principales ───────────────────────────────────────────────────────
+  // 5 Order.count + 3 Invoice.sum consolidados en 2 queries con CASE WHEN
   const [
-    ordersThisMonth,
-    ordersLastMonth,
-    pendingOrders,
-    readyOrders,
-    cancelledOrders,
-    revenueThisMonthRaw,
-    revenueLastMonthRaw,
-    pendingRevenueRaw,
+    orderKpiRows,
+    invoiceKpiRows,
     overdueInvoiceRows,
     criticalStockRows,
   ] = await Promise.all([
-    // Todos los pedidos del período
-    Order.count({
-      where: { createdAt: { [Op.between]: [periodStart, periodEnd] } },
-    }),
+    // Conteos de pedidos: período actual + anterior en una sola pasada
+    sequelize.query<{
+      this_total: string; prev_total: string;
+      pending: string; ready: string; cancelled: string;
+    }>(
+      `SELECT
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to THEN 1 ELSE 0 END)                                        AS this_total,
+         SUM(CASE WHEN createdAt BETWEEN :prevFrom AND :prevTo THEN 1 ELSE 0 END)                                AS prev_total,
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to
+                   AND status NOT IN ('cancelled','ready') THEN 1 ELSE 0 END)                                    AS pending,
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to AND status = 'ready' THEN 1 ELSE 0 END)                   AS ready,
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to AND status = 'cancelled' THEN 1 ELSE 0 END)               AS cancelled
+       FROM orders
+       WHERE createdAt BETWEEN :prevFrom AND :to`,
+      { replacements: { from: periodStart, to: periodEnd, prevFrom: prevStart, prevTo: prevEnd }, type: QueryTypes.SELECT }
+    ),
 
-    // Pedidos del período anterior (para tendencia)
-    Order.count({
-      where: { createdAt: { [Op.between]: [prevStart, prevEnd] } },
-    }),
-
-    // Pedidos activos del período (en proceso, sin cancelados ni listos)
-    Order.count({
-      where: {
-        createdAt: { [Op.between]: [periodStart, periodEnd] },
-        status: { [Op.notIn]: ['cancelled', 'ready'] },
-      },
-    }),
-
-    // Pedidos listos del período
-    Order.count({
-      where: {
-        createdAt: { [Op.between]: [periodStart, periodEnd] },
-        status: 'ready',
-      },
-    }),
-
-    // Pedidos cancelados del período
-    Order.count({
-      where: {
-        createdAt: { [Op.between]: [periodStart, periodEnd] },
-        status: 'cancelled',
-      },
-    }),
-
-    // Facturación del período (facturas emitidas/pagadas)
-    Invoice.sum('total_amount', {
-      where: {
-        status: { [Op.in]: ['issued', 'paid'] },
-        issue_date: { [Op.between]: [periodStart, periodEnd] },
-      },
-    }),
-
-    Invoice.sum('total_amount', {
-      where: {
-        status: { [Op.in]: ['issued', 'paid'] },
-        issue_date: { [Op.between]: [prevStart, prevEnd] },
-      },
-    }),
-
-    // Por cobrar del período: facturas emitidas aún sin pagar
-    Invoice.sum('total_amount', {
-      where: {
-        status: 'issued',
-        issue_date: { [Op.between]: [periodStart, periodEnd] },
-      },
-    }),
+    // Revenue de facturas: período actual + anterior + pendiente en una sola pasada
+    sequelize.query<{
+      this_revenue: string; prev_revenue: string; pending_revenue: string;
+    }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status IN ('issued','paid')
+                            AND issue_date BETWEEN :from AND :to THEN total_amount END), 0) AS this_revenue,
+         COALESCE(SUM(CASE WHEN status IN ('issued','paid')
+                            AND issue_date BETWEEN :prevFrom AND :prevTo THEN total_amount END), 0) AS prev_revenue,
+         COALESCE(SUM(CASE WHEN status = 'issued'
+                            AND issue_date BETWEEN :from AND :to THEN total_amount END), 0) AS pending_revenue
+       FROM invoices
+       WHERE issue_date BETWEEN :prevFrom AND :to`,
+      { replacements: { from: periodStart, to: periodEnd, prevFrom: prevStart, prevTo: prevEnd }, type: QueryTypes.SELECT }
+    ),
 
     // Facturas vencidas
     Invoice.findAll({
@@ -261,9 +232,17 @@ export async function getDashboardSummary(period?: string) {
     ),
   ]);
 
-  const revenueThisMonth = Number(revenueThisMonthRaw ?? 0);
-  const revenueLastMonth = Number(revenueLastMonthRaw ?? 0);
-  const pendingRevenue   = Number(pendingRevenueRaw ?? 0);
+  const orderKpi = orderKpiRows[0] ?? {};
+  const ordersThisMonth  = Number(orderKpi.this_total  ?? 0);
+  const ordersLastMonth  = Number(orderKpi.prev_total  ?? 0);
+  const pendingOrders    = Number(orderKpi.pending     ?? 0);
+  const readyOrders      = Number(orderKpi.ready       ?? 0);
+  const cancelledOrders  = Number(orderKpi.cancelled   ?? 0);
+
+  const invoiceKpi = invoiceKpiRows[0] ?? {};
+  const revenueThisMonth = Number(invoiceKpi.this_revenue    ?? 0);
+  const revenueLastMonth = Number(invoiceKpi.prev_revenue    ?? 0);
+  const pendingRevenue   = Number(invoiceKpi.pending_revenue ?? 0);
 
   // ── Facturación últimos 6 meses ────────────────────────────────────────────
   const ordersByMonth = await sequelize.query<{
@@ -282,9 +261,10 @@ export async function getDashboardSummary(period?: string) {
     { replacements: { from: chartFrom, to: chartTo }, type: QueryTypes.SELECT }
   );
 
-  // ── Distribución por estado ────────────────────────────────────────────────
+  // ── Distribución por estado (período actual) ──────────────────────────────
   const ordersByStatus = await Order.findAll({
     attributes: ['status', [fn('COUNT', col('id')), 'count']],
+    where: { createdAt: { [Op.between]: [periodStart, periodEnd] } },
     group: ['status'],
     raw: true,
   }) as unknown as Array<{ status: string; count: string }>;
@@ -348,6 +328,136 @@ export async function getDashboardSummary(period?: string) {
     pendingOrders,
   });
 
+  // ── Catálogo: queries paralelas ────────────────────────────────────────────
+  const [
+    catalogOrdersThisPeriod,
+    catalogOrdersLastPeriod,
+    catalogRevenueRows,
+    catalogByMonthRows,
+    catalogTopProductRows,
+    catalogTopSellerRows,
+  ] = await Promise.all([
+    sequelize.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM catalog_orders
+       WHERE createdAt BETWEEN :from AND :to`,
+      { replacements: { from: periodStart, to: periodEnd }, type: QueryTypes.SELECT }
+    ),
+    sequelize.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM catalog_orders
+       WHERE createdAt BETWEEN :from AND :to`,
+      { replacements: { from: prevStart, to: prevEnd }, type: QueryTypes.SELECT }
+    ),
+    // Revenue + breakdown de medios de cobro
+    sequelize.query<{
+      mp_count: string; mp_amount: string;
+      manual_count: string; manual_amount: string;
+      pending_count: string; pending_amount: string;
+      this_revenue: string; prev_revenue: string;
+    }>(
+      `SELECT
+         SUM(CASE WHEN co.mp_payment_status = 'approved' THEN 1 ELSE 0 END)                           AS mp_count,
+         COALESCE(SUM(CASE WHEN co.mp_payment_status = 'approved' THEN ci.payment_amount ELSE 0 END), 0) AS mp_amount,
+         SUM(CASE WHEN (co.mp_payment_status IS NULL OR co.mp_payment_status != 'approved')
+                   AND ci.status = 'paid' THEN 1 ELSE 0 END)                                          AS manual_count,
+         COALESCE(SUM(CASE WHEN (co.mp_payment_status IS NULL OR co.mp_payment_status != 'approved')
+                   AND ci.status = 'paid' THEN ci.payment_amount ELSE 0 END), 0)                      AS manual_amount,
+         SUM(CASE WHEN (co.mp_payment_status IS NULL OR co.mp_payment_status != 'approved')
+                   AND ci.status IN ('draft','issued') THEN 1 ELSE 0 END)                             AS pending_count,
+         COALESCE(SUM(CASE WHEN (co.mp_payment_status IS NULL OR co.mp_payment_status != 'approved')
+                   AND ci.status IN ('draft','issued') THEN ci.payment_amount ELSE 0 END), 0)         AS pending_amount,
+         COALESCE(SUM(CASE WHEN ci.issue_date BETWEEN :from AND :to AND ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS this_revenue,
+         COALESCE(SUM(CASE WHEN ci.issue_date BETWEEN :prevFrom AND :prevTo AND ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS prev_revenue
+       FROM catalog_orders co
+       LEFT JOIN catalog_invoices ci ON ci.catalog_order_id = co.id
+       WHERE co.createdAt BETWEEN :from AND :to`,
+      { replacements: { from: periodStart, to: periodEnd, prevFrom: prevStart, prevTo: prevEnd }, type: QueryTypes.SELECT }
+    ),
+    // Evolución mensual catálogo
+    sequelize.query<{ month: string; count: string; revenue: string }>(
+      `SELECT
+         DATE_FORMAT(co.createdAt, '%Y-%m')                                                  AS month,
+         COUNT(co.id)                                                                         AS count,
+         COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS revenue
+       FROM catalog_orders co
+       LEFT JOIN catalog_invoices ci ON ci.catalog_order_id = co.id
+       WHERE co.createdAt BETWEEN :from AND :to
+       GROUP BY month
+       ORDER BY month ASC`,
+      { replacements: { from: chartFrom, to: chartTo }, type: QueryTypes.SELECT }
+    ),
+    // Top 8 productos más vendidos
+    sequelize.query<{ product_id: string; title: string; client_name: string; total_qty: string; total_revenue: string }>(
+      `SELECT
+         cp.id                AS product_id,
+         cp.title             AS title,
+         c.name               AS client_name,
+         SUM(coi.quantity)    AS total_qty,
+         SUM(coi.subtotal)    AS total_revenue
+       FROM catalog_order_items coi
+       JOIN catalog_orders co ON co.id = coi.catalog_order_id
+       JOIN catalog_products cp ON cp.id = coi.product_id
+       JOIN clients c ON c.id = cp.client_id
+       WHERE co.createdAt BETWEEN :from AND :to
+       GROUP BY cp.id, cp.title, c.name
+       ORDER BY total_qty DESC
+       LIMIT 8`,
+      { replacements: { from: periodStart, to: periodEnd }, type: QueryTypes.SELECT }
+    ),
+    // Top 5 vendedores por revenue en catálogo
+    sequelize.query<{ seller_id: string; seller_name: string; total_orders: string; total_revenue: string }>(
+      `SELECT
+         u.id                                                                              AS seller_id,
+         u.name                                                                            AS seller_name,
+         COUNT(co.id)                                                                      AS total_orders,
+         COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS total_revenue
+       FROM catalog_orders co
+       JOIN users u ON u.id = co.seller_id
+       LEFT JOIN catalog_invoices ci ON ci.catalog_order_id = co.id
+       WHERE co.createdAt BETWEEN :from AND :to
+       GROUP BY u.id, u.name
+       ORDER BY total_revenue DESC
+       LIMIT 5`,
+      { replacements: { from: periodStart, to: periodEnd }, type: QueryTypes.SELECT }
+    ),
+  ]);
+
+  const catOrders   = Number(catalogOrdersThisPeriod[0]?.count ?? 0);
+  const catOrdersPrev = Number(catalogOrdersLastPeriod[0]?.count ?? 0);
+  const catRev = catalogRevenueRows[0] ?? {};
+  const catRevThis  = Number(catRev.this_revenue ?? 0);
+  const catRevPrev  = Number(catRev.prev_revenue  ?? 0);
+
+  const catalog = {
+    orders_this_period:  catOrders,
+    orders_last_period:  catOrdersPrev,
+    revenue_this_period: catRevThis,
+    revenue_last_period: catRevPrev,
+    pending_revenue: Number(catRev.pending_amount ?? 0),
+    payment_breakdown: {
+      via_mp:  { count: Number(catRev.mp_count ?? 0),      amount: Number(catRev.mp_amount ?? 0) },
+      manual:  { count: Number(catRev.manual_count ?? 0),  amount: Number(catRev.manual_amount ?? 0) },
+      pending: { count: Number(catRev.pending_count ?? 0), amount: Number(catRev.pending_amount ?? 0) },
+    },
+    by_month: catalogByMonthRows.map(r => ({
+      month: r.month,
+      count: Number(r.count),
+      revenue: Number(r.revenue),
+    })),
+    top_products: catalogTopProductRows.map(r => ({
+      product_id:   Number(r.product_id),
+      title:        r.title,
+      client_name:  r.client_name,
+      total_qty:    Number(r.total_qty),
+      total_revenue: Number(r.total_revenue),
+    })),
+    top_sellers: catalogTopSellerRows.map(r => ({
+      seller_id:    Number(r.seller_id),
+      seller_name:  r.seller_name,
+      total_orders: Number(r.total_orders),
+      total_revenue: Number(r.total_revenue),
+    })),
+  };
+
   return {
     // KPIs
     total_orders: ordersThisMonth,
@@ -382,6 +492,8 @@ export async function getDashboardSummary(period?: string) {
     critical_stock: criticalStock,
     // Inteligencia
     recommendations,
+    // Catálogo
+    catalog,
   };
 }
 
@@ -471,6 +583,26 @@ export async function getSellerStats(filters: {
     }
   );
 
+  // Revenue de catálogo por vendedor
+  const catalogSellerRows = await sequelize.query<{ seller_id: string; catalog_orders: string; catalog_revenue: string }>(
+    `SELECT
+       co.seller_id,
+       COUNT(co.id)                                                                               AS catalog_orders,
+       COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS catalog_revenue
+     FROM catalog_orders co
+     LEFT JOIN catalog_invoices ci ON ci.catalog_order_id = co.id
+     WHERE co.createdAt BETWEEN :currentStart AND :currentEnd
+     GROUP BY co.seller_id`,
+    { replacements: { currentStart, currentEnd }, type: QueryTypes.SELECT }
+  );
+  const catalogBySellerMap: Record<number, { catalog_orders: number; catalog_revenue: number }> = {};
+  for (const r of catalogSellerRows) {
+    catalogBySellerMap[Number(r.seller_id)] = {
+      catalog_orders: Number(r.catalog_orders),
+      catalog_revenue: Number(r.catalog_revenue),
+    };
+  }
+
   // Unidades del período actual (procesadas en Node.js para compatibilidad con JSON)
   const itemRows = await sequelize.query<{ seller_id: number; sizes: unknown }>(
     `SELECT o.seller_id, oi.sizes
@@ -497,6 +629,7 @@ export async function getSellerStats(filters: {
   // Combinar resultados
   let sellers = currentRows.map((r) => {
     const sid = Number(r.seller_id);
+    const cat = catalogBySellerMap[sid] ?? { catalog_orders: 0, catalog_revenue: 0 };
     return {
       seller_id: sid,
       seller_name: r.seller_name,
@@ -507,6 +640,8 @@ export async function getSellerStats(filters: {
       total_revenue: Number(r.total_revenue),
       prev_revenue: prevRevMap[sid] ?? 0,
       total_units: unitsBySeller[sid] ?? 0,
+      catalog_orders: cat.catalog_orders,
+      catalog_revenue: cat.catalog_revenue,
     };
   });
 
@@ -521,15 +656,17 @@ export async function getSellerStats(filters: {
   // Resumen global del período
   const global = sellers.reduce(
     (acc, s) => ({
-      total_orders: acc.total_orders + s.total_orders,
-      total_revenue: acc.total_revenue + s.total_revenue,
-      prev_revenue: acc.prev_revenue + s.prev_revenue,
-      total_units: acc.total_units + s.total_units,
-      ready_orders: acc.ready_orders + s.ready_orders,
+      total_orders:    acc.total_orders    + s.total_orders,
+      total_revenue:   acc.total_revenue   + s.total_revenue,
+      prev_revenue:    acc.prev_revenue    + s.prev_revenue,
+      total_units:     acc.total_units     + s.total_units,
+      ready_orders:    acc.ready_orders    + s.ready_orders,
       cancelled_orders: acc.cancelled_orders + s.cancelled_orders,
-      pending_orders: acc.pending_orders + s.pending_orders,
+      pending_orders:  acc.pending_orders  + s.pending_orders,
+      catalog_orders:  acc.catalog_orders  + s.catalog_orders,
+      catalog_revenue: acc.catalog_revenue + s.catalog_revenue,
     }),
-    { total_orders: 0, total_revenue: 0, prev_revenue: 0, total_units: 0, ready_orders: 0, cancelled_orders: 0, pending_orders: 0 }
+    { total_orders: 0, total_revenue: 0, prev_revenue: 0, total_units: 0, ready_orders: 0, cancelled_orders: 0, pending_orders: 0, catalog_orders: 0, catalog_revenue: 0 }
   );
 
   return {
