@@ -18,7 +18,7 @@ router.get(
     query('limit').optional().isInt({ min: 1, max: 100 }),
     query('status').optional().isIn([
       'pending', 'under_review', 'workshop_review', 'observed',
-      'in_production', 'quality_check', 'ready', 'cancelled',
+      'in_production', 'sewing', 'stamping', 'quality_check', 'ready', 'cancelled',
     ]),
     query('client_id').optional().isInt({ min: 1 }),
     query('seller_id').optional().isInt({ min: 1 }),
@@ -51,6 +51,8 @@ router.post(
     // Campos obligatorios del ítem
     body('items.*.garment_type_id').isInt({ min: 1 }).withMessage('garment_type_id requerido'),
     body('items.*.stock_fabric_id').optional().isInt({ min: 1 }),
+    body('items.*.stock_fabric_ids').optional().isArray(),
+    body('items.*.stock_fabric_ids.*').optional().isInt({ min: 1 }),
     body('items.*.color').notEmpty().withMessage('color requerido'),
     body('items.*.sizes').isObject().withMessage('sizes debe ser un objeto'),
     // Diseño — opcionales
@@ -97,11 +99,13 @@ router.put(
     body('workshop_notes').optional().isString(),
     body('status').optional().isIn([
       'pending', 'under_review', 'workshop_review', 'observed',
-      'in_production', 'quality_check', 'ready', 'cancelled',
+      'in_production', 'sewing', 'stamping', 'quality_check', 'ready', 'cancelled',
     ]),
     body('items').optional().isArray({ min: 1 }),
     body('items.*.garment_type_id').optional().isInt({ min: 1 }),
     body('items.*.stock_fabric_id').optional().isInt({ min: 1 }),
+    body('items.*.stock_fabric_ids').optional().isArray(),
+    body('items.*.stock_fabric_ids.*').optional().isInt({ min: 1 }),
     body('items.*.color').optional().notEmpty(),
     body('items.*.sizes').optional().isObject(),
     body('items.*.color_secondary').optional().isString(),
@@ -142,6 +146,23 @@ router.post(
   authorize('admin', 'billing', 'seller'),
   upload.single('image'),
   ctrl.uploadImage
+);
+
+// POST /orders/:id/items/:itemId/size-chart — sube imagen de tabla de talles
+router.post(
+  '/:id/items/:itemId/size-chart',
+  authorize('admin', 'billing', 'seller'),
+  [param('id').isInt({ min: 1 }), param('itemId').isInt({ min: 1 }), validate],
+  upload.single('image'),
+  ctrl.uploadItemSizeChart
+);
+
+// DELETE /orders/:id/items/:itemId/size-chart
+router.delete(
+  '/:id/items/:itemId/size-chart',
+  authorize('admin', 'billing', 'seller'),
+  [param('id').isInt({ min: 1 }), param('itemId').isInt({ min: 1 }), validate],
+  ctrl.deleteItemSizeChart
 );
 
 // DELETE /orders/:id/images/:imgId — billing, admin y seller
