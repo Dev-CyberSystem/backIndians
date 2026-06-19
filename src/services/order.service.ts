@@ -257,41 +257,41 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
 
 // ─── Validación de transiciones de estado por rol ────────────────────────────
 
+export const ORDER_STATUS_TRANSITIONS: Record<string, Partial<Record<OrderStatus, OrderStatus[]>>> = {
+  seller: {
+    observed: ['under_review'],
+  },
+  billing: {
+    pending:      ['under_review'],
+    under_review: ['observed', 'workshop_review'],
+  },
+  workshop: {
+    workshop_review: ['in_production', 'observed'],
+    in_production:   ['sewing'],
+    sewing:          ['stamping', 'in_production'],
+    stamping:        ['quality_check', 'sewing'],
+    quality_check:   ['ready'],
+  },
+  admin: {
+    pending:         ['under_review', 'cancelled'],
+    under_review:    ['observed', 'workshop_review', 'cancelled'],
+    observed:        ['under_review', 'cancelled'],
+    workshop_review: ['in_production', 'observed', 'cancelled'],
+    in_production:   ['sewing', 'cancelled'],
+    sewing:          ['stamping', 'in_production', 'cancelled'],
+    stamping:        ['quality_check', 'sewing', 'cancelled'],
+    quality_check:   ['ready', 'cancelled'],
+    ready:           ['cancelled'],
+    cancelled:       [],
+  },
+};
+
 function validateStatusTransition(
   role: JwtPayload['role'],
   currentStatus: OrderStatus,
   newStatus: OrderStatus
 ): void {
-  const transitions: Record<string, Partial<Record<OrderStatus, OrderStatus[]>>> = {
-    seller: {
-      observed: ['under_review'],
-    },
-    billing: {
-      pending:      ['under_review'],
-      under_review: ['observed', 'workshop_review'],
-    },
-    workshop: {
-      workshop_review: ['in_production', 'observed'],
-      in_production:   ['sewing'],
-      sewing:          ['stamping', 'in_production'],
-      stamping:        ['quality_check', 'sewing'],
-      quality_check:   ['ready'],
-    },
-    admin: {
-      pending:         ['under_review', 'cancelled'],
-      under_review:    ['observed', 'workshop_review', 'cancelled'],
-      observed:        ['under_review', 'cancelled'],
-      workshop_review: ['in_production', 'observed', 'cancelled'],
-      in_production:   ['sewing', 'cancelled'],
-      sewing:          ['stamping', 'in_production', 'cancelled'],
-      stamping:        ['quality_check', 'sewing', 'cancelled'],
-      quality_check:   ['ready', 'cancelled'],
-      ready:           ['cancelled'],
-      cancelled:       [],
-    },
-  };
-
-  const allowed = transitions[role]?.[currentStatus] ?? [];
+  const allowed = ORDER_STATUS_TRANSITIONS[role]?.[currentStatus] ?? [];
   if (!allowed.includes(newStatus)) {
     throw new AppError(
       `El rol "${role}" no puede mover un pedido de "${currentStatus}" a "${newStatus}"`,

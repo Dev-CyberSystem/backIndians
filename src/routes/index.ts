@@ -9,6 +9,7 @@ import dashboardRoutes from './dashboard.routes';
 import stockRoutes from './stock.routes';
 import masterRoutes from './master.routes';
 import settingsRoutes from './settings.routes';
+import cashRoutes from './cash.routes';
 import catalogRoutes from './catalog.routes';
 
 export const router = Router();
@@ -23,4 +24,5 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/stock', stockRoutes);
 router.use('/master', masterRoutes);
 router.use('/settings', settingsRoutes);
+router.use('/cash', cashRoutes);
 router.use('/catalog', catalogRoutes);

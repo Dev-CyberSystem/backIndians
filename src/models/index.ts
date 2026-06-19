@@ -24,6 +24,9 @@ import { FabricType } from './FabricType';
 import { SizeChart } from './SizeChart';
 import { PasswordResetToken } from './PasswordResetToken';
 import { Settings } from './Settings';
+import { CashAccount } from './CashAccount';
+import { CashTransactionCategory } from './CashTransactionCategory';
+import { CashTransaction } from './CashTransaction';
 
 // ─── Asociaciones ───────────────────────────────────────────────────────────
 
@@ -88,6 +91,21 @@ StockItem.hasMany(StockMovement, { foreignKey: 'stock_item_id', as: 'movements' 
 // StockMovement ↔ User
 StockMovement.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 User.hasMany(StockMovement, { foreignKey: 'user_id', as: 'stock_movements' });
+
+// CashTransaction ↔ CashAccount (cuenta origen)
+CashTransaction.belongsTo(CashAccount, { foreignKey: 'account_id', as: 'account' });
+CashAccount.hasMany(CashTransaction, { foreignKey: 'account_id', as: 'transactions' });
+
+// CashTransaction ↔ CashAccount (cuenta destino de transferencia)
+CashTransaction.belongsTo(CashAccount, { foreignKey: 'transfer_account_id', as: 'transfer_account' });
+
+// CashTransaction ↔ CashTransactionCategory
+CashTransaction.belongsTo(CashTransactionCategory, { foreignKey: 'category_id', as: 'category' });
+CashTransactionCategory.hasMany(CashTransaction, { foreignKey: 'category_id', as: 'transactions' });
+
+// CashTransaction ↔ User
+CashTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
+User.hasMany(CashTransaction, { foreignKey: 'created_by', as: 'cash_transactions' });
 
 // ─── Catálogo de productos ──────────────────────────────────────────────────
 
@@ -161,4 +179,7 @@ export {
   StockMovement,
   InvoicePayment,
   CatalogInvoicePayment,
+  CashAccount,
+  CashTransactionCategory,
+  CashTransaction,
 };
