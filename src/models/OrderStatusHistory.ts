@@ -43,6 +43,8 @@ OrderStatusHistory.init(
         'workshop_review',
         'observed',
         'in_production',
+        'sewing',
+        'stamping',
         'quality_check',
         'ready',
         'cancelled'
@@ -56,6 +58,8 @@ OrderStatusHistory.init(
         'workshop_review',
         'observed',
         'in_production',
+        'sewing',
+        'stamping',
         'quality_check',
         'ready',
         'cancelled'

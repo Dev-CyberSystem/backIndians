@@ -18,8 +18,9 @@ export class OrderItem extends Model<
 
   // ─── Tipo de prenda y tela ────────────────────────────────────────────────
   declare garment_type_id: number;
-  declare fabric_type_id: CreationOptional<number | null>;   // legacy
-  declare stock_fabric_id: CreationOptional<number | null>;  // stock_items.id
+  declare fabric_type_id: CreationOptional<number | null>;     // legacy
+  declare stock_fabric_id: CreationOptional<number | null>;    // primera tela (legacy compat)
+  declare stock_fabric_ids: CreationOptional<number[] | null>; // múltiples telas
 
   // ─── Diseño y colores ───────────────────────────────────────────────────
   declare color: string;                               // Color principal
@@ -55,9 +56,15 @@ export class OrderItem extends Model<
   declare has_embroidery: CreationOptional<boolean>;
   declare embroidery_notes: CreationOptional<string | null>;
 
-  // ─── Cantidades por talla ────────────────────────────────────────────────
+  // ─── Cantidades por talla y datos de jugadores ──────────────────────────
   // { "id_SizeChart": cantidad } — ej: { "1": 5, "2": 10 }
   declare sizes: SizesMap;
+  // { "id_SizeChart": [{ name, number }, ...] }
+  declare players_data: CreationOptional<Record<string, { name: string; number: string }[]> | null>;
+
+  // ─── Tabla de talles (imagen) ────────────────────────────────────────────
+  declare size_chart_image_url: CreationOptional<string | null>;
+  declare size_chart_cloudinary_id: CreationOptional<string | null>;
 
   // ─── Precio y notas ──────────────────────────────────────────────────────
   declare unit_price: CreationOptional<number | null>;
@@ -95,6 +102,11 @@ OrderItem.init(
     stock_fabric_id: {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: true,
+    },
+    stock_fabric_ids: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: '[id, id, ...] — múltiples telas del stock',
     },
 
     // Diseño
@@ -198,6 +210,23 @@ OrderItem.init(
       type: DataTypes.JSON,
       allowNull: false,
       comment: '{"id_SizeChart": cantidad}',
+    },
+
+    // Datos de jugadores por talla
+    players_data: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: '{ sizeId: [{ name, number }] }',
+    },
+
+    // Tabla de talles
+    size_chart_image_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    size_chart_cloudinary_id: {
+      type: DataTypes.STRING(300),
+      allowNull: true,
     },
 
     // Precio y notas

@@ -28,6 +28,7 @@ export class Invoice extends Model<
   declare discount_amount: CreationOptional<number>;
   declare extra_items: CreationOptional<InvoiceExtraItem[] | null>;
   declare total_amount: CreationOptional<number | null>;
+  declare payment_amount: CreationOptional<number | null>;
   declare pdf_url: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -79,6 +80,11 @@ Invoice.init(
     total_amount: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
+    },
+    payment_amount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: null,
     },
     pdf_url: {
       type: DataTypes.STRING(1000),

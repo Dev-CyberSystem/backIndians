@@ -33,6 +33,12 @@ export async function listClients(page: number, limit: number, search?: string) 
   return { clients: rows, total: count, page, limit };
 }
 
+export async function getClientById(id: number): Promise<Client> {
+  const client = await Client.findByPk(id);
+  if (!client) throw new AppError('Cliente no encontrado', 404);
+  return client;
+}
+
 export async function createClient(input: ClientInput): Promise<Client> {
   return Client.create({
     name: input.name,

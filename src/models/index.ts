@@ -2,6 +2,15 @@
 import { User } from './User';
 import { Client } from './Client';
 import { Product } from './Product';
+import { CatalogProduct } from './CatalogProduct';
+import { CatalogProductImage } from './CatalogProductImage';
+import { CatalogProductSize } from './CatalogProductSize';
+import { CatalogOrder } from './CatalogOrder';
+import { CatalogOrderItem } from './CatalogOrderItem';
+import { CatalogInvoice } from './CatalogInvoice';
+import { CatalogInvoiceImage } from './CatalogInvoiceImage';
+import { InvoicePayment } from './InvoicePayment';
+import { CatalogInvoicePayment } from './CatalogInvoicePayment';
 import { Order } from './Order';
 import { OrderItem } from './OrderItem';
 import { OrderImage } from './OrderImage';
@@ -98,10 +107,63 @@ CashTransactionCategory.hasMany(CashTransaction, { foreignKey: 'category_id', as
 CashTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 User.hasMany(CashTransaction, { foreignKey: 'created_by', as: 'cash_transactions' });
 
+// ─── Catálogo de productos ──────────────────────────────────────────────────
+
+// CatalogProduct ↔ Client
+CatalogProduct.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Client.hasMany(CatalogProduct, { foreignKey: 'client_id', as: 'catalog_products' });
+
+// CatalogProductImage ↔ CatalogProduct
+CatalogProduct.hasMany(CatalogProductImage, { foreignKey: 'product_id', as: 'images', onDelete: 'CASCADE' });
+CatalogProductImage.belongsTo(CatalogProduct, { foreignKey: 'product_id', as: 'product' });
+
+// CatalogProductSize ↔ CatalogProduct
+CatalogProduct.hasMany(CatalogProductSize, { foreignKey: 'product_id', as: 'sizes', onDelete: 'CASCADE' });
+CatalogProductSize.belongsTo(CatalogProduct, { foreignKey: 'product_id', as: 'product' });
+
+// CatalogOrder ↔ Client
+CatalogOrder.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Client.hasMany(CatalogOrder, { foreignKey: 'client_id', as: 'catalog_orders' });
+
+// CatalogOrder ↔ User (vendedor)
+CatalogOrder.belongsTo(User, { foreignKey: 'seller_id', as: 'seller' });
+User.hasMany(CatalogOrder, { foreignKey: 'seller_id', as: 'catalog_sold_orders' });
+
+// CatalogOrderItem ↔ CatalogOrder
+CatalogOrder.hasMany(CatalogOrderItem, { foreignKey: 'catalog_order_id', as: 'items', onDelete: 'CASCADE' });
+CatalogOrderItem.belongsTo(CatalogOrder, { foreignKey: 'catalog_order_id', as: 'order' });
+
+// CatalogOrderItem ↔ CatalogProduct
+CatalogOrderItem.belongsTo(CatalogProduct, { foreignKey: 'product_id', as: 'product' });
+CatalogProduct.hasMany(CatalogOrderItem, { foreignKey: 'product_id', as: 'order_items' });
+
+// CatalogInvoice ↔ CatalogOrder (1:1)
+CatalogOrder.hasOne(CatalogInvoice, { foreignKey: 'catalog_order_id', as: 'invoice', onDelete: 'CASCADE' });
+CatalogInvoice.belongsTo(CatalogOrder, { foreignKey: 'catalog_order_id', as: 'order' });
+
+// CatalogInvoiceImage ↔ CatalogInvoice
+CatalogInvoice.hasMany(CatalogInvoiceImage, { foreignKey: 'catalog_invoice_id', as: 'images', onDelete: 'CASCADE' });
+CatalogInvoiceImage.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
+
+// InvoicePayment ↔ Invoice
+Invoice.hasMany(InvoicePayment, { foreignKey: 'invoice_id', as: 'payments', onDelete: 'CASCADE' });
+InvoicePayment.belongsTo(Invoice, { foreignKey: 'invoice_id', as: 'invoice' });
+
+// CatalogInvoicePayment ↔ CatalogInvoice
+CatalogInvoice.hasMany(CatalogInvoicePayment, { foreignKey: 'catalog_invoice_id', as: 'payments', onDelete: 'CASCADE' });
+CatalogInvoicePayment.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
+
 export {
   User,
   Client,
   Product,
+  CatalogProduct,
+  CatalogProductImage,
+  CatalogProductSize,
+  CatalogOrder,
+  CatalogOrderItem,
+  CatalogInvoice,
+  CatalogInvoiceImage,
   Order,
   OrderItem,
   OrderImage,
@@ -115,6 +177,8 @@ export {
   Settings,
   StockCategory,
   StockMovement,
+  InvoicePayment,
+  CatalogInvoicePayment,
   CashAccount,
   CashTransactionCategory,
   CashTransaction,

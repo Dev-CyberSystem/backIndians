@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import { Order } from '../models/Order';
 import { Invoice } from '../models/Invoice';
 import { OrderItem } from '../models/OrderItem';
+import { SizeChart } from '../models/SizeChart';
 import { Sponsor, Customization } from '../types';
 import { CompanySettings } from '../services/settings.service';
 
@@ -59,6 +60,12 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
   const seller  = (order as any).seller;
   const items: OrderItem[] = (order as any).items || [];
 
+  // Mapa de talles: id → nombre
+  const sizeCharts: SizeChart[] = await SizeChart.findAll({ attributes: ['id', 'name'] });
+  const sizeMap: Record<string, string> = Object.fromEntries(
+    sizeCharts.map((s) => [String(s.id), s.name])
+  );
+
   // ── Encabezado ──────────────────────────────────────────────────────────────
   doc.fontSize(18).font('Helvetica-Bold').fillColor('#000000')
     .text('FICHA TÉCNICA DE PEDIDO', { align: 'center' });
@@ -111,8 +118,12 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
   // ── Ítems ────────────────────────────────────────────────────────────────────
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    const garment = (item as any).garmentType;
-    const fabric  = (item as any).fabricType;
+    const garment     = (item as any).garmentType;
+    const stockFabrics: { id: number; name: string }[] = (item as any).stockFabrics ?? [];
+    const stockFabric  = (item as any).stockFabric;
+    const fabricNames  = stockFabrics.length > 0
+      ? stockFabrics.map((f) => f.name).join(', ')
+      : stockFabric?.name ?? (item as any).fabricType?.name ?? null;
     const units   = totalUnits(item);
 
     doc.moveDown(0.8);
@@ -120,7 +131,7 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
     // Título del ítem
     const itemTitle = [
       garment?.name || 'Prenda',
-      fabric?.name ? `(${fabric.name})` : '',
+      fabricNames ? `(${fabricNames})` : '',
     ].filter(Boolean).join(' ');
 
     doc.fontSize(11).font('Helvetica-Bold').fillColor('#000000')
@@ -270,15 +281,16 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
     doc.fontSize(9);
 
     if (item.sizes && Object.keys(item.sizes).length > 0) {
-      const entries = Object.entries(item.sizes);
-      const cellW = Math.min(70, Math.floor(490 / entries.length));
+      const entries = Object.entries(item.sizes).filter(([, q]) => q > 0);
+      const cellW = Math.min(70, Math.floor(490 / Math.max(entries.length, 1)));
       const startX = 55;
       const headerRowY = doc.y;
 
-      // Cabecera de tallas
+      // Cabecera con nombres de talles
       doc.font('Helvetica-Bold');
       entries.forEach(([sizeId], idx) => {
-        doc.text(`T${sizeId}`, startX + idx * cellW, headerRowY, { width: cellW, align: 'center' });
+        const sizeName = sizeMap[sizeId] ?? `T${sizeId}`;
+        doc.text(sizeName, startX + idx * cellW, headerRowY, { width: cellW, align: 'center' });
       });
       doc.moveDown(0.2);
       doc.moveTo(55, doc.y).lineTo(55 + entries.length * cellW, doc.y).stroke('#AAAAAA').moveDown(0.2);
@@ -295,15 +307,32 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
       doc.moveDown(0.3);
     }
 
-    // Total del ítem
-    const uprice = Number(item.unit_price ?? 0);
-    const subtotal = units * uprice;
-    doc.fontSize(9).font('Helvetica-Bold')
-      .text(`Total unidades: ${units}`, 55, doc.y, { continued: true, width: 490 });
-    if (item.unit_price != null) {
-      doc.text(`   P.Unit: $${uprice.toFixed(2)}   Subtotal: $${subtotal.toFixed(2)}`, { align: 'right' });
-    } else {
-      doc.text('');
+    doc.fontSize(9).font('Helvetica-Bold').text(`Total unidades: ${units}`, 55, doc.y);
+
+    // ── Jugadores por talle ──────────────────────────────────────────────────
+    const playersData = item.players_data as Record<string, { name: string; number: string }[]> | null;
+    if (playersData && Object.keys(playersData).length > 0) {
+      SECTION(doc, 'Jugadores por talle');
+      doc.fontSize(9);
+      const pColX = [55, 180, 330];
+      const pHeaderY = doc.y;
+      doc.font('Helvetica-Bold')
+        .text('Talle', pColX[0], pHeaderY, { width: 120 })
+        .text('Nombre', pColX[1], pHeaderY, { width: 145 })
+        .text('Número', pColX[2], pHeaderY, { width: 100 });
+      doc.moveDown(0.2);
+      doc.moveTo(55, doc.y).lineTo(540, doc.y).stroke('#AAAAAA').moveDown(0.2);
+      doc.font('Helvetica');
+      for (const [sizeId, players] of Object.entries(playersData)) {
+        const sizeName = sizeMap[sizeId] ?? sizeId;
+        for (const player of players) {
+          const pY = doc.y;
+          doc.text(sizeName, pColX[0], pY, { width: 120 });
+          doc.text(player.name || '-', pColX[1], pY, { width: 145 });
+          doc.text(player.number || '-', pColX[2], pY, { width: 100 });
+          doc.moveDown(0.25);
+        }
+      }
     }
 
     // Notas del ítem
@@ -313,12 +342,6 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
         .font('Helvetica').text(item.notes);
     }
   }
-
-  // ── Total general ────────────────────────────────────────────────────────────
-  doc.moveDown(1);
-  doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#000000').moveDown(0.4);
-  doc.fontSize(13).font('Helvetica-Bold')
-    .text(`TOTAL DEL PEDIDO: $${Number(order.total_amount).toFixed(2)}`, { align: 'right' });
 
   return streamToBuffer(doc);
 }

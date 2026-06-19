@@ -26,8 +26,9 @@ import { getIO } from '../config/socket';
 export interface OrderItemInput {
   // Prenda y tela
   garment_type_id: number;
-  stock_fabric_id?: number;  // tela desde inventario (reemplaza fabric_type_id)
-  fabric_type_id?: number;   // legacy
+  stock_fabric_id?: number;    // legacy — primera tela
+  stock_fabric_ids?: number[]; // múltiples telas
+  fabric_type_id?: number;     // legacy
 
   // Diseño
   color: string;
@@ -59,8 +60,9 @@ export interface OrderItemInput {
   has_embroidery?: boolean;
   embroidery_notes?: string;
 
-  // Tallas y precio
+  // Tallas, jugadores y precio
   sizes: SizesMap;
+  players_data?: Record<string, { name: string; number: string }[]>;
   unit_price?: number;
   notes?: string;
 }
@@ -105,17 +107,18 @@ async function generateOrderNumber(): Promise<string> {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   const dateStr = `${y}${m}${d}`;
-  const isoDate = `${y}-${m}-${d}`;
+  const dayStart = new Date(y, now.getMonth(), now.getDate());
+  const dayEnd   = new Date(y, now.getMonth(), now.getDate() + 1);
 
   const rows = await sequelize.query<{ cnt: string }>(
-    `SELECT COUNT(*) AS cnt FROM orders WHERE DATE(createdAt) = :isoDate`,
-    { replacements: { isoDate }, type: QueryTypes.SELECT }
+    `SELECT COUNT(*) AS cnt FROM orders WHERE createdAt >= :dayStart AND createdAt < :dayEnd`,
+    { replacements: { dayStart, dayEnd }, type: QueryTypes.SELECT }
   );
   const count = Number(rows[0]?.cnt ?? 0);
   return `PED-${dateStr}-${String(count + 1).padStart(4, '0')}`;
 }
 
-// Incluye las relaciones comunes al cargar un pedido
+// Relaciones completas — usadas en detalle de pedido
 const orderIncludes = [
   { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name', 'phone', 'email', 'address', 'cuit'] },
   { model: User, as: 'creator', attributes: ['id', 'name', 'email', 'role'] },
@@ -139,6 +142,18 @@ const orderIncludes = [
     as: 'status_history',
     include: [{ model: User, as: 'changer', attributes: ['id', 'name', 'role'] }],
   },
+  {
+    model: Invoice,
+    as: 'invoices',
+    attributes: ['id', 'invoice_number', 'issue_date', 'status'],
+    required: false,
+  },
+];
+
+// Relaciones mínimas — usadas en listado de pedidos (solo lo que muestra la tabla)
+const listIncludes = [
+  { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name'] },
+  { model: User,   as: 'seller', attributes: ['id', 'name'] },
   {
     model: Invoice,
     as: 'invoices',
@@ -206,7 +221,8 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
     order_id: orderId,
     garment_type_id: item.garment_type_id,
     fabric_type_id: item.fabric_type_id ?? null,
-    stock_fabric_id: item.stock_fabric_id ?? null,
+    stock_fabric_ids: item.stock_fabric_ids?.length ? item.stock_fabric_ids : null,
+    stock_fabric_id: item.stock_fabric_ids?.[0] ?? item.stock_fabric_id ?? null,
     // Diseño y colores
     color: item.color,
     color_secondary: item.color_secondary || null,
@@ -231,8 +247,9 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
     // Bordado
     has_embroidery: item.has_embroidery ?? false,
     embroidery_notes: item.embroidery_notes || null,
-    // Tallas y precio
+    // Tallas, jugadores y precio
     sizes: item.sizes,
+    players_data: item.players_data ?? null,
     unit_price: item.unit_price ?? null,
     notes: item.notes || null,
   }));
@@ -240,37 +257,41 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
 
 // ─── Validación de transiciones de estado por rol ────────────────────────────
 
+export const ORDER_STATUS_TRANSITIONS: Record<string, Partial<Record<OrderStatus, OrderStatus[]>>> = {
+  seller: {
+    observed: ['under_review'],
+  },
+  billing: {
+    pending:      ['under_review'],
+    under_review: ['observed', 'workshop_review'],
+  },
+  workshop: {
+    workshop_review: ['in_production', 'observed'],
+    in_production:   ['sewing'],
+    sewing:          ['stamping', 'in_production'],
+    stamping:        ['quality_check', 'sewing'],
+    quality_check:   ['ready'],
+  },
+  admin: {
+    pending:         ['under_review', 'cancelled'],
+    under_review:    ['observed', 'workshop_review', 'cancelled'],
+    observed:        ['under_review', 'cancelled'],
+    workshop_review: ['in_production', 'observed', 'cancelled'],
+    in_production:   ['sewing', 'cancelled'],
+    sewing:          ['stamping', 'in_production', 'cancelled'],
+    stamping:        ['quality_check', 'sewing', 'cancelled'],
+    quality_check:   ['ready', 'cancelled'],
+    ready:           ['cancelled'],
+    cancelled:       [],
+  },
+};
+
 function validateStatusTransition(
   role: JwtPayload['role'],
   currentStatus: OrderStatus,
   newStatus: OrderStatus
 ): void {
-  const transitions: Record<string, Partial<Record<OrderStatus, OrderStatus[]>>> = {
-    seller: {
-      observed: ['under_review'],
-    },
-    billing: {
-      pending:      ['under_review'],
-      under_review: ['observed', 'workshop_review'],
-    },
-    workshop: {
-      workshop_review: ['in_production', 'observed'],
-      in_production:   ['quality_check'],
-      quality_check:   ['ready'],
-    },
-    admin: {
-      pending:         ['under_review', 'cancelled'],
-      under_review:    ['observed', 'workshop_review', 'cancelled'],
-      observed:        ['under_review', 'cancelled'],
-      workshop_review: ['in_production', 'observed', 'cancelled'],
-      in_production:   ['quality_check', 'cancelled'],
-      quality_check:   ['ready', 'cancelled'],
-      ready:           ['cancelled'],
-      cancelled:       [],
-    },
-  };
-
-  const allowed = transitions[role]?.[currentStatus] ?? [];
+  const allowed = ORDER_STATUS_TRANSITIONS[role]?.[currentStatus] ?? [];
   if (!allowed.includes(newStatus)) {
     throw new AppError(
       `El rol "${role}" no puede mover un pedido de "${currentStatus}" a "${newStatus}"`,
@@ -332,7 +353,7 @@ export async function listOrders(
 
   const { rows, count } = await Order.findAndCountAll({
     where,
-    include: orderIncludes,
+    include: listIncludes,
     limit,
     offset,
     order: [['createdAt', 'DESC']],
@@ -352,6 +373,24 @@ export async function getOrderById(
   // Seller solo puede ver sus propios pedidos
   if (currentUser?.role === 'seller' && order.seller_id !== currentUser.id) {
     throw new AppError('No tenés permiso para ver este pedido', 403);
+  }
+
+  // Resolver nombres de todas las telas (stock_fabric_ids → stockFabrics[])
+  const items: OrderItem[] = (order as any).items ?? [];
+  const allFabricIds = [...new Set(
+    items.flatMap((item) => (item.stock_fabric_ids as number[] | null) ?? [])
+  )].filter(Boolean);
+
+  if (allFabricIds.length > 0) {
+    const fabrics = await StockItem.findAll({
+      where: { id: allFabricIds },
+      attributes: ['id', 'name'],
+    });
+    const fabricMap = Object.fromEntries(fabrics.map((f) => [f.id, { id: f.id, name: f.name }]));
+    for (const item of items) {
+      const ids: number[] = (item.stock_fabric_ids as number[] | null) ?? [];
+      (item as any).stockFabrics = ids.map((fid) => fabricMap[fid]).filter(Boolean);
+    }
   }
 
   return order;
@@ -538,6 +577,54 @@ export async function deleteOrderImage(
 
   await deleteImage(image.cloudinary_public_id);
   await image.destroy();
+}
+
+export async function uploadItemSizeChart(
+  orderId: number,
+  itemId: number,
+  file: Express.Multer.File
+): Promise<OrderItem> {
+  const item = await OrderItem.findOne({ where: { id: itemId, order_id: orderId } });
+  if (!item) throw new AppError('Ítem no encontrado', 404);
+
+  // Eliminar imagen anterior si existe
+  if (item.size_chart_cloudinary_id) {
+    await deleteImage(item.size_chart_cloudinary_id).catch(() => null);
+  }
+
+  const result = await new Promise<{ secure_url: string; public_id: string }>(
+    (resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: `textil/orders/${orderId}/size-charts` },
+        (error, res) => {
+          if (error || !res) return reject(error || new Error('Upload fallido'));
+          resolve({ secure_url: res.secure_url, public_id: res.public_id });
+        }
+      );
+      uploadStream.end(file.buffer);
+    }
+  );
+
+  await item.update({
+    size_chart_image_url: result.secure_url,
+    size_chart_cloudinary_id: result.public_id,
+  });
+
+  return item;
+}
+
+export async function deleteItemSizeChart(
+  orderId: number,
+  itemId: number
+): Promise<void> {
+  const item = await OrderItem.findOne({ where: { id: itemId, order_id: orderId } });
+  if (!item) throw new AppError('Ítem no encontrado', 404);
+
+  if (item.size_chart_cloudinary_id) {
+    await deleteImage(item.size_chart_cloudinary_id).catch(() => null);
+  }
+
+  await item.update({ size_chart_image_url: null, size_chart_cloudinary_id: null });
 }
 
 export async function getOrderHistory(

@@ -33,4 +33,16 @@ router.put(
   ctrl.updateInvoice
 );
 
+router.post(
+  '/:id/payments',
+  authorize('admin', 'billing'),
+  [
+    param('id').isInt({ min: 1 }),
+    body('amount').isFloat({ min: 0.01 }).withMessage('El monto debe ser mayor a 0'),
+    body('notes').optional().isString(),
+    validate,
+  ],
+  ctrl.addInvoicePayment
+);
+
 export default router;

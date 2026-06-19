@@ -6,6 +6,16 @@ import {
 import { AppError } from '../middlewares/errorHandler';
 import { JwtPayload } from '../types';
 
+type SummaryResult = {
+  accounts: { id: number; name: string; type: 'cash' | 'petty_cash' | 'bank'; current_balance: number }[];
+  total_income: number;
+  total_expense: number;
+  net_balance: number;
+  by_category: { category_id: number; name: string; type: string; color: string | null; total: number }[];
+  daily_evolution: { date: string; income: number; expense: number; net: number }[];
+  period_label: string;
+};
+
 // ── Helpers de período ────────────────────────────────────────────────────────
 
 function parsePeriod(period = 'last6'): { dateFrom: string; dateTo: string; periodLabel: string } {
@@ -336,7 +346,7 @@ export async function deleteTransaction(id: number) {
 
 // ── Resumen ───────────────────────────────────────────────────────────────────
 
-export async function getSummary(period?: string) {
+export async function getSummary(period?: string): Promise<SummaryResult> {
   const { dateFrom, dateTo, periodLabel } = parsePeriod(period);
 
   const accounts = await CashAccount.findAll({
@@ -394,7 +404,7 @@ export async function getSummary(period?: string) {
     accounts: accounts.map((a) => ({
       id:              a.id,
       name:            a.name,
-      type:            a.type,
+      type:            a.type as 'cash' | 'petty_cash' | 'bank',
       current_balance: Number(a.current_balance),
     })),
     total_income:  totalIncome,
