@@ -10,34 +10,55 @@ export interface CompanySettings {
   invoice_due_days: string;
 }
 
-const KEYS: (keyof CompanySettings)[] = [
+const VALID_KEYS: string[] = [
+  // Empresa
   'company_name', 'company_address', 'company_cuit',
   'company_phone', 'company_email', 'invoice_due_days',
+  // Tienda — general
+  'store_name', 'store_description', 'store_active',
+  'store_logo_url', 'store_banner_url', 'store_primary_color',
+  'store_whatsapp', 'store_instagram', 'store_facebook',
+  // Tienda — envíos
+  'shipping_cost', 'free_shipping_min', 'store_pickup_address',
+  // Tienda — landing hero
+  'store_hero_title', 'store_hero_subtitle', 'store_hero_cta',
+  'store_hero_badge',
+  'store_hero_image_url', 'store_hero_image_2_url', 'store_hero_image_3_url',
+  // Tienda — landing secciones
+  'store_marquee',
+  'store_categories_title',
+  'store_featured_title', 'store_featured_subtitle',
+  // Tienda — landing banner promo
+  'store_promo_image_url', 'store_promo_title',
+  'store_promo_subtitle', 'store_promo_cta',
+  // Tienda — barra de promociones (pills)
+  'store_promo_pills',
 ];
 
-export async function getAllSettings(): Promise<CompanySettings> {
-  const rows = await Settings.findAll({ where: { key: KEYS } });
+export async function getAllSettings(): Promise<Record<string, string>> {
+  const rows = await Settings.findAll({ where: { key: VALID_KEYS } });
   const map: Record<string, string> = {};
   for (const row of rows) {
     map[row.key] = row.value ?? '';
   }
-  return {
-    company_name:     map.company_name     ?? '',
-    company_address:  map.company_address  ?? '',
-    company_cuit:     map.company_cuit     ?? '',
-    company_phone:    map.company_phone    ?? '',
-    company_email:    map.company_email    ?? '',
-    invoice_due_days: map.invoice_due_days ?? '30',
-  };
+  return map;
 }
 
-export async function updateSettings(data: Partial<CompanySettings>): Promise<CompanySettings> {
-  const entries = Object.entries(data).filter(([k]) => KEYS.includes(k as keyof CompanySettings));
+export async function updateSettings(
+  data: Record<string, string>
+): Promise<Record<string, string>> {
+  const entries = Object.entries(data).filter(([k]) => VALID_KEYS.includes(k));
+  if (!entries.length) return getAllSettings();
+
   const now = new Date();
   await sequelize.transaction(async (t) => {
     for (const [key, value] of entries) {
-      await Settings.upsert({ key, value: value ?? '', createdAt: now, updatedAt: now }, { transaction: t });
+      await Settings.upsert(
+        { key, value: value ?? '', createdAt: now, updatedAt: now },
+        { transaction: t }
+      );
     }
   });
+
   return getAllSettings();
 }

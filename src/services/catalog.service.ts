@@ -56,13 +56,17 @@ export interface SizeInput {
 }
 
 export interface ProductInput {
-  client_id: number;
-  title: string;
-  description?: string;
-  price: number;
+  client_id:     number;
+  title:         string;
+  description?:  string;
+  price:         number;
+  public_price?: number | null;
+  show_in_store?: boolean;
+  category?:     string | null;
+  gender?:       'masculino' | 'femenino' | 'infantil' | 'unisex' | null;
   stock_quantity?: number;
-  active?: boolean;
-  sizes?: SizeInput[];
+  active?:       boolean;
+  sizes?:        SizeInput[];
 }
 
 export async function listClientProducts(clientId: number) {
@@ -111,12 +115,16 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
   const t = await sequelize.transaction();
   try {
     const product = await CatalogProduct.create({
-      client_id: input.client_id,
-      title: input.title,
-      description: input.description || null,
-      price: input.price,
-      stock_quantity: input.stock_quantity ?? 0,
-      active: input.active ?? true,
+      client_id:       input.client_id,
+      title:           input.title,
+      description:     input.description || null,
+      price:           input.price,
+      public_price:    input.public_price ?? null,
+      show_in_store:   input.show_in_store ?? false,
+      category:        input.category ?? null,
+      gender:          input.gender ?? null,
+      stock_quantity:  input.stock_quantity ?? 0,
+      active:          input.active ?? true,
     }, { transaction: t });
 
     if (input.sizes?.length) {
@@ -190,11 +198,19 @@ export async function adjustProductStock(id: number, quantity: number): Promise<
   return product;
 }
 
-export async function deleteProduct(id: number): Promise<void> {
+export async function deleteProduct(id: number): Promise<{ soft: boolean }> {
   const product = await CatalogProduct.findByPk(id, {
     include: [{ model: CatalogProductImage, as: 'images' }],
   });
   if (!product) throw new AppError('Producto no encontrado', 404);
+
+  const usedCount = await CatalogOrderItem.count({ where: { product_id: id } });
+
+  if (usedCount > 0) {
+    // Tiene pedidos asociados: desactivar en vez de borrar
+    await product.update({ active: false, show_in_store: false });
+    return { soft: true };
+  }
 
   const images = (product as CatalogProduct & { images?: CatalogProductImage[] }).images ?? [];
   for (const img of images) {
@@ -203,6 +219,7 @@ export async function deleteProduct(id: number): Promise<void> {
     }
   }
   await product.destroy();
+  return { soft: false };
 }
 
 // ─── Imágenes de productos ───────────────────────────────────────────────────

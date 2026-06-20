@@ -45,8 +45,11 @@ export async function updateProduct(req: AuthRequest, res: Response, next: NextF
 
 export async function deleteProduct(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    await catalogService.deleteProduct(parseInt(req.params.id));
-    res.json({ success: true, data: { message: 'Producto eliminado' } });
+    const { soft } = await catalogService.deleteProduct(parseInt(req.params.id));
+    const message = soft
+      ? 'El producto tiene pedidos asociados y fue desactivado (no eliminado)'
+      : 'Producto eliminado';
+    res.json({ success: true, data: { message, soft } });
   } catch (err) { next(err); }
 }
 

@@ -18,6 +18,10 @@ export class CatalogProduct extends Model<
   declare price: number;
   declare stock_quantity: CreationOptional<number>;
   declare active: CreationOptional<boolean>;
+  declare public_price: CreationOptional<number | null>;
+  declare show_in_store: CreationOptional<boolean>;
+  declare category: CreationOptional<string | null>;
+  declare gender: CreationOptional<'masculino' | 'femenino' | 'infantil' | 'unisex' | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -59,6 +63,30 @@ CatalogProduct.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
+    },
+    public_price: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+      defaultValue: null,
+      get() {
+        const v = this.getDataValue('public_price');
+        return v === null ? null : parseFloat(String(v));
+      },
+    },
+    show_in_store: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    category: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      defaultValue: null,
+    },
+    gender: {
+      type: DataTypes.ENUM('masculino', 'femenino', 'infantil', 'unisex'),
+      allowNull: true,
+      defaultValue: null,
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

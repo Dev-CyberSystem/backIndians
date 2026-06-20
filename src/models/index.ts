@@ -1,4 +1,9 @@
 // Punto de entrada de modelos: define todas las asociaciones entre tablas
+import { StoreCustomer } from './StoreCustomer';
+import { StoreAddress } from './StoreAddress';
+import { StoreCoupon } from './StoreCoupon';
+import { StoreOrder } from './StoreOrder';
+import { StoreOrderItem } from './StoreOrderItem';
 import { User } from './User';
 import { Client } from './Client';
 import { Product } from './Product';
@@ -107,6 +112,28 @@ CashTransactionCategory.hasMany(CashTransaction, { foreignKey: 'category_id', as
 CashTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 User.hasMany(CashTransaction, { foreignKey: 'created_by', as: 'cash_transactions' });
 
+// ─── Tienda (Ecommerce) ─────────────────────────────────────────────────────
+
+// StoreAddress ↔ StoreCustomer
+StoreCustomer.hasMany(StoreAddress, { foreignKey: 'customer_id', as: 'addresses', onDelete: 'CASCADE' });
+StoreAddress.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+
+// StoreOrder ↔ StoreCustomer
+StoreCustomer.hasMany(StoreOrder, { foreignKey: 'customer_id', as: 'store_orders' });
+StoreOrder.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+
+// StoreOrderItem ↔ StoreOrder
+StoreOrder.hasMany(StoreOrderItem, { foreignKey: 'store_order_id', as: 'items', onDelete: 'CASCADE' });
+StoreOrderItem.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'order' });
+
+// StoreOrderItem ↔ CatalogProduct
+StoreOrderItem.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
+CatalogProduct.hasMany(StoreOrderItem, { foreignKey: 'catalog_product_id', as: 'store_order_items' });
+
+// StoreOrder ↔ StoreCoupon
+StoreCoupon.hasMany(StoreOrder, { foreignKey: 'coupon_id', as: 'orders' });
+StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
+
 // ─── Catálogo de productos ──────────────────────────────────────────────────
 
 // CatalogProduct ↔ Client
@@ -154,6 +181,11 @@ CatalogInvoice.hasMany(CatalogInvoicePayment, { foreignKey: 'catalog_invoice_id'
 CatalogInvoicePayment.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
 
 export {
+  StoreCustomer,
+  StoreAddress,
+  StoreCoupon,
+  StoreOrder,
+  StoreOrderItem,
   User,
   Client,
   Product,
