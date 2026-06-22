@@ -19,6 +19,7 @@ export class CatalogProduct extends Model<
   declare stock_quantity: CreationOptional<number>;
   declare active: CreationOptional<boolean>;
   declare public_price: CreationOptional<number | null>;
+  declare discount_percentage: CreationOptional<number>;
   declare show_in_store: CreationOptional<boolean>;
   declare category: CreationOptional<string | null>;
   declare gender: CreationOptional<'masculino' | 'femenino' | 'infantil' | 'unisex' | null>;
@@ -72,6 +73,11 @@ CatalogProduct.init(
         const v = this.getDataValue('public_price');
         return v === null ? null : parseFloat(String(v));
       },
+    },
+    discount_percentage: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+      defaultValue: 0,
     },
     show_in_store: {
       type: DataTypes.BOOLEAN,

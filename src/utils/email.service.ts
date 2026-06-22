@@ -68,6 +68,56 @@ export async function sendOrderConfirmationEmail(
   });
 }
 
+export async function sendPaymentApprovedEmail(
+  email: string,
+  name: string,
+  orderNumber: string,
+  total: number
+) {
+  await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: `Pago confirmado — Pedido ${orderNumber} — Indians Textil`,
+    html: `
+      <div style="font-family:sans-serif;max-width:540px;margin:0 auto;padding:24px;">
+        <div style="text-align:center;margin-bottom:16px;">
+          <div style="display:inline-block;background:#dcfce7;color:#16a34a;border-radius:999px;padding:12px 20px;font-weight:700;">
+            ✓ Pago acreditado
+          </div>
+        </div>
+        <h2 style="color:#16a34a;">¡Tu pago fue aceptado, ${name}!</h2>
+        <p>Recibimos correctamente el pago de tu pedido <strong>${orderNumber}</strong>.</p>
+        <p>Ya estamos <strong>preparando tu pedido</strong>. Te avisaremos cuando esté listo para el retiro o envío.</p>
+        <p style="text-align:right;font-weight:700;font-size:18px;margin-top:16px;">Total pagado: $${total.toFixed(2)}</p>
+        <p style="color:#6b7280;font-size:13px;">Gracias por comprar en Indians Textil.</p>
+      </div>
+    `,
+  });
+}
+
+export async function sendPaymentRejectedEmail(
+  email: string,
+  name: string,
+  orderNumber: string
+) {
+  await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: `Pago rechazado — Pedido ${orderNumber} — Indians Textil`,
+    html: `
+      <div style="font-family:sans-serif;max-width:540px;margin:0 auto;padding:24px;">
+        <h2 style="color:#dc2626;">No pudimos procesar tu pago</h2>
+        <p>Hola ${name}, el pago de tu pedido <strong>${orderNumber}</strong> fue rechazado o cancelado.</p>
+        <p>Podés volver a intentarlo desde tu cuenta, en la sección <strong>Mis pedidos</strong>.</p>
+        <a href="${STORE_URL}/mi-cuenta/pedidos" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0;">
+          Reintentar el pago
+        </a>
+        <p style="color:#6b7280;font-size:13px;">Si creés que es un error, escribinos y te ayudamos.</p>
+      </div>
+    `,
+  });
+}
+
 export async function sendPasswordResetEmailStore(email: string, name: string, token: string) {
   const link = `${STORE_URL}/auth/resetear-password?token=${token}`;
 

@@ -26,6 +26,10 @@ export interface CreatePreferenceInput {
     failure: string;
     pending: string;
   };
+  /** URL pública del backend que MP llamará al cambiar el estado del pago */
+  notificationUrl?: string;
+  /** Si true, MP redirige automáticamente al sitio tras un pago aprobado */
+  autoReturn?: boolean;
 }
 
 export async function createPreference(input: CreatePreferenceInput) {
@@ -58,6 +62,10 @@ export async function createPreference(input: CreatePreferenceInput) {
     items,
     back_urls: input.backUrls,
     statement_descriptor: 'Indians Textil',
+    // MP llama a esta URL (server-to-server) cuando cambia el estado del pago
+    ...(input.notificationUrl ? { notification_url: input.notificationUrl } : {}),
+    // Redirección automática al sitio tras aprobación (requiere back_urls.success)
+    ...(input.autoReturn ? { auto_return: 'approved' as const } : {}),
   };
 
   const result = await preference.create({ body });
@@ -74,4 +82,18 @@ export async function getPaymentInfo(paymentId: string) {
   const client = getClient();
   const payment = new Payment(client);
   return payment.get({ id: paymentId });
+}
+
+/** Busca pagos asociados a un external_reference (número de orden). Devuelve array vacío si no encuentra o falla. */
+export async function searchPaymentsByReference(externalReference: string): Promise<Array<{ id: number | undefined; status: string | undefined }>> {
+  const client = getClient();
+  const payment = new Payment(client);
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (payment as any).search({ options: { external_reference: externalReference, sort: 'date_created', criteria: 'desc' } });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return ((result?.results ?? []) as any[]).map((p: any) => ({ id: p.id as number | undefined, status: p.status as string | undefined }));
+  } catch {
+    return [];
+  }
 }

@@ -32,9 +32,14 @@ router.get('/products/:id', ctrl.getProduct);
 
 // ─── Cupones (validar, público) ──────────────────────────────────────────────
 router.post('/coupons/validate', ctrl.validateCoupon);
+router.get('/promo-popup', ctrl.getPromoPopup);
 
 // ─── Checkout (auth opcional — compradores sin cuenta también pueden comprar) ─
 router.post('/checkout', optionalStoreAuth, ctrl.checkout);
+
+// ─── Confirmación y estado de pago (público) ─────────────────────────────────
+router.post('/payment/confirm', ctrl.confirmPayment);
+router.get('/orders/:orderNumber/status', ctrl.getOrderStatus);
 
 // ─── Webhook MercadoPago (sin auth) ─────────────────────────────────────────
 router.post('/webhook/mp', ctrl.webhook);

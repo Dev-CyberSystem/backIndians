@@ -12,9 +12,14 @@ import {
 } from '../models';
 import { Client } from '../models/Client';
 import { AppError } from '../middlewares/errorHandler';
-import { createPreference, getPaymentInfo } from './mercadopago.service';
-import { sendOrderConfirmationEmail } from '../utils/email.service';
+import { createPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
+import {
+  sendOrderConfirmationEmail,
+  sendPaymentApprovedEmail,
+  sendPaymentRejectedEmail,
+} from '../utils/email.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
+import { getIO } from '../config/socket';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -251,6 +256,37 @@ export async function validateCoupon(code: string, subtotal: number) {
   return { coupon, discount };
 }
 
+// ─── Popup promocional (público) ──────────────────────────────────────────────
+
+export async function getPromoPopupCoupon() {
+  const now = new Date();
+  const coupon = await StoreCoupon.findOne({
+    where: {
+      active: true,
+      show_popup: true,
+      [Op.and]: [
+        { [Op.or]: [{ starts_at: null }, { starts_at: { [Op.lte]: now } }] },
+        { [Op.or]: [{ expires_at: null }, { expires_at: { [Op.gte]: now } }] },
+      ],
+    },
+    order: [['updatedAt', 'DESC']],
+  });
+
+  if (!coupon) return null;
+  // No promocionar cupones ya agotados
+  if (coupon.max_uses != null && coupon.used_count >= coupon.max_uses) return null;
+
+  return {
+    code: coupon.code,
+    description: coupon.description,
+    type: coupon.type,
+    value: Number(coupon.value),
+    min_purchase: coupon.min_purchase != null ? Number(coupon.min_purchase) : null,
+    popup_image_url: coupon.popup_image_url,
+    expires_at: coupon.expires_at,
+  };
+}
+
 // ─── Admin: gestión de cupones ───────────────────────────────────────────────
 
 export async function listCoupons() {
@@ -264,6 +300,8 @@ export async function createCoupon(data: {
   value: number;
   min_purchase?: number;
   max_uses?: number;
+  show_popup?: boolean;
+  popup_image_url?: string | null;
   starts_at?: string;
   expires_at?: string;
 }) {
@@ -273,6 +311,7 @@ export async function createCoupon(data: {
   return StoreCoupon.create({
     ...data,
     code: data.code.toUpperCase(),
+    popup_image_url: data.popup_image_url ?? null,
     starts_at: data.starts_at ? new Date(data.starts_at) : null,
     expires_at: data.expires_at ? new Date(data.expires_at) : null,
   });
@@ -288,6 +327,8 @@ export async function updateCoupon(
     min_purchase: number;
     max_uses: number;
     active: boolean;
+    show_popup: boolean;
+    popup_image_url: string | null;
     starts_at: string;
     expires_at: string;
   }>
@@ -338,6 +379,11 @@ export interface CheckoutInput {
 
 export async function createStoreOrder(input: CheckoutInput) {
   const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
+  const BACKEND_URL = process.env.BACKEND_PUBLIC_URL || 'http://localhost:3000';
+
+  if (!input.items || input.items.length === 0) {
+    throw new AppError('El carrito está vacío', 400);
+  }
 
   // 1. Resolver productos y verificar stock
   const productIds = [...new Set(input.items.map((i) => i.catalog_product_id))];
@@ -367,7 +413,11 @@ export async function createStoreOrder(input: CheckoutInput) {
     const product = productMap.get(cartItem.catalog_product_id);
     if (!product) throw new AppError(`Producto ${cartItem.catalog_product_id} no disponible`, 400);
 
-    const price = Number(product.public_price ?? product.price);
+    const basePrice = Number(product.public_price ?? product.price);
+    const disc = Number((product as any).discount_percentage ?? 0);
+    const price = disc > 0
+      ? parseFloat((basePrice * (100 - disc) / 100).toFixed(2))
+      : basePrice;
     const sizes = (product as any).sizes as CatalogProductSize[];
     let sizeRecord: CatalogProductSize | undefined;
 
@@ -487,10 +537,12 @@ export async function createStoreOrder(input: CheckoutInput) {
   });
 
   // 5. Generar preference de MercadoPago
+  // Incluimos el order_number en las back_urls para reconciliar el pago al volver
+  const ref = encodeURIComponent(order.order_number);
   const backUrls = input.back_urls ?? {
-    success: `${STORE_URL}/checkout/exito`,
-    failure: `${STORE_URL}/checkout/fallo`,
-    pending: `${STORE_URL}/checkout/pendiente`,
+    success: `${STORE_URL}/checkout/exito?order=${ref}`,
+    failure: `${STORE_URL}/checkout/fallo?order=${ref}`,
+    pending: `${STORE_URL}/checkout/pendiente?order=${ref}`,
   };
 
   const mpResult = await createPreference({
@@ -506,6 +558,9 @@ export async function createStoreOrder(input: CheckoutInput) {
     paymentType: 'full',
     overrideAmount: totalAmount,
     backUrls,
+    notificationUrl: `${BACKEND_URL}/api/v1/store/webhook/mp`,
+    // MP rechaza auto_return con back_urls http (localhost). Solo en producción (https).
+    autoReturn: backUrls.success.startsWith('https://'),
   });
 
   await order.update({
@@ -536,7 +591,71 @@ export async function createStoreOrder(input: CheckoutInput) {
   };
 }
 
-// ─── Webhook MercadoPago (tienda) ────────────────────────────────────────────
+// ─── Reconciliación de pago (compartida por webhook y retorno del cliente) ────
+
+function mapMpStatusToOrderStatus(mpStatus: string, current: StoreOrderStatus): StoreOrderStatus {
+  if (mpStatus === 'approved') return 'paid';
+  if (mpStatus === 'pending' || mpStatus === 'in_process' || mpStatus === 'authorized') return 'pending_payment';
+  if (mpStatus === 'rejected' || mpStatus === 'cancelled' || mpStatus === 'refunded' || mpStatus === 'charged_back') return 'cancelled';
+  return current;
+}
+
+function emitStorePaymentEvent(order: StoreOrder): void {
+  try {
+    getIO().emit('notification:store_payment', {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      customerName: order.customer_name,
+      status: order.status,
+      mp_status: order.mp_status,
+      total: Number(order.total_amount),
+    });
+  } catch { /* socket puede no estar inicializado en tests */ }
+}
+
+/**
+ * Aplica el resultado de un pago a un pedido. Idempotente: solo dispara emails
+ * y eventos cuando el estado realmente cambia (evita duplicados entre webhook
+ * y la confirmación al volver el cliente).
+ */
+async function applyPaymentResult(
+  order: StoreOrder,
+  mpStatus: string,
+  paymentId: string | null
+): Promise<StoreOrder> {
+  const prevStatus = order.status;
+  const newStatus = mapMpStatusToOrderStatus(mpStatus, order.status);
+
+  await order.update({
+    mp_payment_id: paymentId ? String(paymentId) : order.mp_payment_id,
+    mp_status: mpStatus,
+    status: newStatus,
+  });
+
+  // Solo notificar en transiciones reales de estado
+  if (newStatus !== prevStatus) {
+    emitStorePaymentEvent(order);
+
+    if (newStatus === 'paid') {
+      try {
+        await sendPaymentApprovedEmail(
+          order.customer_email,
+          order.customer_name,
+          order.order_number,
+          Number(order.total_amount)
+        );
+      } catch { /* el email no es crítico para el flujo de pago */ }
+    } else if (newStatus === 'cancelled') {
+      try {
+        await sendPaymentRejectedEmail(order.customer_email, order.customer_name, order.order_number);
+      } catch { /* no crítico */ }
+    }
+  }
+
+  return order;
+}
+
+// ─── Webhook MercadoPago (server-to-server) ──────────────────────────────────
 
 export async function handleStoreWebhook(paymentId: string) {
   const info = await getPaymentInfo(paymentId);
@@ -546,14 +665,74 @@ export async function handleStoreWebhook(paymentId: string) {
   const order = await StoreOrder.findOne({ where: { order_number: ref } });
   if (!order) return;
 
-  const mpStatus = info.status ?? 'unknown';
-  let newStatus = order.status;
+  await applyPaymentResult(order, info.status ?? 'unknown', paymentId);
+}
 
-  if (mpStatus === 'approved') newStatus = 'paid';
-  else if (mpStatus === 'pending' || mpStatus === 'in_process') newStatus = 'pending_payment';
-  else if (mpStatus === 'rejected' || mpStatus === 'cancelled') newStatus = 'cancelled';
+// ─── Confirmación al volver el cliente desde MercadoPago ──────────────────────
+// Necesario en desarrollo/local donde MP no puede alcanzar el webhook (localhost).
 
-  await order.update({ mp_payment_id: String(paymentId), mp_status: mpStatus, status: newStatus });
+export async function confirmStorePayment(params: {
+  paymentId?: string | null;
+  orderNumber?: string | null;
+}): Promise<{ order_number: string; status: StoreOrderStatus; mp_status: string | null }> {
+  let order: StoreOrder | null = null;
+  let mpStatus: string | null = null;
+  let paymentId: string | null = params.paymentId ?? null;
+
+  if (paymentId) {
+    // La consulta a MP puede fallar (id inválido, desfase test/prod, error transitorio).
+    try {
+      const info = await getPaymentInfo(paymentId);
+      mpStatus = info.status ?? null;
+      const ref = info.external_reference;
+      if (ref) order = await StoreOrder.findOne({ where: { order_number: ref } });
+    } catch {
+      mpStatus = null;
+    }
+  }
+
+  // Fallback: ubicar el pedido por número aunque no tengamos payment_id válido
+  if (!order && params.orderNumber) {
+    order = await StoreOrder.findOne({ where: { order_number: params.orderNumber } });
+  }
+
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+
+  // Si aún no tenemos mpStatus, buscar el pago en MP por external_reference.
+  // Necesario en dev/local donde el webhook no llega y la back_url http no
+  // hace auto_return, por lo que el frontend llama con solo el número de pedido.
+  if (!mpStatus) {
+    try {
+      const payments = await searchPaymentsByReference(order.order_number);
+      const latest = payments[0];
+      if (latest) {
+        mpStatus = latest.status ?? null;
+        if (!paymentId && latest.id) paymentId = String(latest.id);
+      }
+    } catch { /* no crítico */ }
+  }
+
+  if (mpStatus) {
+    await applyPaymentResult(order, mpStatus, paymentId);
+    // Recargar para devolver el estado actualizado
+    await order.reload();
+  }
+
+  return { order_number: order.order_number, status: order.status, mp_status: order.mp_status };
+}
+
+export async function getStoreOrderStatusByNumber(orderNumber: string) {
+  const order = await StoreOrder.findOne({
+    where: { order_number: orderNumber },
+    attributes: ['order_number', 'status', 'mp_status', 'total_amount'],
+  });
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+  return {
+    order_number: order.order_number,
+    status: order.status,
+    mp_status: order.mp_status,
+    total_amount: Number(order.total_amount),
+  };
 }
 
 // ─── Admin: listado y detalle de pedidos tienda ──────────────────────────────

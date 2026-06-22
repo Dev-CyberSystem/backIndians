@@ -61,6 +61,7 @@ export interface ProductInput {
   description?:  string;
   price:         number;
   public_price?: number | null;
+  discount_percentage?: number;
   show_in_store?: boolean;
   category?:     string | null;
   gender?:       'masculino' | 'femenino' | 'infantil' | 'unisex' | null;
@@ -120,6 +121,7 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
       description:     input.description || null,
       price:           input.price,
       public_price:    input.public_price ?? null,
+      discount_percentage: Math.min(100, Math.max(0, Math.round(input.discount_percentage ?? 0))),
       show_in_store:   input.show_in_store ?? false,
       category:        input.category ?? null,
       gender:          input.gender ?? null,
@@ -154,6 +156,9 @@ export async function updateProduct(
   const product = await CatalogProduct.findByPk(id);
   if (!product) throw new AppError('Producto no encontrado', 404);
   const { sizes, ...rest } = input;
+  if (rest.discount_percentage != null) {
+    rest.discount_percentage = Math.min(100, Math.max(0, Math.round(rest.discount_percentage)));
+  }
   await product.update(rest);
   return getProduct(id);
 }

@@ -20,6 +20,8 @@ export class StoreCoupon extends Model<
   declare max_uses: CreationOptional<number | null>;
   declare used_count: CreationOptional<number>;
   declare active: CreationOptional<boolean>;
+  declare show_popup: CreationOptional<boolean>;
+  declare popup_image_url: CreationOptional<string | null>;
   declare starts_at: CreationOptional<Date | null>;
   declare expires_at: CreationOptional<Date | null>;
   declare createdAt: CreationOptional<Date>;
@@ -51,6 +53,8 @@ StoreCoupon.init(
     max_uses: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
     used_count: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false, defaultValue: 0 },
     active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+    show_popup: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    popup_image_url: { type: DataTypes.STRING(500), allowNull: true },
     starts_at: { type: DataTypes.DATE, allowNull: true },
     expires_at: { type: DataTypes.DATE, allowNull: true },
     createdAt: DataTypes.DATE,

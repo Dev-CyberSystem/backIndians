@@ -166,6 +166,15 @@ export async function validateCoupon(req: Request, res: Response, next: NextFunc
   }
 }
 
+// Popup promocional de la tienda (público)
+export async function getPromoPopup(_req: Request, res: Response, next: NextFunction) {
+  try {
+    res.json({ success: true, data: await store.getPromoPopupCoupon() });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // Admin: gestión de cupones
 export async function listCoupons(_req: Request, res: Response, next: NextFunction) {
   try {
@@ -219,6 +228,32 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
     const paymentId = req.query['data.id'] || req.body?.data?.id;
     if (paymentId) await store.handleStoreWebhook(String(paymentId));
     res.sendStatus(200);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Confirmación de pago al volver el cliente desde MercadoPago (público)
+export async function confirmPayment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const paymentId =
+      req.body?.payment_id ?? req.body?.collection_id ?? req.query.payment_id ?? req.query.collection_id;
+    const orderNumber = req.body?.order ?? req.body?.external_reference ?? req.query.order;
+    const result = await store.confirmStorePayment({
+      paymentId: paymentId ? String(paymentId) : null,
+      orderNumber: orderNumber ? String(orderNumber) : null,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Consulta de estado de un pedido por número (público, para polling)
+export async function getOrderStatus(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await store.getStoreOrderStatusByNumber(String(req.params.orderNumber));
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
