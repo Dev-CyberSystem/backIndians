@@ -32,6 +32,11 @@ const VALID_KEYS: string[] = [
   'store_spotlight_1_image', 'store_spotlight_1_title', 'store_spotlight_1_subtitle', 'store_spotlight_1_link',
   'store_spotlight_2_image', 'store_spotlight_2_title', 'store_spotlight_2_subtitle', 'store_spotlight_2_link',
   'store_spotlight_3_image', 'store_spotlight_3_title', 'store_spotlight_3_subtitle', 'store_spotlight_3_link',
+  // Tienda — carrusel de banners (ancho completo, 4 slides)
+  'store_carousel_1_image', 'store_carousel_1_link',
+  'store_carousel_2_image', 'store_carousel_2_link',
+  'store_carousel_3_image', 'store_carousel_3_link',
+  'store_carousel_4_image', 'store_carousel_4_link',
   // Tienda — landing banner promo
   'store_promo_image_url', 'store_promo_title',
   'store_promo_subtitle', 'store_promo_cta',
