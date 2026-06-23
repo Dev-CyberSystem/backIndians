@@ -17,7 +17,9 @@ import {
   sendOrderConfirmationEmail,
   sendPaymentApprovedEmail,
   sendPaymentRejectedEmail,
+  sendOrderInvoiceEmail,
 } from '../utils/email.service';
+import { generateInvoicePdf } from '../utils/store.pdf';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { getIO } from '../config/socket';
 
@@ -374,6 +376,7 @@ export interface CheckoutInput {
   };
   coupon_code?: string;
   notes?: string;
+  payment_method?: 'mercadopago' | 'cash' | 'bank_transfer';
   back_urls?: { success: string; failure: string; pending: string };
 }
 
@@ -493,6 +496,7 @@ export async function createStoreOrder(input: CheckoutInput) {
         shipping_address: input.shipping_address ?? null,
         coupon_id: couponId,
         coupon_code: couponCode,
+        payment_method: input.payment_method ?? 'mercadopago',
         notes: input.notes ?? null,
       },
       { transaction: t }
@@ -536,36 +540,43 @@ export async function createStoreOrder(input: CheckoutInput) {
     return storeOrder;
   });
 
-  // 5. Generar preference de MercadoPago
-  // Incluimos el order_number en las back_urls para reconciliar el pago al volver
-  const ref = encodeURIComponent(order.order_number);
-  const backUrls = input.back_urls ?? {
-    success: `${STORE_URL}/checkout/exito?order=${ref}`,
-    failure: `${STORE_URL}/checkout/fallo?order=${ref}`,
-    pending: `${STORE_URL}/checkout/pendiente?order=${ref}`,
-  };
+  // 5. Generar preference de MercadoPago solo si el método es MP
+  let mpInitPoint: string | null = null;
+  let mpSandboxInitPoint: string | null = null;
 
-  const mpResult = await createPreference({
-    externalReference: order.order_number,
-    items: resolvedItems.map((i) => ({
-      id: String(i.catalog_product_id),
-      title: i.size_name ? `${i.product_title} — Talle ${i.size_name}` : i.product_title,
-      quantity: i.quantity,
-      unit_price: i.unit_price,
-      currency_id: 'ARS',
-    })),
-    totalAmount,
-    paymentType: 'full',
-    overrideAmount: totalAmount,
-    backUrls,
-    notificationUrl: `${BACKEND_URL}/api/v1/store/webhook/mp`,
-    // MP rechaza auto_return con back_urls http (localhost). Solo en producción (https).
-    autoReturn: backUrls.success.startsWith('https://'),
-  });
+  const paymentMethod = input.payment_method ?? 'mercadopago';
 
-  await order.update({
-    mp_preference_id: mpResult.preference_id,
-  });
+  if (paymentMethod === 'mercadopago') {
+    // Incluimos el order_number en las back_urls para reconciliar el pago al volver
+    const ref = encodeURIComponent(order.order_number);
+    const backUrls = input.back_urls ?? {
+      success: `${STORE_URL}/checkout/exito?order=${ref}`,
+      failure: `${STORE_URL}/checkout/fallo?order=${ref}`,
+      pending: `${STORE_URL}/checkout/pendiente?order=${ref}`,
+    };
+
+    const mpResult = await createPreference({
+      externalReference: order.order_number,
+      items: resolvedItems.map((i) => ({
+        id: String(i.catalog_product_id),
+        title: i.size_name ? `${i.product_title} — Talle ${i.size_name}` : i.product_title,
+        quantity: i.quantity,
+        unit_price: i.unit_price,
+        currency_id: 'ARS',
+      })),
+      totalAmount,
+      paymentType: 'full',
+      overrideAmount: totalAmount,
+      backUrls,
+      notificationUrl: `${BACKEND_URL}/api/v1/store/webhook/mp`,
+      // MP rechaza auto_return con back_urls http (localhost). Solo en producción (https).
+      autoReturn: backUrls.success.startsWith('https://'),
+    });
+
+    await order.update({ mp_preference_id: mpResult.preference_id });
+    mpInitPoint = mpResult.init_point ?? null;
+    mpSandboxInitPoint = mpResult.sandbox_init_point ?? null;
+  }
 
   // 6. Email de confirmación
   try {
@@ -586,9 +597,31 @@ export async function createStoreOrder(input: CheckoutInput) {
 
   return {
     order,
-    mp_init_point: mpResult.init_point,
-    mp_sandbox_init_point: mpResult.sandbox_init_point,
+    payment_method: paymentMethod,
+    mp_init_point: mpInitPoint,
+    mp_sandbox_init_point: mpSandboxInitPoint,
   };
+}
+
+// ─── Comprobante de pago (transferencia bancaria) ────────────────────────────
+
+export async function savePaymentProof(
+  orderNumber: string,
+  customerEmail: string,
+  proofUrl: string
+) {
+  const order = await StoreOrder.findOne({ where: { order_number: orderNumber } });
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+
+  if (order.customer_email.toLowerCase() !== customerEmail.toLowerCase()) {
+    throw new AppError('Sin autorización para este pedido', 403);
+  }
+  if (order.payment_method !== 'bank_transfer') {
+    throw new AppError('Este pedido no usa transferencia bancaria', 400);
+  }
+
+  await order.update({ payment_proof_url: proofUrl });
+  return order;
 }
 
 // ─── Reconciliación de pago (compartida por webhook y retorno del cliente) ────
@@ -740,6 +773,8 @@ export async function getStoreOrderStatusByNumber(orderNumber: string) {
 export async function listStoreOrders(filters: {
   status?: string;
   customer_id?: number;
+  /** Incluye también pedidos de invitado (customer_id IS NULL) con este email */
+  customer_email?: string;
   search?: string;
   page?: number;
   limit?: number;
@@ -750,7 +785,20 @@ export async function listStoreOrders(filters: {
 
   const where: Record<string, unknown> = {};
   if (filters.status) where.status = filters.status;
-  if (filters.customer_id) where.customer_id = filters.customer_id;
+
+  // Filtro de cliente: por ID propio O por email como invitado
+  if (filters.customer_id && filters.customer_email) {
+    where[Op.or as unknown as string] = [
+      { customer_id: filters.customer_id },
+      { customer_id: null, customer_email: filters.customer_email },
+    ];
+  } else if (filters.customer_id) {
+    where.customer_id = filters.customer_id;
+  } else if (filters.customer_email) {
+    where.customer_id = null;
+    where.customer_email = filters.customer_email;
+  }
+
   if (filters.search) {
     where[Op.or as unknown as string] = [
       { order_number: { [Op.like]: `%${filters.search}%` } },
@@ -801,11 +849,88 @@ export async function getStoreOrderById(id: number) {
   return order;
 }
 
-export async function updateStoreOrderStatus(id: number, status: StoreOrderStatus) {
+export async function updateStoreOrderStatus(
+  id: number,
+  status: StoreOrderStatus,
+  tracking?: { tracking_number?: string | null; courier_name?: string | null }
+) {
   const order = await StoreOrder.findByPk(id);
   if (!order) throw new AppError('Pedido no encontrado', 404);
-  await order.update({ status });
+  await order.update({ status, ...(tracking ?? {}) });
   return order;
+}
+
+export async function updateStoreOrderTracking(
+  id: number,
+  data: { tracking_number?: string | null; courier_name?: string | null }
+) {
+  const order = await StoreOrder.findByPk(id);
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+  await order.update(data);
+  return order;
+}
+
+// ─── Factura (PDF) ─────────────────────────────────────────────────────────────
+
+async function buildInvoiceData(orderId: number) {
+  const order = await getStoreOrderById(orderId);
+  const items = (order as any).items as StoreOrderItem[];
+  return {
+    order,
+    invoiceData: {
+      orderNumber: order.order_number,
+      createdAt: order.createdAt as Date,
+      customerName: order.customer_name,
+      customerEmail: order.customer_email,
+      customerPhone: order.customer_phone,
+      shippingType: order.shipping_type ?? 'pickup',
+      shippingAddress: order.shipping_address,
+      couponCode: order.coupon_code,
+      items: items.map((i) => ({
+        product_title: i.product_title,
+        size_name: i.size_name,
+        quantity: Number(i.quantity),
+        unit_price: Number(i.unit_price),
+        subtotal: Number(i.subtotal),
+      })),
+      subtotal: Number(order.subtotal),
+      discountAmount: Number(order.discount_amount),
+      shippingCost: Number(order.shipping_cost),
+      totalAmount: Number(order.total_amount),
+      trackingNumber: order.tracking_number,
+      courierName: order.courier_name,
+    },
+  };
+}
+
+export async function getStoreOrderInvoicePdfBuffer(orderId: number): Promise<{ buffer: Buffer; orderNumber: string }> {
+  const { order, invoiceData } = await buildInvoiceData(orderId);
+  const buffer = await generateInvoicePdf(invoiceData);
+  return { buffer, orderNumber: order.order_number };
+}
+
+/** Verifica que el pedido pertenezca al cliente (por customer_id o email invitado). */
+export async function getStoreOrderByNumberForCustomer(orderNumber: string, customerId: number): Promise<StoreOrder> {
+  const customer = await StoreCustomer.findByPk(customerId);
+  if (!customer) throw new AppError('Cliente no encontrado', 404);
+
+  const order = await StoreOrder.findOne({
+    where: {
+      order_number: orderNumber,
+      [Op.or]: [
+        { customer_id: customerId },
+        { customer_id: null, customer_email: customer.email },
+      ],
+    },
+    include: [{ model: StoreOrderItem, as: 'items' }],
+  });
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+  return order;
+}
+
+export async function sendStoreOrderInvoiceEmail(orderId: number): Promise<void> {
+  const { invoiceData } = await buildInvoiceData(orderId);
+  await sendOrderInvoiceEmail(invoiceData);
 }
 
 // ─── Métricas del ecommerce ──────────────────────────────────────────────────

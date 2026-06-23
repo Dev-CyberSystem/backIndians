@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { generateInvoicePdf, type InvoiceData } from './store.pdf';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indianstextil.com';
@@ -115,6 +116,66 @@ export async function sendPaymentRejectedEmail(
         <p style="color:#6b7280;font-size:13px;">Si creés que es un error, escribinos y te ayudamos.</p>
       </div>
     `,
+  });
+}
+
+export async function sendOrderInvoiceEmail(data: InvoiceData) {
+  const pdfBuffer = await generateInvoicePdf(data);
+
+  const itemsHtml = data.items.map((i) => `
+    <tr>
+      <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;font-size:13px;">
+        ${i.product_title}${i.size_name ? ` — Talle ${i.size_name}` : ''}
+      </td>
+      <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:center;font-size:13px;">${i.quantity}</td>
+      <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px;">$${Number(i.unit_price).toFixed(2)}</td>
+      <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px;">$${Number(i.subtotal).toFixed(2)}</td>
+    </tr>
+  `).join('');
+
+  const discountRow = data.discountAmount > 0
+    ? `<tr><td colspan="3" style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">Descuento${data.couponCode ? ` (${data.couponCode})` : ''}</td><td style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">−$${data.discountAmount.toFixed(2)}</td></tr>`
+    : '';
+  const shippingRow = data.shippingCost > 0
+    ? `<tr><td colspan="3" style="text-align:right;padding:4px 0;font-size:13px;">Envío</td><td style="text-align:right;padding:4px 0;font-size:13px;">$${data.shippingCost.toFixed(2)}</td></tr>`
+    : '';
+
+  await resend.emails.send({
+    from: FROM,
+    to: data.customerEmail,
+    subject: `Factura ${data.orderNumber} — Indians Textil`,
+    html: `
+      <div style="font-family:sans-serif;max-width:580px;margin:0 auto;padding:24px;">
+        <h2 style="color:#1d4ed8;margin-bottom:4px;">Indians Textil</h2>
+        <p style="color:#6b7280;margin-top:0;">Comprobante de compra</p>
+        <p>Hola <strong>${data.customerName}</strong>, te enviamos la factura de tu pedido <strong>${data.orderNumber}</strong>.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+          <thead>
+            <tr style="color:#6b7280;font-size:11px;text-transform:uppercase;">
+              <th style="text-align:left;padding-bottom:6px;">Producto</th>
+              <th style="text-align:center;padding-bottom:6px;">Cant.</th>
+              <th style="text-align:right;padding-bottom:6px;">P. unit.</th>
+              <th style="text-align:right;padding-bottom:6px;">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>${itemsHtml}</tbody>
+          <tfoot>
+            ${discountRow}${shippingRow}
+            <tr>
+              <td colspan="3" style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">Total</td>
+              <td style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">$${data.totalAmount.toFixed(2)}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <p style="color:#6b7280;font-size:12px;margin-top:24px;">El comprobante en PDF está adjunto a este email.</p>
+      </div>
+    `,
+    attachments: [
+      {
+        filename: `factura-${data.orderNumber}.pdf`,
+        content: pdfBuffer.toString('base64'),
+      },
+    ],
   });
 }
 

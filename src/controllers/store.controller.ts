@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as storeAuth from '../services/store.auth.service';
 import * as store from '../services/store.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
+import { cloudinary } from '../config/cloudinary';
 
 // ─── Settings públicas ────────────────────────────────────────────────────────
 
@@ -233,6 +234,41 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+// ─── Comprobante de pago (transferencia bancaria) ────────────────────────────
+
+export async function uploadPaymentProof(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.file) {
+      res.status(400).json({ success: false, message: 'No se recibió ningún archivo' });
+      return;
+    }
+
+    const orderNumber = req.params.orderNumber;
+    // Si hay JWT de tienda, usamos ese email; de lo contrario, el body debe traer customer_email
+    const customerEmail: string | undefined = req.storeCustomerEmail ?? req.body.customer_email;
+    if (!customerEmail) {
+      res.status(400).json({ success: false, message: 'Se requiere el email del comprador' });
+      return;
+    }
+
+    // Subir imagen a Cloudinary
+    const proofUrl = await new Promise<string>((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: 'indians/payment-proofs', resource_type: 'image' },
+        (err, result) => {
+          if (err || !result) return reject(err ?? new Error('Upload fallido'));
+          resolve(result.secure_url);
+        }
+      ).end(req.file!.buffer);
+    });
+
+    const order = await store.savePaymentProof(orderNumber, customerEmail, proofUrl);
+    res.json({ success: true, data: { order } });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // Confirmación de pago al volver el cliente desde MercadoPago (público)
 export async function confirmPayment(req: Request, res: Response, next: NextFunction) {
   try {
@@ -286,7 +322,53 @@ export async function getOrder(req: Request, res: Response, next: NextFunction) 
 
 export async function updateOrderStatus(req: Request, res: Response, next: NextFunction) {
   try {
-    res.json({ success: true, data: await store.updateStoreOrderStatus(Number(req.params.id), req.body.status as StoreOrderStatus) });
+    const { status, tracking_number, courier_name } = req.body;
+    const result = await store.updateStoreOrderStatus(
+      Number(req.params.id),
+      status as StoreOrderStatus,
+      { tracking_number: tracking_number ?? undefined, courier_name: courier_name ?? undefined }
+    );
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function sendInvoice(req: Request, res: Response, next: NextFunction) {
+  try {
+    await store.sendStoreOrderInvoiceEmail(Number(req.params.id));
+    res.json({ success: true, data: { message: 'Factura enviada por email' } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function downloadInvoiceAdmin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { buffer, orderNumber } = await store.getStoreOrderInvoicePdfBuffer(Number(req.params.id));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="factura-${orderNumber}.pdf"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function downloadMyInvoice(req: Request, res: Response, next: NextFunction) {
+  try {
+    const order = await store.getStoreOrderByNumberForCustomer(
+      String(req.params.orderNumber),
+      req.storeCustomerId!
+    );
+    const paidStatuses = ['paid', 'processing', 'review', 'awaiting_courier', 'shipped', 'delivered'];
+    if (!paidStatuses.includes(order.status)) {
+      res.status(403).json({ success: false, message: 'La factura solo está disponible para pedidos pagados' });
+      return;
+    }
+    const { buffer } = await store.getStoreOrderInvoicePdfBuffer(order.id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="factura-${order.order_number}.pdf"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
@@ -294,8 +376,16 @@ export async function updateOrderStatus(req: Request, res: Response, next: NextF
 
 export async function getMyOrders(req: Request, res: Response, next: NextFunction) {
   try {
+    // Traer el email del cliente para incluir pedidos hechos como invitado con ese email
+    let customerEmail: string | undefined;
+    try {
+      const profile = await storeAuth.storeGetProfileService(req.storeCustomerId!);
+      customerEmail = profile.email;
+    } catch { /* si falla, igual filtramos por customer_id */ }
+
     const result = await store.listStoreOrders({
       customer_id: req.storeCustomerId,
+      customer_email: customerEmail,
       page: req.query.page ? Number(req.query.page) : 1,
     });
     res.json({ success: true, data: result.data, meta: result.meta });

@@ -33,6 +33,8 @@ const VALID_KEYS: string[] = [
   'store_promo_subtitle', 'store_promo_cta',
   // Tienda — barra de promociones (pills)
   'store_promo_pills',
+  // Tienda — transferencia bancaria
+  'bank_transfer_cbu', 'bank_transfer_alias', 'bank_transfer_holder',
 ];
 
 export async function getAllSettings(): Promise<Record<string, string>> {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { requireStoreAuth, optionalStoreAuth } from '../middlewares/storeAuth';
+import { upload } from '../middlewares/upload';
 import * as ctrl from '../controllers/store.controller';
 
 const router = Router();
@@ -24,6 +25,7 @@ router.put('/me', requireStoreAuth, ctrl.updateProfile);
 router.post('/me/addresses', requireStoreAuth, ctrl.upsertAddress);
 router.delete('/me/addresses/:addressId', requireStoreAuth, ctrl.deleteAddress);
 router.get('/me/orders', requireStoreAuth, ctrl.getMyOrders);
+router.get('/me/orders/:orderNumber/invoice', requireStoreAuth, ctrl.downloadMyInvoice);
 
 // ─── Productos públicos ──────────────────────────────────────────────────────
 router.get('/products/filters', ctrl.getFilterOptions);
@@ -41,6 +43,9 @@ router.post('/checkout', optionalStoreAuth, ctrl.checkout);
 router.post('/payment/confirm', ctrl.confirmPayment);
 router.get('/orders/:orderNumber/status', ctrl.getOrderStatus);
 
+// ─── Comprobante de transferencia bancaria (auth opcional — guests pasan email en body) ──
+router.post('/orders/:orderNumber/payment-proof', optionalStoreAuth, upload.single('file'), ctrl.uploadPaymentProof);
+
 // ─── Webhook MercadoPago (sin auth) ─────────────────────────────────────────
 router.post('/webhook/mp', ctrl.webhook);
 
@@ -48,6 +53,8 @@ router.post('/webhook/mp', ctrl.webhook);
 router.get('/admin/orders', authenticate, authorize('admin', 'billing'), ctrl.listOrders);
 router.get('/admin/orders/:id', authenticate, authorize('admin', 'billing'), ctrl.getOrder);
 router.patch('/admin/orders/:id/status', authenticate, authorize('admin', 'billing'), ctrl.updateOrderStatus);
+router.post('/admin/orders/:id/send-invoice', authenticate, authorize('admin', 'billing'), ctrl.sendInvoice);
+router.get('/admin/orders/:id/invoice', authenticate, authorize('admin', 'billing'), ctrl.downloadInvoiceAdmin);
 
 // ─── Admin: cupones ───────────────────────────────────────────────────────────
 router.get('/admin/coupons', authenticate, authorize('admin', 'billing'), ctrl.listCoupons);

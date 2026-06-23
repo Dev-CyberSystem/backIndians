@@ -11,9 +11,13 @@ export type StoreOrderStatus =
   | 'pending_payment'
   | 'paid'
   | 'processing'
+  | 'review'
+  | 'awaiting_courier'
   | 'shipped'
   | 'delivered'
   | 'cancelled';
+
+export type StorePaymentMethod = 'mercadopago' | 'cash' | 'bank_transfer';
 
 export interface ShippingAddress {
   street: string;
@@ -45,6 +49,10 @@ export class StoreOrder extends Model<
   declare mp_preference_id: CreationOptional<string | null>;
   declare mp_payment_id: CreationOptional<string | null>;
   declare mp_status: CreationOptional<string | null>;
+  declare tracking_number: CreationOptional<string | null>;
+  declare courier_name: CreationOptional<string | null>;
+  declare payment_method: CreationOptional<StorePaymentMethod>;
+  declare payment_proof_url: CreationOptional<string | null>;
   declare notes: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -67,7 +75,7 @@ StoreOrder.init(
     customer_email: { type: DataTypes.STRING(255), allowNull: false },
     customer_phone: { type: DataTypes.STRING(50), allowNull: true },
     status: {
-      type: DataTypes.ENUM('pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'),
+      type: DataTypes.ENUM('pending_payment', 'paid', 'processing', 'review', 'awaiting_courier', 'shipped', 'delivered', 'cancelled'),
       allowNull: false,
       defaultValue: 'pending_payment',
     },
@@ -86,6 +94,14 @@ StoreOrder.init(
     mp_preference_id: { type: DataTypes.STRING(255), allowNull: true },
     mp_payment_id: { type: DataTypes.STRING(255), allowNull: true },
     mp_status: { type: DataTypes.STRING(50), allowNull: true },
+    tracking_number: { type: DataTypes.STRING(200), allowNull: true },
+    courier_name: { type: DataTypes.STRING(200), allowNull: true },
+    payment_method: {
+      type: DataTypes.ENUM('mercadopago', 'cash', 'bank_transfer'),
+      allowNull: false,
+      defaultValue: 'mercadopago',
+    },
+    payment_proof_url: { type: DataTypes.STRING(500), allowNull: true },
     notes: { type: DataTypes.TEXT, allowNull: true },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
