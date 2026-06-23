@@ -12,6 +12,8 @@ import {
   CatalogInvoicePayment,
   Client,
   User,
+  GarmentType,
+  ProductCategory,
 } from '../models';
 import { sequelize } from '../config/db';
 import * as mpService from './mercadopago.service';
@@ -19,8 +21,9 @@ import * as mpService from './mercadopago.service';
 // ─── Include estándar de un producto ─────────────────────────────────────────
 
 const PRODUCT_INCLUDE: Includeable[] = [
-  { model: CatalogProductImage, as: 'images', order: [['sort_order', 'ASC']] as [string, string][] },
-  { model: CatalogProductSize,  as: 'sizes',  order: [['sort_order', 'ASC']] as [string, string][] },
+  { model: CatalogProductImage, as: 'images',      order: [['sort_order', 'ASC']] as [string, string][] },
+  { model: CatalogProductSize,  as: 'sizes',       order: [['sort_order', 'ASC']] as [string, string][] },
+  { model: GarmentType,         as: 'garmentType', attributes: ['id', 'name'], required: false },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -56,19 +59,20 @@ export interface SizeInput {
 }
 
 export interface ProductInput {
-  client_id:     number;
-  title:         string;
-  description?:  string;
-  price:         number;
-  public_price?: number | null;
+  client_id:       number;
+  title:           string;
+  description?:    string;
+  price:           number;
+  public_price?:   number | null;
   discount_percentage?: number;
-  show_in_store?: boolean;
-  category?:     string | null;
-  gender?:       'masculino' | 'femenino' | 'infantil' | 'unisex' | null;
-  tags?:         string[] | null;
+  show_in_store?:  boolean;
+  category?:       string | null;
+  gender?:         'masculino' | 'femenino' | 'infantil' | 'unisex' | null;
+  tags?:           string[] | null;
+  garment_type_id?: number | null;
   stock_quantity?: number;
-  active?:       boolean;
-  sizes?:        SizeInput[];
+  active?:         boolean;
+  sizes?:          SizeInput[];
 }
 
 export async function listClientProducts(clientId: number) {
@@ -79,10 +83,11 @@ export async function listClientProducts(clientId: number) {
   });
 }
 
-export async function listAllProducts(page: number, limit: number, clientId?: number) {
+export async function listAllProducts(page: number, limit: number, clientId?: number, garmentTypeId?: number) {
   const offset = (page - 1) * limit;
   const where: Record<string, unknown> = { active: true };
   if (clientId) where['client_id'] = clientId;
+  if (garmentTypeId) where['garment_type_id'] = garmentTypeId;
 
   const { rows, count } = await CatalogProduct.findAndCountAll({
     where,
@@ -127,6 +132,7 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
       category:        input.category ?? null,
       gender:          input.gender ?? null,
       tags:            input.tags?.length ? input.tags : null,
+      garment_type_id: input.garment_type_id ?? null,
       stock_quantity:  input.stock_quantity ?? 0,
       active:          input.active ?? true,
     }, { transaction: t });
@@ -677,4 +683,28 @@ export async function handleMPWebhook(paymentId: string) {
     mp_payment_id: String(paymentInfo.id),
     mp_payment_status: paymentInfo.status ?? null,
   });
+}
+
+// ─── Categorías de producto ───────────────────────────────────────────────────
+
+export async function listProductCategories() {
+  return ProductCategory.findAll({ order: [['sort_order', 'ASC'], ['name', 'ASC']] });
+}
+
+export async function createProductCategory(name: string): Promise<ProductCategory> {
+  const count = await ProductCategory.count();
+  return ProductCategory.create({ name: name.trim(), sort_order: count });
+}
+
+export async function updateProductCategory(id: number, data: { name?: string; sort_order?: number }): Promise<ProductCategory> {
+  const cat = await ProductCategory.findByPk(id);
+  if (!cat) throw new AppError('Categoría no encontrada', 404);
+  await cat.update({ ...(data.name ? { name: data.name.trim() } : {}), ...(data.sort_order != null ? { sort_order: data.sort_order } : {}) });
+  return cat;
+}
+
+export async function deleteProductCategory(id: number): Promise<void> {
+  const cat = await ProductCategory.findByPk(id);
+  if (!cat) throw new AppError('Categoría no encontrada', 404);
+  await cat.destroy();
 }

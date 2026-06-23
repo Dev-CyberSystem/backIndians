@@ -11,6 +11,7 @@ import {
   Settings,
 } from '../models';
 import { Client } from '../models/Client';
+import { GarmentType } from '../models/GarmentType';
 import { AppError } from '../middlewares/errorHandler';
 import { createPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
 import {
@@ -61,6 +62,7 @@ export interface StoreProductFilters {
   category?: string;
   gender?: string;
   tag?: string;
+  garment_type_id?: number;
   size?: string;
   price_min?: number;
   price_max?: number;
@@ -132,6 +134,10 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
         1
       )
     );
+  }
+
+  if (filters.garment_type_id) {
+    conditions.push({ garment_type_id: filters.garment_type_id });
   }
 
   const where = { [Op.and]: conditions };
@@ -223,13 +229,22 @@ export async function getStoreFilterOptions() {
     if (Array.isArray(parsed)) parsed.forEach((v: string) => allTags.add(v));
   }
 
+  const [garmentTypeRows] = await sequelize.query(`
+    SELECT DISTINCT gt.id, gt.name, gt.sort_order
+    FROM garment_types gt
+    JOIN catalog_products cp ON cp.garment_type_id = gt.id
+    WHERE cp.show_in_store = 1 AND cp.active = 1 AND gt.active = 1
+    ORDER BY gt.sort_order, gt.name
+  `);
+
   return {
-    categories: (categories as Array<{ category: string }>).map((r) => r.category),
-    genders:    (genders as Array<{ gender: string }>).map((r) => r.gender),
-    sizes:      (sizes as Array<{ size_name: string }>).map((r) => r.size_name),
-    tags:       [...allTags].sort(),
-    clients:    (clients as Array<{ id: number; name: string; logo_url: string | null }>).map((r) => ({ id: r.id, name: r.name, logo_url: r.logo_url ?? null })),
-    price_range: { min: Number(range.min_price ?? 0), max: Number(range.max_price ?? 0) },
+    categories:    (categories as Array<{ category: string }>).map((r) => r.category),
+    genders:       (genders as Array<{ gender: string }>).map((r) => r.gender),
+    sizes:         (sizes as Array<{ size_name: string }>).map((r) => r.size_name),
+    tags:          [...allTags].sort(),
+    clients:       (clients as Array<{ id: number; name: string; logo_url: string | null }>).map((r) => ({ id: r.id, name: r.name, logo_url: r.logo_url ?? null })),
+    price_range:   { min: Number(range.min_price ?? 0), max: Number(range.max_price ?? 0) },
+    garment_types: (garmentTypeRows as Array<{ id: number; name: string }>).map((r) => ({ id: r.id, name: r.name })),
   };
 }
 
@@ -988,7 +1003,11 @@ export async function getStoreMetrics(period?: string) {
   if (period && /^\d{4}-\d{2}$/.test(period)) {
     const [y, m] = period.split('-').map(Number);
     from = new Date(y, m - 1, 1);
-    to = new Date(y, m, 0, 23, 59, 59);
+    to = new Date(y, m, 0, 23, 59, 59, 999);
+  } else if (period && /^\d{4}$/.test(period)) {
+    const y = Number(period);
+    from = new Date(y, 0, 1);
+    to = new Date(y, 11, 31, 23, 59, 59, 999);
   } else {
     from = new Date(now.getFullYear(), now.getMonth(), 1);
   }

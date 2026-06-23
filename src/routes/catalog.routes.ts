@@ -13,9 +13,16 @@ router.post('/webhook/mp', ctrl.mpWebhook);
 
 router.use(authenticate);
 
+// ─── Categorías de producto ───────────────────────────────────────────────────
+
+router.get('/categories', ctrl.listCategories);
+router.post('/categories', authorize('admin', 'billing'), [body('name').notEmpty(), validate], ctrl.createCategory);
+router.put('/categories/:id', authorize('admin', 'billing'), [param('id').isInt({ min: 1 }), body('name').optional().notEmpty(), validate], ctrl.updateCategory);
+router.delete('/categories/:id', authorize('admin', 'billing'), [param('id').isInt({ min: 1 }), validate], ctrl.deleteCategory);
+
 // ─── Productos del catálogo ───────────────────────────────────────────────────
 
-// GET /catalog/products?client_id=&page=&limit=
+// GET /catalog/products?client_id=&page=&limit=&garment_type_id=
 router.get('/products', ctrl.listProducts);
 
 // GET /catalog/products/client/:clientId

@@ -1,4 +1,5 @@
 // Punto de entrada de modelos: define todas las asociaciones entre tablas
+import { ProductCategory } from './ProductCategory';
 import { StoreEvent } from './StoreEvent';
 import { StoreCustomer } from './StoreCustomer';
 import { StoreAddress } from './StoreAddress';
@@ -137,6 +138,10 @@ StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
 
 // ─── Catálogo de productos ──────────────────────────────────────────────────
 
+// CatalogProduct ↔ GarmentType
+CatalogProduct.belongsTo(GarmentType, { foreignKey: 'garment_type_id', as: 'garmentType' });
+GarmentType.hasMany(CatalogProduct, { foreignKey: 'garment_type_id', as: 'catalog_products' });
+
 // CatalogProduct ↔ Client
 CatalogProduct.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
 Client.hasMany(CatalogProduct, { foreignKey: 'client_id', as: 'catalog_products' });
@@ -216,4 +221,5 @@ export {
   CashAccount,
   CashTransactionCategory,
   CashTransaction,
+  ProductCategory,
 };

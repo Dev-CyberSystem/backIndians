@@ -273,8 +273,23 @@ export interface EventAnalytics {
   daily_activity: Array<{ date: string; count: number }>;
 }
 
-export async function getEventAnalytics(days = 30): Promise<EventAnalytics> {
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+export async function getEventAnalytics(period?: string): Promise<EventAnalytics> {
+  const now = new Date();
+  let from: Date;
+  let to: Date;
+
+  if (period && /^\d{4}-\d{2}$/.test(period)) {
+    const [y, m] = period.split('-').map(Number);
+    from = new Date(y, m - 1, 1);
+    to = new Date(y, m, 0, 23, 59, 59, 999);
+  } else if (period && /^\d{4}$/.test(period)) {
+    const y = Number(period);
+    from = new Date(y, 0, 1);
+    to = new Date(y, 11, 31, 23, 59, 59, 999);
+  } else {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to = now;
+  }
 
   // ── Top products ──────────────────────────────────────────────────────────
   const productEvents = await StoreEvent.findAll({
@@ -286,7 +301,7 @@ export async function getEventAnalytics(days = 30): Promise<EventAnalytics> {
     where: {
       event_type: { [Op.in]: ['product_view', 'cart_add', 'purchase'] },
       product_id: { [Op.not]: null },
-      createdAt: { [Op.gte]: since },
+      createdAt: { [Op.between]: [from, to] },
     },
     group: ['product_id', 'event_type'],
     raw: true,
@@ -333,7 +348,7 @@ export async function getEventAnalytics(days = 30): Promise<EventAnalytics> {
     ],
     where: {
       city: { [Op.not]: null },
-      createdAt: { [Op.gte]: since },
+      createdAt: { [Op.between]: [from, to] },
     },
     group: ['city'],
     order: [[sequelize.literal('count'), 'DESC']],
@@ -349,7 +364,7 @@ export async function getEventAnalytics(days = 30): Promise<EventAnalytics> {
       'device_type',
       [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
     ],
-    where: { createdAt: { [Op.gte]: since } },
+    where: { createdAt: { [Op.between]: [from, to] } },
     group: ['device_type'],
     raw: true,
   }) as unknown as Array<{ device_type: string; count: string }>;
@@ -368,7 +383,7 @@ export async function getEventAnalytics(days = 30): Promise<EventAnalytics> {
     where: {
       event_type: 'search',
       search_query: { [Op.not]: null },
-      createdAt: { [Op.gte]: since },
+      createdAt: { [Op.between]: [from, to] },
     },
     group: ['search_query'],
     order: [[sequelize.literal('count'), 'DESC']],
@@ -390,7 +405,7 @@ export async function getEventAnalytics(days = 30): Promise<EventAnalytics> {
     ],
     where: {
       event_type: { [Op.in]: [...funnelTypes] },
-      createdAt: { [Op.gte]: since },
+      createdAt: { [Op.between]: [from, to] },
     },
     group: ['event_type'],
     raw: true,
@@ -410,7 +425,7 @@ export async function getEventAnalytics(days = 30): Promise<EventAnalytics> {
       [sequelize.fn('DATE', sequelize.col('createdAt')), 'date'],
       [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
     ],
-    where: { createdAt: { [Op.gte]: since } },
+    where: { createdAt: { [Op.between]: [from, to] } },
     group: [sequelize.fn('DATE', sequelize.col('createdAt'))],
     order: [[sequelize.fn('DATE', sequelize.col('createdAt')), 'ASC']],
     raw: true,

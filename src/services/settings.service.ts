@@ -28,6 +28,10 @@ const VALID_KEYS: string[] = [
   'store_marquee',
   'store_categories_title',
   'store_featured_title', 'store_featured_subtitle',
+  // Tienda — spotlight (3 clientes destacados)
+  'store_spotlight_1_image', 'store_spotlight_1_title', 'store_spotlight_1_subtitle', 'store_spotlight_1_link',
+  'store_spotlight_2_image', 'store_spotlight_2_title', 'store_spotlight_2_subtitle', 'store_spotlight_2_link',
+  'store_spotlight_3_image', 'store_spotlight_3_title', 'store_spotlight_3_subtitle', 'store_spotlight_3_link',
   // Tienda — landing banner promo
   'store_promo_image_url', 'store_promo_title',
   'store_promo_subtitle', 'store_promo_cta',

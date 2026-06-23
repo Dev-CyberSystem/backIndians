@@ -120,19 +120,20 @@ export async function deleteAddress(req: Request, res: Response, next: NextFunct
 
 export async function listProducts(req: Request, res: Response, next: NextFunction) {
   try {
-    const { search, category, gender, tag, size, price_min, price_max, sort, client_id, page, limit } = req.query;
+    const { search, category, gender, tag, garment_type_id, size, price_min, price_max, sort, client_id, page, limit } = req.query;
     const result = await store.listStoreProducts({
-      search:    search    as string | undefined,
-      category:  category  as string | undefined,
-      gender:    gender    as string | undefined,
-      tag:       tag       as string | undefined,
-      size:      size      as string | undefined,
-      price_min: price_min ? Number(price_min) : undefined,
-      price_max: price_max ? Number(price_max) : undefined,
-      sort:      sort as store.StoreProductSort | undefined,
-      client_id: client_id ? Number(client_id) : undefined,
-      page:      page  ? Number(page)  : undefined,
-      limit:     limit ? Number(limit) : undefined,
+      search:          search          as string | undefined,
+      category:        category        as string | undefined,
+      gender:          gender          as string | undefined,
+      tag:             tag             as string | undefined,
+      garment_type_id: garment_type_id ? Number(garment_type_id) : undefined,
+      size:            size            as string | undefined,
+      price_min:       price_min ? Number(price_min) : undefined,
+      price_max:       price_max ? Number(price_max) : undefined,
+      sort:            sort as store.StoreProductSort | undefined,
+      client_id:       client_id ? Number(client_id) : undefined,
+      page:            page  ? Number(page)  : undefined,
+      limit:           limit ? Number(limit) : undefined,
     });
     res.json({ success: true, data: result.data, meta: result.meta });
   } catch (err) {
@@ -461,8 +462,8 @@ export async function getProductsByIds(req: Request, res: Response, next: NextFu
 
 export async function getEventAnalytics(req: Request, res: Response, next: NextFunction) {
   try {
-    const { days } = req.query;
-    const result = await analytics.getEventAnalytics(days ? Number(days) : undefined);
+    const { period } = req.query;
+    const result = await analytics.getEventAnalytics(period as string | undefined);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

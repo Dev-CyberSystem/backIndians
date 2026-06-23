@@ -18,7 +18,8 @@ export async function listProducts(req: AuthRequest, res: Response, next: NextFu
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
     const clientId = req.query.client_id ? parseInt(req.query.client_id as string) : undefined;
-    const result = await catalogService.listAllProducts(page, limit, clientId);
+    const garmentTypeId = req.query.garment_type_id ? parseInt(req.query.garment_type_id as string) : undefined;
+    const result = await catalogService.listAllProducts(page, limit, clientId, garmentTypeId);
     res.json({ success: true, data: result.products, meta: { page: result.page, limit: result.limit, total: result.total } });
   } catch (err) { next(err); }
 }
@@ -231,5 +232,37 @@ export async function mpWebhook(req: AuthRequest, res: Response, next: NextFunct
       await catalogService.handleMPWebhook(String(paymentId));
     }
     res.sendStatus(200);
+  } catch (err) { next(err); }
+}
+
+// ─── Categorías de producto ───────────────────────────────────────────────────
+
+export async function listCategories(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const categories = await catalogService.listProductCategories();
+    res.json({ success: true, data: categories });
+  } catch (err) { next(err); }
+}
+
+export async function createCategory(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { name } = req.body;
+    const category = await catalogService.createProductCategory(name);
+    res.status(201).json({ success: true, data: category });
+  } catch (err) { next(err); }
+}
+
+export async function updateCategory(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = parseInt(req.params.id);
+    const category = await catalogService.updateProductCategory(id, req.body);
+    res.json({ success: true, data: category });
+  } catch (err) { next(err); }
+}
+
+export async function deleteCategory(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    await catalogService.deleteProductCategory(parseInt(req.params.id));
+    res.json({ success: true });
   } catch (err) { next(err); }
 }

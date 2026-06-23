@@ -24,6 +24,7 @@ export class CatalogProduct extends Model<
   declare category: CreationOptional<string | null>;
   declare gender: CreationOptional<'masculino' | 'femenino' | 'infantil' | 'unisex' | null>;
   declare tags: CreationOptional<string[] | null>;
+  declare garment_type_id: CreationOptional<number | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -97,6 +98,11 @@ CatalogProduct.init(
     },
     tags: {
       type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    garment_type_id: {
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: true,
       defaultValue: null,
     },
