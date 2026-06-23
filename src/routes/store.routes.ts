@@ -10,6 +10,9 @@ const router = Router();
 // ─── Settings públicas ───────────────────────────────────────────────────────
 router.get('/settings', ctrl.getStoreSettings);
 
+// ─── SSE: actualizaciones en tiempo real ────────────────────────────────────
+router.get('/events', ctrl.sseStoreEvents);
+
 // ─── Auth de compradores (público) ──────────────────────────────────────────
 router.post('/auth/register', ctrl.register);
 router.get('/auth/verify-email', ctrl.verifyEmail);
@@ -26,6 +29,12 @@ router.post('/me/addresses', requireStoreAuth, ctrl.upsertAddress);
 router.delete('/me/addresses/:addressId', requireStoreAuth, ctrl.deleteAddress);
 router.get('/me/orders', requireStoreAuth, ctrl.getMyOrders);
 router.get('/me/orders/:orderNumber/invoice', requireStoreAuth, ctrl.downloadMyInvoice);
+
+// ─── Tracking de comportamiento (públicos, fire & forget) ────────────────────
+router.post('/track', ctrl.trackEvent);
+router.get('/trending', ctrl.getTrending);
+router.get('/products/by-ids', ctrl.getProductsByIds);
+router.get('/products/:id/also-viewed', ctrl.getAlsoViewed);
 
 // ─── Productos públicos ──────────────────────────────────────────────────────
 router.get('/products/filters', ctrl.getFilterOptions);
@@ -64,5 +73,8 @@ router.delete('/admin/coupons/:id', authenticate, authorize('admin', 'billing'),
 
 // ─── Admin: métricas ─────────────────────────────────────────────────────────
 router.get('/admin/metrics', authenticate, authorize('admin', 'billing'), ctrl.getMetrics);
+
+// ─── Admin: analytics de eventos ─────────────────────────────────────────────
+router.get('/admin/event-analytics', authenticate, authorize('admin', 'billing'), ctrl.getEventAnalytics);
 
 export default router;

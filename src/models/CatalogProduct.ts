@@ -23,6 +23,7 @@ export class CatalogProduct extends Model<
   declare show_in_store: CreationOptional<boolean>;
   declare category: CreationOptional<string | null>;
   declare gender: CreationOptional<'masculino' | 'femenino' | 'infantil' | 'unisex' | null>;
+  declare tags: CreationOptional<string[] | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -91,6 +92,11 @@ CatalogProduct.init(
     },
     gender: {
       type: DataTypes.ENUM('masculino', 'femenino', 'infantil', 'unisex'),
+      allowNull: true,
+      defaultValue: null,
+    },
+    tags: {
+      type: DataTypes.JSON,
       allowNull: true,
       defaultValue: null,
     },

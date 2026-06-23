@@ -60,6 +60,7 @@ export interface StoreProductFilters {
   search?: string;
   category?: string;
   gender?: string;
+  tag?: string;
   size?: string;
   price_min?: number;
   price_max?: number;
@@ -121,6 +122,16 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
 
   if (filters.client_id !== undefined) {
     conditions.push({ client_id: filters.client_id });
+  }
+
+  if (filters.tag) {
+    // JSON_CONTAINS necesita un valor JSON válido: '"tag_name"' (con comillas dobles dentro)
+    conditions.push(
+      sequelize.where(
+        sequelize.fn('JSON_CONTAINS', sequelize.col('CatalogProduct.tags'), sequelize.literal(sequelize.escape(JSON.stringify(filters.tag)))),
+        1
+      )
+    );
   }
 
   const where = { [Op.and]: conditions };
@@ -199,10 +210,24 @@ export async function getStoreFilterOptions() {
 
   const range = (priceRange as Array<{ min_price: number; max_price: number }>)[0] ?? { min_price: 0, max_price: 0 };
 
+  // Extraer tags únicos de los arrays JSON de cada producto
+  const tagRows = await CatalogProduct.findAll({
+    attributes: ['tags'],
+    where: { show_in_store: true, active: true },
+    raw: true,
+  });
+  const allTags = new Set<string>();
+  for (const row of tagRows) {
+    const t = (row as any).tags;
+    const parsed = typeof t === 'string' ? JSON.parse(t) : t;
+    if (Array.isArray(parsed)) parsed.forEach((v: string) => allTags.add(v));
+  }
+
   return {
     categories: (categories as Array<{ category: string }>).map((r) => r.category),
     genders:    (genders as Array<{ gender: string }>).map((r) => r.gender),
     sizes:      (sizes as Array<{ size_name: string }>).map((r) => r.size_name),
+    tags:       [...allTags].sort(),
     clients:    (clients as Array<{ id: number; name: string; logo_url: string | null }>).map((r) => ({ id: r.id, name: r.name, logo_url: r.logo_url ?? null })),
     price_range: { min: Number(range.min_price ?? 0), max: Number(range.max_price ?? 0) },
   };
@@ -619,8 +644,15 @@ export async function savePaymentProof(
   if (order.payment_method !== 'bank_transfer') {
     throw new AppError('Este pedido no usa transferencia bancaria', 400);
   }
+  if (order.payment_proof_url && order.payment_proof_url_2) {
+    throw new AppError('Ya se subieron los dos comprobantes permitidos para este pedido', 400);
+  }
 
-  await order.update({ payment_proof_url: proofUrl });
+  if (!order.payment_proof_url) {
+    await order.update({ payment_proof_url: proofUrl });
+  } else {
+    await order.update({ payment_proof_url_2: proofUrl });
+  }
   return order;
 }
 
@@ -776,6 +808,8 @@ export async function listStoreOrders(filters: {
   /** Incluye también pedidos de invitado (customer_id IS NULL) con este email */
   customer_email?: string;
   search?: string;
+  date_from?: string;
+  date_to?: string;
   page?: number;
   limit?: number;
 }) {
@@ -785,6 +819,17 @@ export async function listStoreOrders(filters: {
 
   const where: Record<string, unknown> = {};
   if (filters.status) where.status = filters.status;
+
+  if (filters.date_from || filters.date_to) {
+    const dateRange: Record<string, Date> = {};
+    if (filters.date_from) dateRange[Op.gte as unknown as string] = new Date(filters.date_from);
+    if (filters.date_to) {
+      const end = new Date(filters.date_to);
+      end.setHours(23, 59, 59, 999);
+      dateRange[Op.lte as unknown as string] = end;
+    }
+    where.createdAt = dateRange;
+  }
 
   // Filtro de cliente: por ID propio O por email como invitado
   if (filters.customer_id && filters.customer_email) {

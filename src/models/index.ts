@@ -1,4 +1,5 @@
 // Punto de entrada de modelos: define todas las asociaciones entre tablas
+import { StoreEvent } from './StoreEvent';
 import { StoreCustomer } from './StoreCustomer';
 import { StoreAddress } from './StoreAddress';
 import { StoreCoupon } from './StoreCoupon';
@@ -181,6 +182,7 @@ CatalogInvoice.hasMany(CatalogInvoicePayment, { foreignKey: 'catalog_invoice_id'
 CatalogInvoicePayment.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
 
 export {
+  StoreEvent,
   StoreCustomer,
   StoreAddress,
   StoreCoupon,

@@ -53,6 +53,7 @@ export class StoreOrder extends Model<
   declare courier_name: CreationOptional<string | null>;
   declare payment_method: CreationOptional<StorePaymentMethod>;
   declare payment_proof_url: CreationOptional<string | null>;
+  declare payment_proof_url_2: CreationOptional<string | null>;
   declare notes: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -101,7 +102,8 @@ StoreOrder.init(
       allowNull: false,
       defaultValue: 'mercadopago',
     },
-    payment_proof_url: { type: DataTypes.STRING(500), allowNull: true },
+    payment_proof_url:   { type: DataTypes.STRING(500), allowNull: true },
+    payment_proof_url_2: { type: DataTypes.STRING(500), allowNull: true },
     notes: { type: DataTypes.TEXT, allowNull: true },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

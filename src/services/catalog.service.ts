@@ -65,6 +65,7 @@ export interface ProductInput {
   show_in_store?: boolean;
   category?:     string | null;
   gender?:       'masculino' | 'femenino' | 'infantil' | 'unisex' | null;
+  tags?:         string[] | null;
   stock_quantity?: number;
   active?:       boolean;
   sizes?:        SizeInput[];
@@ -125,6 +126,7 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
       show_in_store:   input.show_in_store ?? false,
       category:        input.category ?? null,
       gender:          input.gender ?? null,
+      tags:            input.tags?.length ? input.tags : null,
       stock_quantity:  input.stock_quantity ?? 0,
       active:          input.active ?? true,
     }, { transaction: t });

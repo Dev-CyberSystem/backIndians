@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import * as storeAuth from '../services/store.auth.service';
 import * as store from '../services/store.service';
+import * as analytics from '../services/storeAnalytics.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { cloudinary } from '../config/cloudinary';
+import { storeEvents } from '../events/storeEvents';
 
 // ─── Settings públicas ────────────────────────────────────────────────────────
 
@@ -118,11 +120,12 @@ export async function deleteAddress(req: Request, res: Response, next: NextFunct
 
 export async function listProducts(req: Request, res: Response, next: NextFunction) {
   try {
-    const { search, category, gender, size, price_min, price_max, sort, client_id, page, limit } = req.query;
+    const { search, category, gender, tag, size, price_min, price_max, sort, client_id, page, limit } = req.query;
     const result = await store.listStoreProducts({
       search:    search    as string | undefined,
       category:  category  as string | undefined,
       gender:    gender    as string | undefined,
+      tag:       tag       as string | undefined,
       size:      size      as string | undefined,
       price_min: price_min ? Number(price_min) : undefined,
       price_max: price_max ? Number(price_max) : undefined,
@@ -298,11 +301,13 @@ export async function getOrderStatus(req: Request, res: Response, next: NextFunc
 // Admin
 export async function listOrders(req: Request, res: Response, next: NextFunction) {
   try {
-    const { status, customer_id, search, page, limit } = req.query;
+    const { status, customer_id, search, page, limit, date_from, date_to } = req.query;
     const result = await store.listStoreOrders({
       status: status as string | undefined,
       customer_id: customer_id ? Number(customer_id) : undefined,
       search: search as string | undefined,
+      date_from: date_from as string | undefined,
+      date_to: date_to as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
@@ -394,6 +399,76 @@ export async function getMyOrders(req: Request, res: Response, next: NextFunctio
   }
 }
 
+// ─── Analytics de comportamiento ─────────────────────────────────────────────
+
+export async function trackEvent(req: Request, res: Response): Promise<void> {
+  try {
+    const forwarded = req.headers['x-forwarded-for'];
+    const rawIp = Array.isArray(forwarded)
+      ? forwarded[0]
+      : typeof forwarded === 'string'
+        ? forwarded.split(',')[0].trim()
+        : req.socket.remoteAddress ?? '';
+
+    await analytics.trackStoreEvent({ ...req.body, ip: rawIp });
+  } catch {
+    // fire and forget — nunca falla al cliente
+  }
+  res.status(204).end();
+}
+
+export async function getTrending(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { city, days, limit } = req.query;
+    const products = await analytics.getTrendingProducts({
+      city: city as string | undefined,
+      days: days ? Number(days) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.json({ success: true, data: products });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getAlsoViewed(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { limit } = req.query;
+    const products = await analytics.getAlsoViewed(
+      Number(req.params.id),
+      limit ? Number(limit) : undefined,
+    );
+    res.json({ success: true, data: products });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getProductsByIds(req: Request, res: Response, next: NextFunction) {
+  try {
+    const raw = (req.query.ids as string | undefined) ?? '';
+    const ids = raw
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !isNaN(n))
+      .slice(0, 20);
+    const products = await analytics.getProductsByIds(ids);
+    res.json({ success: true, data: products });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getEventAnalytics(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { days } = req.query;
+    const result = await analytics.getEventAnalytics(days ? Number(days) : undefined);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── Métricas ────────────────────────────────────────────────────────────────
 
 export async function getMetrics(req: Request, res: Response, next: NextFunction) {
@@ -403,4 +478,31 @@ export async function getMetrics(req: Request, res: Response, next: NextFunction
   } catch (err) {
     next(err);
   }
+}
+
+// ─── SSE: eventos en tiempo real para la tienda pública ──────────────────────
+
+export function sseStoreEvents(req: Request, res: Response) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // necesario detrás de nginx
+  res.flushHeaders();
+
+  // Confirma la conexión al cliente
+  res.write('data: {"type":"connected"}\n\n');
+
+  // Keepalive para evitar que proxies o el cliente cierren la conexión idle
+  const ping = setInterval(() => { res.write(': ping\n\n'); }, 25_000);
+
+  function onProductsChanged() {
+    res.write('data: {"type":"products_changed"}\n\n');
+  }
+
+  storeEvents.on('products_changed', onProductsChanged);
+
+  req.on('close', () => {
+    clearInterval(ping);
+    storeEvents.off('products_changed', onProductsChanged);
+  });
 }
