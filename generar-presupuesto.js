@@ -3,7 +3,7 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 
-const OUT = path.join('C:', 'Users', 'USURIO', 'OneDrive', 'Escritorio', 'indians', 'Presupuesto-Ecommerce-Indians.pdf');
+const OUT = path.join('C:', 'Users', 'USURIO', 'OneDrive', 'Escritorio', 'indians', 'Presupuesto-Tienda-Online-Indians.pdf');
 
 // ─── Paleta ──────────────────────────────────────────────────────────────────
 const INK     = '#0f172a'; // slate-900
@@ -67,7 +67,7 @@ doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(30).text('Tienda Online
 doc.fillColor('#cbd5e1').font('Helvetica').fontSize(12).text('Plataforma de e-commerce completa, integrada al sistema de gestión', M, 108, { width: CW });
 
 doc.fillColor('#94a3b8').font('Helvetica').fontSize(9)
-   .text('Fecha: 23/06/2026', M, 132)
+   .text('Fecha: 24/06/2026', M, 132)
    .text('Validez de la oferta: 15 días', M + CW - 200, 132, { width: 200, align: 'right' });
 
 doc.y = 195;
@@ -87,8 +87,9 @@ const modules = [
   ['Checkout y pagos', 'Integración real con MercadoPago, pago en efectivo y transferencia bancaria con carga de comprobante. Cupones de descuento y cálculo de envío.'],
   ['Pedidos y cuenta del cliente', 'Historial de compras, perfil, direcciones, estados de pedido, seguimiento de envío y descarga de factura.'],
   ['Facturación y emails', 'Generación automática de facturas en PDF, emails de confirmación y etiqueta de envío imprimible.'],
-  ['Panel de administración', 'Tablero con métricas de ventas, gestión de pedidos, cupones, configuración de la tienda y reportes.'],
-  ['Landing y diseño', 'Página principal con carruseles, secciones destacadas, diseño profesional y 100% adaptable a celular.'],
+  ['Panel de administración', 'Tablero con métricas de ventas, gestión de pedidos, cupones, configuración de la tienda y reportes de analítica.'],
+  ['Atención al cliente', 'Chatbot guiado que responde estado de pedidos, reclamos y consultas, y deriva a WhatsApp con el mensaje ya redactado. Centro de ayuda con envíos, cambios, guía de talles y preguntas frecuentes.'],
+  ['Landing y diseño premium', 'Página principal de estilo editorial con carruseles, secciones destacadas y favoritos. Diseño profesional, tipografía cuidada y 100% adaptable a celular.'],
 ];
 
 function moduleRow(title, desc) {
@@ -119,12 +120,12 @@ const boxH = 130;
 doc.roundedRect(M, boxY, CW, boxH, 12).fill(SOFT);
 doc.roundedRect(M, boxY, CW, boxH, 12).lineWidth(1).strokeColor('#c7d2fe').stroke();
 
-doc.fillColor(BRANDDK).font('Helvetica').fontSize(11).text('Total del desarrollo (llave en mano)', M + 24, boxY + 22);
+doc.fillColor(BRANDDK).font('Helvetica').fontSize(11).text('Desarrollo completo (llave en mano)', M + 24, boxY + 22);
 
-doc.fillColor(INK).font('Helvetica-Bold').fontSize(34).text('USD 4.500', M + 24, boxY + 42);
+doc.fillColor(INK).font('Helvetica-Bold').fontSize(34).text('USD 5.500', M + 24, boxY + 42);
 
 doc.fillColor(BRANDDK).font('Helvetica-Bold').fontSize(18)
-   .text('$ 6.480.000 ARS', M + 24, boxY + 86);
+   .text('$ 7.975.000 ARS', M + 24, boxY + 86);
 
 // caja lateral con cotización
 const sideX = M + CW - 200;
@@ -132,10 +133,39 @@ doc.fillColor(MUTED).font('Helvetica').fontSize(8.5)
    .text('Conversión al tipo de cambio', sideX, boxY + 50, { width: 176, align: 'right' })
    .text('Dólar compra Banco Nación', sideX, boxY + 62, { width: 176, align: 'right' })
    .font('Helvetica-Bold').fillColor(INK)
-   .text('USD 1 = $ 1.440 (23/06/2026)', sideX, boxY + 76, { width: 176, align: 'right' });
+   .text('USD 1 = $ 1.450 (24/06/2026)', sideX, boxY + 76, { width: 176, align: 'right' });
 
 doc.y = boxY + boxH + 14;
-para('Pago único, sin comisiones por venta ni mensualidad de plataforma. El cálculo en pesos se actualiza a la cotización vigente al momento de la firma.', { size: 9, color: MUTED });
+para('Pago único por el desarrollo, sin comisiones por venta ni mensualidad de plataforma: la tienda queda en propiedad del cliente. El cálculo en pesos se actualiza a la cotización vigente al momento de cada pago.', { size: 9, color: MUTED });
+
+// ─── Mantenimiento mensual ─────────────────────────────────────────────────────
+h2('Mantenimiento mensual');
+para('Para mantener la tienda funcionando de forma óptima y acompañar al negocio en el tiempo, se incluye un abono mensual que cubre:');
+
+const maintItems = [
+  'Hosting gestionado y monitoreo del servidor (la tienda siempre online).',
+  'Soporte técnico y resolución de incidencias de la plataforma.',
+  'Ajustes menores, cambios de contenido y actualizaciones de seguridad.',
+  'Seguimiento de la integración de pagos (MercadoPago) y los emails.',
+];
+maintItems.forEach((it) => {
+  ensureSpace(20);
+  const y0 = doc.y;
+  doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(11).text('•', M + 2, y0);
+  doc.fillColor(INK).font('Helvetica').fontSize(9.5).text(it, M + 16, y0 + 1, { width: CW - 16, lineGap: 2 });
+  doc.moveDown(0.45);
+});
+
+ensureSpace(64);
+const my = doc.y + 4;
+doc.roundedRect(M, my, CW, 50, 10).fill(SOFT);
+doc.roundedRect(M, my, CW, 50, 10).lineWidth(0.8).strokeColor('#c7d2fe').stroke();
+doc.fillColor(BRANDDK).font('Helvetica').fontSize(10).text('Abono mensual', M + 20, my + 11);
+doc.fillColor(INK).font('Helvetica-Bold').fontSize(20).text('USD 180 / mes', M + 20, my + 24);
+doc.fillColor(BRANDDK).font('Helvetica-Bold').fontSize(12)
+   .text('$ 261.000 ARS / mes', M + CW - 220, my + 18, { width: 200, align: 'right' });
+doc.y = my + 50 + 14;
+para('El abono es opcional y puede comenzar una vez finalizada la garantía. Los servicios externos (dominio, comisiones de MercadoPago) se facturan directamente a sus proveedores y no están incluidos.', { size: 9, color: MUTED });
 
 // ─── Por qué contratar ───────────────────────────────────────────────────────
 h2('Por qué este desarrollo conviene');
@@ -164,9 +194,9 @@ h2('Formas de pago sugeridas');
 para('Para facilitar la contratación, el proyecto puede abonarse en tres etapas:');
 
 const stages = [
-  ['30%', 'Al iniciar', 'USD 1.350  ·  $ 1.944.000'],
-  ['40%', 'Flujo de compra funcionando', 'USD 1.800  ·  $ 2.592.000'],
-  ['30%', 'Entrega final y publicación', 'USD 1.350  ·  $ 1.944.000'],
+  ['30%', 'Al iniciar', 'USD 1.650  ·  $ 2.392.500'],
+  ['40%', 'Flujo de compra funcionando', 'USD 2.200  ·  $ 3.190.000'],
+  ['30%', 'Entrega final y publicación', 'USD 1.650  ·  $ 2.392.500'],
 ];
 const colW = CW / 3 - 8;
 ensureSpace(90);
@@ -189,7 +219,7 @@ const gy = doc.y;
 doc.roundedRect(M, gy, CW, 58, 10).fill(SOFTG);
 doc.fillColor(GREEN).font('Helvetica-Bold').fontSize(10.5).text('30 días de garantía sin cargo', M + 18, gy + 14);
 doc.fillColor('#065f46').font('Helvetica').fontSize(9.5)
-   .text('Tras la entrega, cualquier ajuste o corrección de errores del desarrollo se realiza sin costo durante 30 días. El mantenimiento mensual y los servicios externos (MercadoPago, dominio, etc.) se cotizan por separado si el cliente lo desea.', M + 18, gy + 32, { width: CW - 36, lineGap: 1.5 });
+   .text('Tras la entrega, cualquier ajuste o corrección de errores del desarrollo se realiza sin costo durante 30 días. Finalizada la garantía, el mantenimiento mensual (detallado más arriba) es opcional. Los servicios externos (MercadoPago, dominio) se contratan directamente con cada proveedor.', M + 18, gy + 32, { width: CW - 36, lineGap: 1.5 });
 doc.y = gy + 58 + 16;
 
 para('Quedo a disposición para coordinar una reunión y avanzar con el proyecto. Gracias por la confianza.', { color: INK });
