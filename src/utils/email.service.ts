@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { generateInvoicePdf, type InvoiceData } from './store.pdf';
+import { escapeHtml } from './escapeHtml';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indianstextil.com';
@@ -14,7 +15,7 @@ export async function sendVerificationEmail(email: string, name: string, token: 
     subject: 'Verificá tu cuenta en Indians Textil',
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-        <h2 style="color:#1d4ed8;">¡Bienvenido/a, ${name}!</h2>
+        <h2 style="color:#1d4ed8;">¡Bienvenido/a, ${escapeHtml(name)}!</h2>
         <p>Gracias por registrarte en nuestra tienda. Para activar tu cuenta hacé clic en el siguiente botón:</p>
         <a href="${link}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0;">
           Verificar mi cuenta
@@ -37,7 +38,7 @@ export async function sendOrderConfirmationEmail(
     .map(
       (i) =>
         `<tr>
-          <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;">${i.title}</td>
+          <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;">${escapeHtml(i.title)}</td>
           <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:center;">${i.qty}</td>
           <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right;">$${i.price.toFixed(2)}</td>
         </tr>`
@@ -50,7 +51,7 @@ export async function sendOrderConfirmationEmail(
     subject: `Pedido ${orderNumber} confirmado — Indians Textil`,
     html: `
       <div style="font-family:sans-serif;max-width:540px;margin:0 auto;padding:24px;">
-        <h2 style="color:#1d4ed8;">¡Gracias por tu compra, ${name}!</h2>
+        <h2 style="color:#1d4ed8;">¡Gracias por tu compra, ${escapeHtml(name)}!</h2>
         <p>Tu pedido <strong>${orderNumber}</strong> fue recibido correctamente.</p>
         <table style="width:100%;border-collapse:collapse;margin:16px 0;">
           <thead>
@@ -86,7 +87,7 @@ export async function sendPaymentApprovedEmail(
             ✓ Pago acreditado
           </div>
         </div>
-        <h2 style="color:#16a34a;">¡Tu pago fue aceptado, ${name}!</h2>
+        <h2 style="color:#16a34a;">¡Tu pago fue aceptado, ${escapeHtml(name)}!</h2>
         <p>Recibimos correctamente el pago de tu pedido <strong>${orderNumber}</strong>.</p>
         <p>Ya estamos <strong>preparando tu pedido</strong>. Te avisaremos cuando esté listo para el retiro o envío.</p>
         <p style="text-align:right;font-weight:700;font-size:18px;margin-top:16px;">Total pagado: $${total.toFixed(2)}</p>
@@ -108,7 +109,7 @@ export async function sendPaymentRejectedEmail(
     html: `
       <div style="font-family:sans-serif;max-width:540px;margin:0 auto;padding:24px;">
         <h2 style="color:#dc2626;">No pudimos procesar tu pago</h2>
-        <p>Hola ${name}, el pago de tu pedido <strong>${orderNumber}</strong> fue rechazado o cancelado.</p>
+        <p>Hola ${escapeHtml(name)}, el pago de tu pedido <strong>${orderNumber}</strong> fue rechazado o cancelado.</p>
         <p>Podés volver a intentarlo desde tu cuenta, en la sección <strong>Mis pedidos</strong>.</p>
         <a href="${STORE_URL}/mi-cuenta/pedidos" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0;">
           Reintentar el pago
@@ -125,7 +126,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
   const itemsHtml = data.items.map((i) => `
     <tr>
       <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;font-size:13px;">
-        ${i.product_title}${i.size_name ? ` — Talle ${i.size_name}` : ''}
+        ${escapeHtml(i.product_title)}${i.size_name ? ` — Talle ${escapeHtml(i.size_name)}` : ''}
       </td>
       <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:center;font-size:13px;">${i.quantity}</td>
       <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px;">$${Number(i.unit_price).toFixed(2)}</td>
@@ -134,7 +135,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
   `).join('');
 
   const discountRow = data.discountAmount > 0
-    ? `<tr><td colspan="3" style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">Descuento${data.couponCode ? ` (${data.couponCode})` : ''}</td><td style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">−$${data.discountAmount.toFixed(2)}</td></tr>`
+    ? `<tr><td colspan="3" style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">Descuento${data.couponCode ? ` (${escapeHtml(data.couponCode)})` : ''}</td><td style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">−$${data.discountAmount.toFixed(2)}</td></tr>`
     : '';
   const shippingRow = data.shippingCost > 0
     ? `<tr><td colspan="3" style="text-align:right;padding:4px 0;font-size:13px;">Envío</td><td style="text-align:right;padding:4px 0;font-size:13px;">$${data.shippingCost.toFixed(2)}</td></tr>`
@@ -148,7 +149,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
       <div style="font-family:sans-serif;max-width:580px;margin:0 auto;padding:24px;">
         <h2 style="color:#1d4ed8;margin-bottom:4px;">Indians Textil</h2>
         <p style="color:#6b7280;margin-top:0;">Comprobante de compra</p>
-        <p>Hola <strong>${data.customerName}</strong>, te enviamos la factura de tu pedido <strong>${data.orderNumber}</strong>.</p>
+        <p>Hola <strong>${escapeHtml(data.customerName)}</strong>, te enviamos la factura de tu pedido <strong>${data.orderNumber}</strong>.</p>
         <table style="width:100%;border-collapse:collapse;margin:16px 0;">
           <thead>
             <tr style="color:#6b7280;font-size:11px;text-transform:uppercase;">
@@ -189,7 +190,7 @@ export async function sendPasswordResetEmailStore(email: string, name: string, t
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
         <h2 style="color:#1d4ed8;">Restablecer contraseña</h2>
-        <p>Hola ${name}, recibimos una solicitud para restablecer la contraseña de tu cuenta.</p>
+        <p>Hola ${escapeHtml(name)}, recibimos una solicitud para restablecer la contraseña de tu cuenta.</p>
         <a href="${link}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0;">
           Restablecer contraseña
         </a>

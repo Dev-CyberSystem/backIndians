@@ -3,6 +3,7 @@ import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { requireStoreAuth, optionalStoreAuth } from '../middlewares/storeAuth';
 import { upload } from '../middlewares/upload';
+import { authLimiter, passwordResetLimiter } from '../middlewares/rateLimit';
 import * as ctrl from '../controllers/store.controller';
 
 const router = Router();
@@ -14,13 +15,13 @@ router.get('/settings', ctrl.getStoreSettings);
 router.get('/events', ctrl.sseStoreEvents);
 
 // ─── Auth de compradores (público) ──────────────────────────────────────────
-router.post('/auth/register', ctrl.register);
+router.post('/auth/register', authLimiter, ctrl.register);
 router.get('/auth/verify-email', ctrl.verifyEmail);
-router.post('/auth/login', ctrl.login);
-router.post('/auth/google', ctrl.googleAuth);
+router.post('/auth/login', authLimiter, ctrl.login);
+router.post('/auth/google', authLimiter, ctrl.googleAuth);
 router.post('/auth/refresh', ctrl.refreshToken);
-router.post('/auth/forgot-password', ctrl.forgotPassword);
-router.post('/auth/reset-password', ctrl.resetPassword);
+router.post('/auth/forgot-password', passwordResetLimiter, ctrl.forgotPassword);
+router.post('/auth/reset-password', authLimiter, ctrl.resetPassword);
 
 // ─── Perfil del comprador (requiere auth de tienda) ─────────────────────────
 router.get('/me', requireStoreAuth, ctrl.getProfile);
