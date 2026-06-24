@@ -16,7 +16,7 @@ const VALID_KEYS: string[] = [
   'company_phone', 'company_email', 'invoice_due_days',
   // Tienda — general
   'store_name', 'store_description', 'store_active',
-  'store_logo_url', 'store_banner_url', 'store_primary_color',
+  'store_logo_url', 'store_footer_logo_url', 'store_banner_url', 'store_primary_color',
   'store_whatsapp', 'store_instagram', 'store_facebook',
   // Tienda — envíos
   'shipping_cost', 'free_shipping_min', 'store_pickup_address',
@@ -25,6 +25,7 @@ const VALID_KEYS: string[] = [
   'store_hero_badge',
   'store_hero_image_url', 'store_hero_image_2_url', 'store_hero_image_3_url',
   // Tienda — landing secciones
+  'store_announcement',
   'store_marquee',
   'store_categories_title',
   'store_featured_title', 'store_featured_subtitle',
