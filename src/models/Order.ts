@@ -63,12 +63,20 @@ Order.init(
         'under_review',
         'workshop_review',
         'observed',
+        // Controles de producción (flujo nuevo)
+        'raw_material_control',
+        'cutting_control',
+        'printing_control',
+        'sewing_control',
+        'quality_control',
+        'packaging_control',
+        'ready',
+        'cancelled',
+        // Legados (conservados para el historial)
         'in_production',
         'sewing',
         'stamping',
-        'quality_check',
-        'ready',
-        'cancelled'
+        'quality_check'
       ),
       allowNull: false,
       defaultValue: 'pending',

@@ -7,12 +7,20 @@ export type OrderStatus =
   | 'under_review'
   | 'workshop_review'
   | 'observed'
+  // ── Controles de producción (flujo nuevo) ──
+  | 'raw_material_control'   // Control de materias primas
+  | 'cutting_control'        // Control de corte
+  | 'printing_control'       // Control de sublimación y estampado
+  | 'sewing_control'         // Control de confección y medidas
+  | 'quality_control'        // Control de calidad
+  | 'packaging_control'      // Control de embalaje
+  | 'ready'                  // Listo para despacho
+  | 'cancelled'
+  // ── Estados legados (conservados solo para el historial) ──
   | 'in_production'
   | 'sewing'
   | 'stamping'
-  | 'quality_check'
-  | 'ready'
-  | 'cancelled';
+  | 'quality_check';
 
 export type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'cancelled';
 

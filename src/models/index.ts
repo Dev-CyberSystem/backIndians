@@ -22,6 +22,7 @@ import { Order } from './Order';
 import { OrderItem } from './OrderItem';
 import { OrderImage } from './OrderImage';
 import { OrderStatusHistory } from './OrderStatusHistory';
+import { OrderChecklistCheck } from './OrderChecklistCheck';
 import { Invoice } from './Invoice';
 import { StockItem } from './StockItem';
 import { StockCategory } from './StockCategory';
@@ -78,6 +79,11 @@ OrderStatusHistory.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
 
 // OrderStatusHistory ↔ User (quién cambió)
 OrderStatusHistory.belongsTo(User, { foreignKey: 'changed_by', as: 'changer' });
+
+// Order ↔ OrderChecklistCheck (tildes de los controles de producción)
+Order.hasMany(OrderChecklistCheck, { foreignKey: 'order_id', as: 'checklist_checks', onDelete: 'CASCADE' });
+OrderChecklistCheck.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
+OrderChecklistCheck.belongsTo(User, { foreignKey: 'checked_by', as: 'checker' });
 
 // Invoice ↔ Order
 Invoice.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
@@ -207,6 +213,7 @@ export {
   OrderItem,
   OrderImage,
   OrderStatusHistory,
+  OrderChecklistCheck,
   Invoice,
   StockItem,
   GarmentType,

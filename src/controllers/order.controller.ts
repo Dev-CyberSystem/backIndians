@@ -164,3 +164,26 @@ export async function getOrderHistory(req: AuthRequest, res: Response, next: Nex
     next(err);
   }
 }
+
+export async function getChecklist(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await orderService.getOrderChecklist(parseInt(req.params.id));
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function toggleChecklist(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await orderService.toggleChecklistItem(
+      parseInt(req.params.id),
+      req.body.item_key,
+      req.body.checked !== false,
+      req.user!
+    );
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
