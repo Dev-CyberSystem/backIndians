@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as storeAuth from '../services/store.auth.service';
 import * as store from '../services/store.service';
 import * as analytics from '../services/storeAnalytics.service';
+import * as wishlistService from '../services/store.wishlist.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { cloudinary } from '../config/cloudinary';
 import { storeEvents } from '../events/storeEvents';
@@ -114,6 +115,31 @@ export async function deleteAddress(req: Request, res: Response, next: NextFunct
   } catch (err) {
     next(err);
   }
+}
+
+// ─── Wishlist ────────────────────────────────────────────────────────────────
+
+export async function getWishlist(req: Request, res: Response, next: NextFunction) {
+  try {
+    const ids = await wishlistService.getWishlistIds(req.storeCustomerId!);
+    res.json({ success: true, data: { ids } });
+  } catch (err) { next(err); }
+}
+
+export async function toggleWishlistItem(req: Request, res: Response, next: NextFunction) {
+  try {
+    const productId = Number(req.params.productId);
+    const ids = await wishlistService.toggleWishlistItem(req.storeCustomerId!, productId);
+    res.json({ success: true, data: { ids } });
+  } catch (err) { next(err); }
+}
+
+export async function mergeWishlist(req: Request, res: Response, next: NextFunction) {
+  try {
+    const productIds: number[] = (req.body.ids ?? []).map(Number).filter(Boolean);
+    const ids = await wishlistService.mergeWishlistItems(req.storeCustomerId!, productIds);
+    res.json({ success: true, data: { ids } });
+  } catch (err) { next(err); }
 }
 
 // ─── Productos ───────────────────────────────────────────────────────────────

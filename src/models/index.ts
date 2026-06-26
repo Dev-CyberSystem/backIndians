@@ -1,6 +1,7 @@
 // Punto de entrada de modelos: define todas las asociaciones entre tablas
 import { ProductCategory } from './ProductCategory';
 import { StoreEvent } from './StoreEvent';
+import { StoreWishlist } from './StoreWishlist';
 import { StoreCustomer } from './StoreCustomer';
 import { StoreAddress } from './StoreAddress';
 import { StoreCoupon } from './StoreCoupon';
@@ -142,6 +143,14 @@ CatalogProduct.hasMany(StoreOrderItem, { foreignKey: 'catalog_product_id', as: '
 StoreCoupon.hasMany(StoreOrder, { foreignKey: 'coupon_id', as: 'orders' });
 StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
 
+// StoreWishlist ↔ StoreCustomer
+StoreCustomer.hasMany(StoreWishlist, { foreignKey: 'customer_id', as: 'wishlist', onDelete: 'CASCADE' });
+StoreWishlist.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+
+// StoreWishlist ↔ CatalogProduct
+CatalogProduct.hasMany(StoreWishlist, { foreignKey: 'catalog_product_id', as: 'wishlisted_by' });
+StoreWishlist.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
+
 // ─── Catálogo de productos ──────────────────────────────────────────────────
 
 // CatalogProduct ↔ GarmentType
@@ -199,6 +208,7 @@ export {
   StoreCoupon,
   StoreOrder,
   StoreOrderItem,
+  StoreWishlist,
   User,
   Client,
   Product,

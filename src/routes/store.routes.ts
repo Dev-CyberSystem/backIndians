@@ -65,7 +65,7 @@ const productQueryValidators = [
   query('gender').optional().isString().isLength({ max: 30 }),
   query('tag').optional().isString().isLength({ max: 60 }),
   query('size').optional().isString().isLength({ max: 60 }),
-  query('sort').optional().isIn(['price_asc', 'price_desc', 'name_asc']),
+  query('sort').optional().isIn(['newest', 'price_asc', 'price_desc', 'name_asc']),
   query('garment_type_id').optional().isInt({ min: 1 }),
   query('client_id').optional().isInt({ min: 1 }),
   query('price_min').optional().isFloat({ min: 0 }),
@@ -104,6 +104,9 @@ router.post('/me/addresses', requireStoreAuth, ctrl.upsertAddress);
 router.delete('/me/addresses/:addressId', requireStoreAuth, ctrl.deleteAddress);
 router.get('/me/orders', requireStoreAuth, ctrl.getMyOrders);
 router.get('/me/orders/:orderNumber/invoice', requireStoreAuth, ctrl.downloadMyInvoice);
+router.get('/me/wishlist', requireStoreAuth, ctrl.getWishlist);
+router.post('/me/wishlist/merge', requireStoreAuth, body('ids').isArray(), validate, ctrl.mergeWishlist);
+router.post('/me/wishlist/:productId/toggle', requireStoreAuth, param('productId').isInt({ min: 1 }), validate, ctrl.toggleWishlistItem);
 
 // ─── Tracking de comportamiento (públicos, fire & forget) ────────────────────
 router.post('/track', trackLimiter, ctrl.trackEvent);
