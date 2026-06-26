@@ -23,6 +23,7 @@ import {
 import { generateInvoicePdf } from '../utils/store.pdf';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { getIO } from '../config/socket';
+import { cached } from '../utils/cache';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -156,17 +157,19 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
       break;
   }
 
+  // `separate: true` en los hasMany (imágenes, tallas): Sequelize los trae en
+  // queries aparte (IN sobre los IDs de la página) en vez de un JOIN que multiplica
+  // filas y obliga a un COUNT(DISTINCT) caro. El COUNT del padre queda simple.
   const { count, rows } = await CatalogProduct.findAndCountAll({
     where,
     include: [
-      { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'] },
-      { model: CatalogProductSize,  as: 'sizes',  attributes: ['id', 'size_name', 'stock_quantity', 'sort_order'] },
+      { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
+      { model: CatalogProductSize,  as: 'sizes',  attributes: ['id', 'size_name', 'stock_quantity', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
       { model: Client,              as: 'client', attributes: ['id', 'name'] },
     ],
     order,
     limit,
     offset,
-    distinct: true,
   });
 
   return {
@@ -175,7 +178,7 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
   };
 }
 
-export async function getStoreFilterOptions() {
+async function computeStoreFilterOptions() {
   const [categories] = await sequelize.query(`
     SELECT DISTINCT category
     FROM catalog_products
@@ -248,9 +251,18 @@ export async function getStoreFilterOptions() {
   };
 }
 
+// Cacheado 60s: las opciones de filtro son una consulta pesada (varios DISTINCT)
+// que cambia poco. Se invalida al crear/editar/borrar productos de catálogo.
+export async function getStoreFilterOptions() {
+  return cached('store:filter-options', 60_000, computeStoreFilterOptions);
+}
+
 export async function getPublicStoreSettings(): Promise<Record<string, string>> {
-  const rows = await Settings.findAll();
-  return Object.fromEntries(rows.map((r) => [r.key, r.value ?? '']));
+  // Cacheado 60s; se invalida cuando el admin guarda la configuración.
+  return cached('store:settings', 60_000, async () => {
+    const rows = await Settings.findAll();
+    return Object.fromEntries(rows.map((r) => [r.key, r.value ?? '']));
+  });
 }
 
 export async function getStoreProduct(id: number) {

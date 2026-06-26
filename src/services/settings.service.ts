@@ -1,5 +1,6 @@
 import { sequelize } from '../config/db';
 import { Settings } from '../models';
+import { invalidateCache } from '../utils/cache';
 
 export interface CompanySettings {
   company_name: string;
@@ -73,6 +74,9 @@ export async function updateSettings(
       );
     }
   });
+
+  // El comprador ve estos settings cacheados: invalidamos para reflejar el cambio ya.
+  invalidateCache('store:settings');
 
   return getAllSettings();
 }

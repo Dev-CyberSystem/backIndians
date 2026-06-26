@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { errorHandler } from './middlewares/errorHandler';
 import { requestContext } from './middlewares/requestContext';
+import { generalLimiter } from './middlewares/rateLimit';
 import { router as apiRouter } from './routes/index';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
@@ -53,7 +54,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestContext);
 
 // ─── Rutas ───────────────────────────────────────────────────────────────────
-app.use('/api/v1', apiRouter);
+// Backstop anti-DoS por IP para toda la API (las rutas sensibles tienen su propio
+// límite, más estricto). Se desactiva bajo test/carga con RATE_LIMIT_DISABLED=1.
+app.use('/api/v1', generalLimiter, apiRouter);
 
 // Health check
 app.get('/health', (_req, res) => {

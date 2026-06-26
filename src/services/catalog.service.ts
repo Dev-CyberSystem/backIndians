@@ -1,6 +1,7 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { type Includeable, Op } from 'sequelize';
 import { AppError } from '../middlewares/errorHandler';
+import { invalidateCache } from '../utils/cache';
 import {
   CatalogProduct,
   CatalogProductImage,
@@ -150,6 +151,7 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
     }
 
     await t.commit();
+    invalidateCache('store:filter-options');
     return getProduct(product.id);
   } catch (err) {
     await t.rollback();
@@ -168,6 +170,7 @@ export async function updateProduct(
     rest.discount_percentage = Math.min(100, Math.max(0, Math.round(rest.discount_percentage)));
   }
   await product.update(rest);
+  invalidateCache('store:filter-options');
   return getProduct(id);
 }
 
@@ -193,6 +196,7 @@ export async function saveProductSizes(productId: number, sizes: SizeInput[]): P
     }
 
     await t.commit();
+    invalidateCache('store:filter-options');
     return CatalogProductSize.findAll({
       where: { product_id: productId },
       order: [['sort_order', 'ASC']],
@@ -222,6 +226,7 @@ export async function deleteProduct(id: number): Promise<{ soft: boolean }> {
   if (usedCount > 0) {
     // Tiene pedidos asociados: desactivar en vez de borrar
     await product.update({ active: false, show_in_store: false });
+    invalidateCache('store:filter-options');
     return { soft: true };
   }
 
@@ -232,6 +237,7 @@ export async function deleteProduct(id: number): Promise<{ soft: boolean }> {
     }
   }
   await product.destroy();
+  invalidateCache('store:filter-options');
   return { soft: false };
 }
 
