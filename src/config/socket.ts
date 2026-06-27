@@ -8,9 +8,15 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
 let io: SocketServer;
 
 export function initSocket(httpServer: HttpServer): SocketServer {
+  // FRONTEND_URL puede ser una lista separada por comas (dominio raíz de la
+  // tienda + subdominio del sistema). La spliteamos igual que el CORS HTTP.
+  const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+    .split(',')
+    .map((o) => o.trim());
+
   io = new SocketServer(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      origin: allowedOrigins,
       methods: ['GET', 'POST'],
       credentials: true,
     },

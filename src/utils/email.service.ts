@@ -3,8 +3,12 @@ import { generateInvoicePdf, type InvoiceData } from './store.pdf';
 import { escapeHtml } from './escapeHtml';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indianstextil.com';
+const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indians.com.ar';
 const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
+
+// Formato de moneda es-AR: 63000 → "$63.000,00"
+const fmtMoney = (n: number) =>
+  `$${Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export async function sendVerificationEmail(email: string, name: string, token: string) {
   const link = `${STORE_URL}/auth/verificar?token=${token}`;
@@ -40,7 +44,7 @@ export async function sendOrderConfirmationEmail(
         `<tr>
           <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;">${escapeHtml(i.title)}</td>
           <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:center;">${i.qty}</td>
-          <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right;">$${i.price.toFixed(2)}</td>
+          <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right;">${fmtMoney(i.price)}</td>
         </tr>`
     )
     .join('');
@@ -63,7 +67,7 @@ export async function sendOrderConfirmationEmail(
           </thead>
           <tbody>${itemsHtml}</tbody>
         </table>
-        <p style="text-align:right;font-weight:700;font-size:18px;">Total: $${total.toFixed(2)}</p>
+        <p style="text-align:right;font-weight:700;font-size:18px;">Total: ${fmtMoney(total)}</p>
         <p style="color:#6b7280;font-size:13px;">Nos pondremos en contacto para coordinar la entrega.</p>
       </div>
     `,
@@ -90,7 +94,7 @@ export async function sendPaymentApprovedEmail(
         <h2 style="color:#16a34a;">¡Tu pago fue aceptado, ${escapeHtml(name)}!</h2>
         <p>Recibimos correctamente el pago de tu pedido <strong>${orderNumber}</strong>.</p>
         <p>Ya estamos <strong>preparando tu pedido</strong>. Te avisaremos cuando esté listo para el retiro o envío.</p>
-        <p style="text-align:right;font-weight:700;font-size:18px;margin-top:16px;">Total pagado: $${total.toFixed(2)}</p>
+        <p style="text-align:right;font-weight:700;font-size:18px;margin-top:16px;">Total pagado: ${fmtMoney(total)}</p>
         <p style="color:#6b7280;font-size:13px;">Gracias por comprar en Indians Textil.</p>
       </div>
     `,
@@ -129,16 +133,16 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
         ${escapeHtml(i.product_title)}${i.size_name ? ` — Talle ${escapeHtml(i.size_name)}` : ''}
       </td>
       <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:center;font-size:13px;">${i.quantity}</td>
-      <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px;">$${Number(i.unit_price).toFixed(2)}</td>
-      <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px;">$${Number(i.subtotal).toFixed(2)}</td>
+      <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px;">${fmtMoney(Number(i.unit_price))}</td>
+      <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px;">${fmtMoney(Number(i.subtotal))}</td>
     </tr>
   `).join('');
 
   const discountRow = data.discountAmount > 0
-    ? `<tr><td colspan="3" style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">Descuento${data.couponCode ? ` (${escapeHtml(data.couponCode)})` : ''}</td><td style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">−$${data.discountAmount.toFixed(2)}</td></tr>`
+    ? `<tr><td colspan="3" style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">Descuento${data.couponCode ? ` (${escapeHtml(data.couponCode)})` : ''}</td><td style="text-align:right;color:#16a34a;padding:4px 0;font-size:13px;">−${fmtMoney(data.discountAmount)}</td></tr>`
     : '';
   const shippingRow = data.shippingCost > 0
-    ? `<tr><td colspan="3" style="text-align:right;padding:4px 0;font-size:13px;">Envío</td><td style="text-align:right;padding:4px 0;font-size:13px;">$${data.shippingCost.toFixed(2)}</td></tr>`
+    ? `<tr><td colspan="3" style="text-align:right;padding:4px 0;font-size:13px;">Envío</td><td style="text-align:right;padding:4px 0;font-size:13px;">${fmtMoney(data.shippingCost)}</td></tr>`
     : '';
 
   await resend.emails.send({
@@ -164,7 +168,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
             ${discountRow}${shippingRow}
             <tr>
               <td colspan="3" style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">Total</td>
-              <td style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">$${data.totalAmount.toFixed(2)}</td>
+              <td style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">${fmtMoney(data.totalAmount)}</td>
             </tr>
           </tfoot>
         </table>
