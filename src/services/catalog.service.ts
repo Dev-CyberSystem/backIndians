@@ -1,6 +1,7 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { type Includeable, Op } from 'sequelize';
 import { AppError } from '../middlewares/errorHandler';
+import { invalidateCache } from '../utils/cache';
 import {
   CatalogProduct,
   CatalogProductImage,
@@ -12,6 +13,8 @@ import {
   CatalogInvoicePayment,
   Client,
   User,
+  GarmentType,
+  ProductCategory,
 } from '../models';
 import { sequelize } from '../config/db';
 import * as mpService from './mercadopago.service';
@@ -19,8 +22,9 @@ import * as mpService from './mercadopago.service';
 // ─── Include estándar de un producto ─────────────────────────────────────────
 
 const PRODUCT_INCLUDE: Includeable[] = [
-  { model: CatalogProductImage, as: 'images', order: [['sort_order', 'ASC']] as [string, string][] },
-  { model: CatalogProductSize,  as: 'sizes',  order: [['sort_order', 'ASC']] as [string, string][] },
+  { model: CatalogProductImage, as: 'images',      order: [['sort_order', 'ASC']] as [string, string][] },
+  { model: CatalogProductSize,  as: 'sizes',       order: [['sort_order', 'ASC']] as [string, string][] },
+  { model: GarmentType,         as: 'garmentType', attributes: ['id', 'name'], required: false },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -56,13 +60,20 @@ export interface SizeInput {
 }
 
 export interface ProductInput {
-  client_id: number;
-  title: string;
-  description?: string;
-  price: number;
+  client_id:       number;
+  title:           string;
+  description?:    string;
+  price:           number;
+  public_price?:   number | null;
+  discount_percentage?: number;
+  show_in_store?:  boolean;
+  category?:       string | null;
+  gender?:         'masculino' | 'femenino' | 'infantil' | 'unisex' | null;
+  tags?:           string[] | null;
+  garment_type_id?: number | null;
   stock_quantity?: number;
-  active?: boolean;
-  sizes?: SizeInput[];
+  active?:         boolean;
+  sizes?:          SizeInput[];
 }
 
 export async function listClientProducts(clientId: number) {
@@ -73,10 +84,11 @@ export async function listClientProducts(clientId: number) {
   });
 }
 
-export async function listAllProducts(page: number, limit: number, clientId?: number) {
+export async function listAllProducts(page: number, limit: number, clientId?: number, garmentTypeId?: number) {
   const offset = (page - 1) * limit;
   const where: Record<string, unknown> = { active: true };
   if (clientId) where['client_id'] = clientId;
+  if (garmentTypeId) where['garment_type_id'] = garmentTypeId;
 
   const { rows, count } = await CatalogProduct.findAndCountAll({
     where,
@@ -111,12 +123,19 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
   const t = await sequelize.transaction();
   try {
     const product = await CatalogProduct.create({
-      client_id: input.client_id,
-      title: input.title,
-      description: input.description || null,
-      price: input.price,
-      stock_quantity: input.stock_quantity ?? 0,
-      active: input.active ?? true,
+      client_id:       input.client_id,
+      title:           input.title,
+      description:     input.description || null,
+      price:           input.price,
+      public_price:    input.public_price ?? null,
+      discount_percentage: Math.min(100, Math.max(0, Math.round(input.discount_percentage ?? 0))),
+      show_in_store:   input.show_in_store ?? false,
+      category:        input.category ?? null,
+      gender:          input.gender ?? null,
+      tags:            input.tags?.length ? input.tags : null,
+      garment_type_id: input.garment_type_id ?? null,
+      stock_quantity:  input.stock_quantity ?? 0,
+      active:          input.active ?? true,
     }, { transaction: t });
 
     if (input.sizes?.length) {
@@ -132,6 +151,7 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
     }
 
     await t.commit();
+    invalidateCache('store:filter-options');
     return getProduct(product.id);
   } catch (err) {
     await t.rollback();
@@ -146,7 +166,11 @@ export async function updateProduct(
   const product = await CatalogProduct.findByPk(id);
   if (!product) throw new AppError('Producto no encontrado', 404);
   const { sizes, ...rest } = input;
+  if (rest.discount_percentage != null) {
+    rest.discount_percentage = Math.min(100, Math.max(0, Math.round(rest.discount_percentage)));
+  }
   await product.update(rest);
+  invalidateCache('store:filter-options');
   return getProduct(id);
 }
 
@@ -172,6 +196,7 @@ export async function saveProductSizes(productId: number, sizes: SizeInput[]): P
     }
 
     await t.commit();
+    invalidateCache('store:filter-options');
     return CatalogProductSize.findAll({
       where: { product_id: productId },
       order: [['sort_order', 'ASC']],
@@ -190,11 +215,20 @@ export async function adjustProductStock(id: number, quantity: number): Promise<
   return product;
 }
 
-export async function deleteProduct(id: number): Promise<void> {
+export async function deleteProduct(id: number): Promise<{ soft: boolean }> {
   const product = await CatalogProduct.findByPk(id, {
     include: [{ model: CatalogProductImage, as: 'images' }],
   });
   if (!product) throw new AppError('Producto no encontrado', 404);
+
+  const usedCount = await CatalogOrderItem.count({ where: { product_id: id } });
+
+  if (usedCount > 0) {
+    // Tiene pedidos asociados: desactivar en vez de borrar
+    await product.update({ active: false, show_in_store: false });
+    invalidateCache('store:filter-options');
+    return { soft: true };
+  }
 
   const images = (product as CatalogProduct & { images?: CatalogProductImage[] }).images ?? [];
   for (const img of images) {
@@ -203,6 +237,8 @@ export async function deleteProduct(id: number): Promise<void> {
     }
   }
   await product.destroy();
+  invalidateCache('store:filter-options');
+  return { soft: false };
 }
 
 // ─── Imágenes de productos ───────────────────────────────────────────────────
@@ -653,4 +689,28 @@ export async function handleMPWebhook(paymentId: string) {
     mp_payment_id: String(paymentInfo.id),
     mp_payment_status: paymentInfo.status ?? null,
   });
+}
+
+// ─── Categorías de producto ───────────────────────────────────────────────────
+
+export async function listProductCategories() {
+  return ProductCategory.findAll({ order: [['sort_order', 'ASC'], ['name', 'ASC']] });
+}
+
+export async function createProductCategory(name: string): Promise<ProductCategory> {
+  const count = await ProductCategory.count();
+  return ProductCategory.create({ name: name.trim(), sort_order: count });
+}
+
+export async function updateProductCategory(id: number, data: { name?: string; sort_order?: number }): Promise<ProductCategory> {
+  const cat = await ProductCategory.findByPk(id);
+  if (!cat) throw new AppError('Categoría no encontrada', 404);
+  await cat.update({ ...(data.name ? { name: data.name.trim() } : {}), ...(data.sort_order != null ? { sort_order: data.sort_order } : {}) });
+  return cat;
+}
+
+export async function deleteProductCategory(id: number): Promise<void> {
+  const cat = await ProductCategory.findByPk(id);
+  if (!cat) throw new AppError('Categoría no encontrada', 404);
+  await cat.destroy();
 }

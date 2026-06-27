@@ -4,6 +4,7 @@ import path from 'path';
 import { app } from './app';
 import { connectDB } from './config/db';
 import { initSocket } from './config/socket';
+import { logger } from './utils/logger';
 
 // Importar modelos para que Sequelize los registre y se creen las asociaciones
 import './models/index';
@@ -12,11 +13,24 @@ dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+// ─── Errores globales no manejados ────────────────────────────────────────────
+// Se registran con el logger centralizado antes de (eventualmente) terminar.
+process.on('unhandledRejection', (reason) => {
+  logger.error('unhandledRejection', reason, { meta: { fatal: false } });
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error('uncaughtException', err, { meta: { fatal: true } });
+  // Un uncaughtException deja el proceso en estado indefinido: salir y dejar que
+  // el orquestador (Railway/PM2/Docker) lo reinicie limpio.
+  process.exit(1);
+});
+
 function validateEnv(): void {
   const required = ['JWT_SECRET', 'JWT_REFRESH_SECRET'];
   const missing = required.filter((k) => !process.env[k]);
   if (missing.length) {
-    console.error(`❌ Variables de entorno requeridas no configuradas: ${missing.join(', ')}`);
+    logger.error('startup.envValidation', new Error(`Variables de entorno requeridas no configuradas: ${missing.join(', ')}`));
     process.exit(1);
   }
 }
@@ -35,12 +49,13 @@ async function main() {
 
     // 4. Levantar el servidor
     httpServer.listen(PORT, () => {
-      console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
-      console.log(`📡 Socket.io activo`);
-      console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
+      logger.info('startup.ready', {
+        meta: { port: PORT, socket: true, environment: process.env.NODE_ENV || 'development' },
+        message: `Servidor corriendo en http://localhost:${PORT}`,
+      });
     });
   } catch (error) {
-    console.error('❌ Error al iniciar el servidor:', error);
+    logger.error('startup.failed', error);
     process.exit(1);
   }
 }

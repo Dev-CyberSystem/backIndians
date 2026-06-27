@@ -18,7 +18,10 @@ router.get(
     query('limit').optional().isInt({ min: 1, max: 100 }),
     query('status').optional().isIn([
       'pending', 'under_review', 'workshop_review', 'observed',
-      'in_production', 'sewing', 'stamping', 'quality_check', 'ready', 'cancelled',
+      'raw_material_control', 'cutting_control', 'printing_control',
+      'sewing_control', 'quality_control', 'packaging_control',
+      'ready', 'cancelled',
+      'in_production', 'sewing', 'stamping', 'quality_check',
     ]),
     query('client_id').optional().isInt({ min: 1 }),
     query('seller_id').optional().isInt({ min: 1 }),
@@ -99,7 +102,10 @@ router.put(
     body('workshop_notes').optional().isString(),
     body('status').optional().isIn([
       'pending', 'under_review', 'workshop_review', 'observed',
-      'in_production', 'sewing', 'stamping', 'quality_check', 'ready', 'cancelled',
+      'raw_material_control', 'cutting_control', 'printing_control',
+      'sewing_control', 'quality_control', 'packaging_control',
+      'ready', 'cancelled',
+      'in_production', 'sewing', 'stamping', 'quality_check',
     ]),
     body('items').optional().isArray({ min: 1 }),
     body('items.*.garment_type_id').optional().isInt({ min: 1 }),
@@ -189,6 +195,27 @@ router.get(
   '/:id/history',
   [param('id').isInt({ min: 1 }), validate],
   ctrl.getOrderHistory
+);
+
+// ── Checklist de controles de producción ──
+// GET checklist del control actual — todos los roles autenticados
+router.get(
+  '/:id/checklist',
+  [param('id').isInt({ min: 1 }), validate],
+  ctrl.getChecklist
+);
+
+// POST tilde de un ítem — solo taller y admin
+router.post(
+  '/:id/checklist',
+  authorize('workshop', 'admin'),
+  [
+    param('id').isInt({ min: 1 }),
+    body('item_key').isString().notEmpty(),
+    body('checked').optional().isBoolean(),
+    validate,
+  ],
+  ctrl.toggleChecklist
 );
 
 export default router;

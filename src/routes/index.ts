@@ -11,6 +11,9 @@ import masterRoutes from './master.routes';
 import settingsRoutes from './settings.routes';
 import cashRoutes from './cash.routes';
 import catalogRoutes from './catalog.routes';
+import storeRoutes from './store.routes';
+import uploadRoutes from './upload.routes';
+import logsRoutes from './logs.routes';
 
 export const router = Router();
 
@@ -26,3 +29,6 @@ router.use('/master', masterRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/cash', cashRoutes);
 router.use('/catalog', catalogRoutes);
+router.use('/store', storeRoutes);
+router.use('/upload', uploadRoutes);
+router.use('/logs', logsRoutes);

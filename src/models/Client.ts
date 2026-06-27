@@ -19,6 +19,7 @@ export class Client extends Model<
   declare address: CreationOptional<string | null>;
   declare cuit: CreationOptional<string | null>;
   declare notes: CreationOptional<string | null>;
+  declare logo_url: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -57,6 +58,10 @@ Client.init(
     },
     notes: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    logo_url: {
+      type: DataTypes.STRING(500),
       allowNull: true,
     },
     createdAt: DataTypes.DATE,

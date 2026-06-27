@@ -5,40 +5,54 @@ import { ORDER_STATUS_TRANSITIONS } from '../services/order.service';
 type Role = 'admin' | 'billing' | 'workshop' | 'seller';
 type Status =
   | 'pending' | 'under_review' | 'workshop_review' | 'observed'
-  | 'in_production' | 'sewing' | 'stamping' | 'quality_check'
+  // Controles de producción (flujo nuevo, 6 controles de calidad)
+  | 'raw_material_control' | 'cutting_control' | 'printing_control'
+  | 'sewing_control' | 'quality_control' | 'packaging_control'
   | 'ready' | 'cancelled';
 
 function canTransition(role: Role, from: Status, to: Status): boolean {
   return (ORDER_STATUS_TRANSITIONS[role]?.[from] ?? []).includes(to);
 }
 
+// Secuencia de los 6 controles, de inicio a fin.
+const PRODUCTION_FLOW: Status[] = [
+  'workshop_review',
+  'raw_material_control',
+  'cutting_control',
+  'printing_control',
+  'sewing_control',
+  'quality_control',
+  'packaging_control',
+  'ready',
+];
+
 // ── Workshop: flujo completo de producción ────────────────────────────────────
 
 describe('workshop transitions', () => {
-  it('flujo completo: workshop_review → in_production → sewing → stamping → quality_check → ready', () => {
-    expect(canTransition('workshop', 'workshop_review', 'in_production')).toBe(true);
-    expect(canTransition('workshop', 'in_production',   'sewing')).toBe(true);
-    expect(canTransition('workshop', 'sewing',          'stamping')).toBe(true);
-    expect(canTransition('workshop', 'stamping',        'quality_check')).toBe(true);
-    expect(canTransition('workshop', 'quality_check',   'ready')).toBe(true);
+  it('flujo completo: workshop_review → ...6 controles... → ready', () => {
+    for (let i = 0; i < PRODUCTION_FLOW.length - 1; i++) {
+      expect(canTransition('workshop', PRODUCTION_FLOW[i], PRODUCTION_FLOW[i + 1])).toBe(true);
+    }
   });
 
-  it('puede retroceder: stamping → sewing y sewing → in_production', () => {
-    expect(canTransition('workshop', 'stamping', 'sewing')).toBe(true);
-    expect(canTransition('workshop', 'sewing',   'in_production')).toBe(true);
+  it('puede retroceder al control anterior (observar): cada control → el previo', () => {
+    // Desde raw_material_control en adelante, cada control puede volver al anterior.
+    for (let i = 2; i < PRODUCTION_FLOW.length - 1; i++) {
+      expect(canTransition('workshop', PRODUCTION_FLOW[i], PRODUCTION_FLOW[i - 1])).toBe(true);
+    }
   });
 
   it('puede observar desde workshop_review', () => {
     expect(canTransition('workshop', 'workshop_review', 'observed')).toBe(true);
   });
 
-  it('NO puede saltear pasos: in_production → stamping directo', () => {
-    expect(canTransition('workshop', 'in_production', 'stamping')).toBe(false);
+  it('NO puede saltear pasos: raw_material_control → printing_control directo', () => {
+    expect(canTransition('workshop', 'raw_material_control', 'printing_control')).toBe(false);
   });
 
   it('NO puede cancelar (solo admin puede)', () => {
-    expect(canTransition('workshop', 'sewing',   'cancelled')).toBe(false);
-    expect(canTransition('workshop', 'stamping', 'cancelled')).toBe(false);
+    expect(canTransition('workshop', 'cutting_control', 'cancelled')).toBe(false);
+    expect(canTransition('workshop', 'sewing_control',  'cancelled')).toBe(false);
   });
 });
 
@@ -47,7 +61,8 @@ describe('workshop transitions', () => {
 describe('admin transitions', () => {
   const cancelableStates: Status[] = [
     'pending', 'under_review', 'observed', 'workshop_review',
-    'in_production', 'sewing', 'stamping', 'quality_check', 'ready',
+    'raw_material_control', 'cutting_control', 'printing_control',
+    'sewing_control', 'quality_control', 'packaging_control', 'ready',
   ];
 
   it.each(cancelableStates)('puede cancelar desde %s', (state) => {
@@ -55,18 +70,17 @@ describe('admin transitions', () => {
   });
 
   it('flujo completo admin (happy path)', () => {
-    expect(canTransition('admin', 'pending',         'under_review')).toBe(true);
-    expect(canTransition('admin', 'under_review',    'workshop_review')).toBe(true);
-    expect(canTransition('admin', 'workshop_review', 'in_production')).toBe(true);
-    expect(canTransition('admin', 'in_production',   'sewing')).toBe(true);
-    expect(canTransition('admin', 'sewing',          'stamping')).toBe(true);
-    expect(canTransition('admin', 'stamping',        'quality_check')).toBe(true);
-    expect(canTransition('admin', 'quality_check',   'ready')).toBe(true);
+    expect(canTransition('admin', 'pending',      'under_review')).toBe(true);
+    expect(canTransition('admin', 'under_review', 'workshop_review')).toBe(true);
+    for (let i = 0; i < PRODUCTION_FLOW.length - 1; i++) {
+      expect(canTransition('admin', PRODUCTION_FLOW[i], PRODUCTION_FLOW[i + 1])).toBe(true);
+    }
   });
 
-  it('puede retroceder en admin: stamping → sewing y sewing → in_production', () => {
-    expect(canTransition('admin', 'stamping', 'sewing')).toBe(true);
-    expect(canTransition('admin', 'sewing',   'in_production')).toBe(true);
+  it('puede retroceder en admin: cada control → el previo', () => {
+    for (let i = 2; i < PRODUCTION_FLOW.length - 1; i++) {
+      expect(canTransition('admin', PRODUCTION_FLOW[i], PRODUCTION_FLOW[i - 1])).toBe(true);
+    }
   });
 });
 
@@ -83,8 +97,8 @@ describe('billing transitions', () => {
   });
 
   it('NO puede mover estados de producción', () => {
-    expect(canTransition('billing', 'in_production', 'sewing')).toBe(false);
-    expect(canTransition('billing', 'sewing',        'stamping')).toBe(false);
+    expect(canTransition('billing', 'raw_material_control', 'cutting_control')).toBe(false);
+    expect(canTransition('billing', 'sewing_control',       'quality_control')).toBe(false);
   });
 });
 
@@ -96,21 +110,24 @@ describe('seller transitions', () => {
   });
 
   it('NO puede avanzar estados de producción', () => {
-    expect(canTransition('seller', 'pending',      'under_review')).toBe(false);
-    expect(canTransition('seller', 'in_production', 'sewing')).toBe(false);
+    expect(canTransition('seller', 'pending',              'under_review')).toBe(false);
+    expect(canTransition('seller', 'raw_material_control', 'cutting_control')).toBe(false);
   });
 });
 
-// ── Los nuevos estados existen en la tabla ────────────────────────────────────
+// ── Los 6 controles existen en la tabla ───────────────────────────────────────
 
-describe('nuevos estados sewing y stamping presentes en la tabla', () => {
-  it('workshop tiene sewing y stamping definidos', () => {
-    expect(ORDER_STATUS_TRANSITIONS.workshop).toHaveProperty('sewing');
-    expect(ORDER_STATUS_TRANSITIONS.workshop).toHaveProperty('stamping');
+describe('los 6 controles de producción están presentes en la tabla', () => {
+  const controls: Status[] = [
+    'raw_material_control', 'cutting_control', 'printing_control',
+    'sewing_control', 'quality_control', 'packaging_control',
+  ];
+
+  it.each(controls)('workshop tiene %s definido', (control) => {
+    expect(ORDER_STATUS_TRANSITIONS.workshop).toHaveProperty(control);
   });
 
-  it('admin tiene sewing y stamping definidos', () => {
-    expect(ORDER_STATUS_TRANSITIONS.admin).toHaveProperty('sewing');
-    expect(ORDER_STATUS_TRANSITIONS.admin).toHaveProperty('stamping');
+  it.each(controls)('admin tiene %s definido', (control) => {
+    expect(ORDER_STATUS_TRANSITIONS.admin).toHaveProperty(control);
   });
 });

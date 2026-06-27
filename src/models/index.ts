@@ -1,4 +1,12 @@
 // Punto de entrada de modelos: define todas las asociaciones entre tablas
+import { ProductCategory } from './ProductCategory';
+import { StoreEvent } from './StoreEvent';
+import { StoreWishlist } from './StoreWishlist';
+import { StoreCustomer } from './StoreCustomer';
+import { StoreAddress } from './StoreAddress';
+import { StoreCoupon } from './StoreCoupon';
+import { StoreOrder } from './StoreOrder';
+import { StoreOrderItem } from './StoreOrderItem';
 import { User } from './User';
 import { Client } from './Client';
 import { Product } from './Product';
@@ -15,6 +23,7 @@ import { Order } from './Order';
 import { OrderItem } from './OrderItem';
 import { OrderImage } from './OrderImage';
 import { OrderStatusHistory } from './OrderStatusHistory';
+import { OrderChecklistCheck } from './OrderChecklistCheck';
 import { Invoice } from './Invoice';
 import { StockItem } from './StockItem';
 import { StockCategory } from './StockCategory';
@@ -72,6 +81,11 @@ OrderStatusHistory.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
 // OrderStatusHistory ↔ User (quién cambió)
 OrderStatusHistory.belongsTo(User, { foreignKey: 'changed_by', as: 'changer' });
 
+// Order ↔ OrderChecklistCheck (tildes de los controles de producción)
+Order.hasMany(OrderChecklistCheck, { foreignKey: 'order_id', as: 'checklist_checks', onDelete: 'CASCADE' });
+OrderChecklistCheck.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
+OrderChecklistCheck.belongsTo(User, { foreignKey: 'checked_by', as: 'checker' });
+
 // Invoice ↔ Order
 Invoice.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
 Order.hasMany(Invoice, { foreignKey: 'order_id', as: 'invoices' });
@@ -107,7 +121,41 @@ CashTransactionCategory.hasMany(CashTransaction, { foreignKey: 'category_id', as
 CashTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 User.hasMany(CashTransaction, { foreignKey: 'created_by', as: 'cash_transactions' });
 
+// ─── Tienda (Ecommerce) ─────────────────────────────────────────────────────
+
+// StoreAddress ↔ StoreCustomer
+StoreCustomer.hasMany(StoreAddress, { foreignKey: 'customer_id', as: 'addresses', onDelete: 'CASCADE' });
+StoreAddress.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+
+// StoreOrder ↔ StoreCustomer
+StoreCustomer.hasMany(StoreOrder, { foreignKey: 'customer_id', as: 'store_orders' });
+StoreOrder.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+
+// StoreOrderItem ↔ StoreOrder
+StoreOrder.hasMany(StoreOrderItem, { foreignKey: 'store_order_id', as: 'items', onDelete: 'CASCADE' });
+StoreOrderItem.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'order' });
+
+// StoreOrderItem ↔ CatalogProduct
+StoreOrderItem.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
+CatalogProduct.hasMany(StoreOrderItem, { foreignKey: 'catalog_product_id', as: 'store_order_items' });
+
+// StoreOrder ↔ StoreCoupon
+StoreCoupon.hasMany(StoreOrder, { foreignKey: 'coupon_id', as: 'orders' });
+StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
+
+// StoreWishlist ↔ StoreCustomer
+StoreCustomer.hasMany(StoreWishlist, { foreignKey: 'customer_id', as: 'wishlist', onDelete: 'CASCADE' });
+StoreWishlist.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+
+// StoreWishlist ↔ CatalogProduct
+CatalogProduct.hasMany(StoreWishlist, { foreignKey: 'catalog_product_id', as: 'wishlisted_by' });
+StoreWishlist.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
+
 // ─── Catálogo de productos ──────────────────────────────────────────────────
+
+// CatalogProduct ↔ GarmentType
+CatalogProduct.belongsTo(GarmentType, { foreignKey: 'garment_type_id', as: 'garmentType' });
+GarmentType.hasMany(CatalogProduct, { foreignKey: 'garment_type_id', as: 'catalog_products' });
 
 // CatalogProduct ↔ Client
 CatalogProduct.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
@@ -154,6 +202,13 @@ CatalogInvoice.hasMany(CatalogInvoicePayment, { foreignKey: 'catalog_invoice_id'
 CatalogInvoicePayment.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
 
 export {
+  StoreEvent,
+  StoreCustomer,
+  StoreAddress,
+  StoreCoupon,
+  StoreOrder,
+  StoreOrderItem,
+  StoreWishlist,
   User,
   Client,
   Product,
@@ -168,6 +223,7 @@ export {
   OrderItem,
   OrderImage,
   OrderStatusHistory,
+  OrderChecklistCheck,
   Invoice,
   StockItem,
   GarmentType,
@@ -182,4 +238,5 @@ export {
   CashAccount,
   CashTransactionCategory,
   CashTransaction,
+  ProductCategory,
 };

@@ -351,7 +351,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 // ─── PDF de factura ───────────────────────────────────────────────────────────
-export async function generateInvoicePDF(invoice: Invoice, settings?: CompanySettings): Promise<Buffer> {
+export async function generateInvoicePDF(invoice: Invoice, settings?: CompanySettings | Record<string, string>): Promise<Buffer> {
   const doc = new PDFDocument({ margin: 50, size: 'A4' });
 
   const order  = (invoice as any).order;

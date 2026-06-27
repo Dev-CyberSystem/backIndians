@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../types';
 import * as catalogService from '../services/catalog.service';
+import { storeEvents } from '../events/storeEvents';
 
 // ─── Productos ────────────────────────────────────────────────────────────────
 
@@ -17,7 +18,8 @@ export async function listProducts(req: AuthRequest, res: Response, next: NextFu
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
     const clientId = req.query.client_id ? parseInt(req.query.client_id as string) : undefined;
-    const result = await catalogService.listAllProducts(page, limit, clientId);
+    const garmentTypeId = req.query.garment_type_id ? parseInt(req.query.garment_type_id as string) : undefined;
+    const result = await catalogService.listAllProducts(page, limit, clientId, garmentTypeId);
     res.json({ success: true, data: result.products, meta: { page: result.page, limit: result.limit, total: result.total } });
   } catch (err) { next(err); }
 }
@@ -32,6 +34,7 @@ export async function getProduct(req: AuthRequest, res: Response, next: NextFunc
 export async function createProduct(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const product = await catalogService.createProduct(req.body);
+    storeEvents.emit('products_changed');
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 }
@@ -39,14 +42,19 @@ export async function createProduct(req: AuthRequest, res: Response, next: NextF
 export async function updateProduct(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const product = await catalogService.updateProduct(parseInt(req.params.id), req.body);
+    storeEvents.emit('products_changed');
     res.json({ success: true, data: product });
   } catch (err) { next(err); }
 }
 
 export async function deleteProduct(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    await catalogService.deleteProduct(parseInt(req.params.id));
-    res.json({ success: true, data: { message: 'Producto eliminado' } });
+    const { soft } = await catalogService.deleteProduct(parseInt(req.params.id));
+    storeEvents.emit('products_changed');
+    const message = soft
+      ? 'El producto tiene pedidos asociados y fue desactivado (no eliminado)'
+      : 'Producto eliminado';
+    res.json({ success: true, data: { message, soft } });
   } catch (err) { next(err); }
 }
 
@@ -56,6 +64,7 @@ export async function adjustProductStock(req: AuthRequest, res: Response, next: 
       parseInt(req.params.id),
       parseInt(req.body.stock_quantity)
     );
+    storeEvents.emit('products_changed');
     res.json({ success: true, data: product });
   } catch (err) { next(err); }
 }
@@ -63,6 +72,7 @@ export async function adjustProductStock(req: AuthRequest, res: Response, next: 
 export async function saveProductSizes(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const sizes = await catalogService.saveProductSizes(parseInt(req.params.id), req.body.sizes ?? []);
+    storeEvents.emit('products_changed');
     res.json({ success: true, data: sizes });
   } catch (err) { next(err); }
 }
@@ -76,6 +86,7 @@ export async function uploadProductImage(req: AuthRequest, res: Response, next: 
       return;
     }
     const image = await catalogService.addProductImage(parseInt(req.params.id), req.file);
+    storeEvents.emit('products_changed');
     res.status(201).json({ success: true, data: image });
   } catch (err) { next(err); }
 }
@@ -83,6 +94,7 @@ export async function uploadProductImage(req: AuthRequest, res: Response, next: 
 export async function deleteProductImage(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     await catalogService.deleteProductImage(parseInt(req.params.imageId));
+    storeEvents.emit('products_changed');
     res.json({ success: true, data: { message: 'Imagen eliminada' } });
   } catch (err) { next(err); }
 }
@@ -220,5 +232,37 @@ export async function mpWebhook(req: AuthRequest, res: Response, next: NextFunct
       await catalogService.handleMPWebhook(String(paymentId));
     }
     res.sendStatus(200);
+  } catch (err) { next(err); }
+}
+
+// ─── Categorías de producto ───────────────────────────────────────────────────
+
+export async function listCategories(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const categories = await catalogService.listProductCategories();
+    res.json({ success: true, data: categories });
+  } catch (err) { next(err); }
+}
+
+export async function createCategory(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { name } = req.body;
+    const category = await catalogService.createProductCategory(name);
+    res.status(201).json({ success: true, data: category });
+  } catch (err) { next(err); }
+}
+
+export async function updateCategory(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = parseInt(req.params.id);
+    const category = await catalogService.updateProductCategory(id, req.body);
+    res.json({ success: true, data: category });
+  } catch (err) { next(err); }
+}
+
+export async function deleteCategory(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    await catalogService.deleteProductCategory(parseInt(req.params.id));
+    res.json({ success: true });
   } catch (err) { next(err); }
 }

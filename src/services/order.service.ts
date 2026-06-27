@@ -6,6 +6,7 @@ import {
   OrderItem,
   OrderImage,
   OrderStatusHistory,
+  OrderChecklistCheck,
   Client,
   User,
   GarmentType,
@@ -14,6 +15,9 @@ import {
   Invoice,
 } from '../models';
 import { AppError } from '../middlewares/errorHandler';
+import {
+  ORDER_CHECKLISTS, isControlStatus, nextControlStatus, checklistKeys,
+} from '../config/orderChecklists';
 import {
   OrderStatus, JwtPayload, SizesMap,
   CollarType, SleeveType, Sponsor, Customization,
@@ -265,24 +269,30 @@ export const ORDER_STATUS_TRANSITIONS: Record<string, Partial<Record<OrderStatus
     pending:      ['under_review'],
     under_review: ['observed', 'workshop_review'],
   },
+  // Taller: inicia y recorre los controles de producción. En cada control puede
+  // avanzar al siguiente (con el checklist completo) o "observar" volviendo al anterior.
   workshop: {
-    workshop_review: ['in_production', 'observed'],
-    in_production:   ['sewing'],
-    sewing:          ['stamping', 'in_production'],
-    stamping:        ['quality_check', 'sewing'],
-    quality_check:   ['ready'],
+    workshop_review:      ['raw_material_control', 'observed'],
+    raw_material_control: ['cutting_control', 'workshop_review'],
+    cutting_control:      ['printing_control', 'raw_material_control'],
+    printing_control:     ['sewing_control', 'cutting_control'],
+    sewing_control:       ['quality_control', 'printing_control'],
+    quality_control:      ['packaging_control', 'sewing_control'],
+    packaging_control:    ['ready', 'quality_control'],
   },
   admin: {
-    pending:         ['under_review', 'cancelled'],
-    under_review:    ['observed', 'workshop_review', 'cancelled'],
-    observed:        ['under_review', 'cancelled'],
-    workshop_review: ['in_production', 'observed', 'cancelled'],
-    in_production:   ['sewing', 'cancelled'],
-    sewing:          ['stamping', 'in_production', 'cancelled'],
-    stamping:        ['quality_check', 'sewing', 'cancelled'],
-    quality_check:   ['ready', 'cancelled'],
-    ready:           ['cancelled'],
-    cancelled:       [],
+    pending:              ['under_review', 'cancelled'],
+    under_review:         ['observed', 'workshop_review', 'cancelled'],
+    observed:             ['under_review', 'cancelled'],
+    workshop_review:      ['raw_material_control', 'observed', 'cancelled'],
+    raw_material_control: ['cutting_control', 'workshop_review', 'cancelled'],
+    cutting_control:      ['printing_control', 'raw_material_control', 'cancelled'],
+    printing_control:     ['sewing_control', 'cutting_control', 'cancelled'],
+    sewing_control:       ['quality_control', 'printing_control', 'cancelled'],
+    quality_control:      ['packaging_control', 'sewing_control', 'cancelled'],
+    packaging_control:    ['ready', 'quality_control', 'cancelled'],
+    ready:                ['cancelled'],
+    cancelled:            [],
   },
 };
 
@@ -479,10 +489,32 @@ export async function updateOrder(
 
   // Validar y aplicar cambio de estado (solo workshop, billing, admin)
   if (status && status !== order.status) {
-    validateStatusTransition(currentUser.role, order.status as OrderStatus, status);
-
     const previousStatus = order.status as OrderStatus;
+    validateStatusTransition(currentUser.role, previousStatus, status);
+
+    // Si es un AVANCE entre controles, exigir el checklist del control actual completo.
+    if (isControlStatus(previousStatus) && status === nextControlStatus(previousStatus)) {
+      const keys = checklistKeys(previousStatus);
+      const done = await OrderChecklistCheck.count({
+        where: { order_id: order.id, status: previousStatus },
+      });
+      if (done < keys.length) {
+        throw new AppError(
+          `Completá el checklist del control antes de avanzar (${done}/${keys.length} ítems).`,
+          400,
+          undefined,
+          { code: 'CHECKLIST_INCOMPLETE', type: 'BusinessRuleError' }
+        );
+      }
+    }
+
     await order.update({ status });
+
+    // Al entrar a un control, reiniciar sus tildes (arranca limpio: avance = vacío,
+    // retroceso por observación = se rehace el control).
+    if (isControlStatus(status)) {
+      await OrderChecklistCheck.destroy({ where: { order_id: order.id, status } });
+    }
 
     await recordStatusChange(order.id, previousStatus, status, currentUser.id, input.status_comment);
     emitStatusChange(order.id, status, order.order_number, order.seller_id ?? null);
@@ -638,4 +670,82 @@ export async function getOrderHistory(
     include: [{ model: User, as: 'changer', attributes: ['id', 'name', 'role'] }],
     order: [['createdAt', 'DESC']],
   });
+}
+
+// ─── Checklist de controles de producción ─────────────────────────────────────
+
+interface ChecklistView {
+  status: string;
+  is_control: boolean;
+  items: Array<{
+    key: string;
+    label: string;
+    checked: boolean;
+    checked_by: string | null;
+    checked_at: Date | null;
+  }>;
+  total: number;
+  done: number;
+}
+
+/** Devuelve el checklist del control en el que está el pedido, con su estado de tilde. */
+export async function getOrderChecklist(orderId: number): Promise<ChecklistView> {
+  const order = await Order.findByPk(orderId);
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+
+  const status = order.status as string;
+  const items = ORDER_CHECKLISTS[status] ?? [];
+
+  const checks = await OrderChecklistCheck.findAll({
+    where: { order_id: orderId, status },
+    include: [{ model: User, as: 'checker', attributes: ['id', 'name'] }],
+  });
+  const byKey = new Map(checks.map((c) => [c.item_key, c]));
+
+  return {
+    status,
+    is_control: isControlStatus(status),
+    items: items.map((it) => {
+      const c = byKey.get(it.key);
+      return {
+        key: it.key,
+        label: it.label,
+        checked: !!c,
+        checked_by: c ? ((c as { checker?: { name?: string } }).checker?.name ?? null) : null,
+        checked_at: c ? c.createdAt : null,
+      };
+    }),
+    total: items.length,
+    done: items.filter((it) => byKey.has(it.key)).length,
+  };
+}
+
+/** Tilda o destilda un ítem del checklist del control actual del pedido. */
+export async function toggleChecklistItem(
+  orderId: number,
+  itemKey: string,
+  checked: boolean,
+  user: JwtPayload
+): Promise<ChecklistView> {
+  const order = await Order.findByPk(orderId);
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+
+  const status = order.status as string;
+  if (!isControlStatus(status)) {
+    throw new AppError('El pedido no está en un control con checklist', 400);
+  }
+  if (!checklistKeys(status).includes(itemKey)) {
+    throw new AppError('Ítem de checklist inválido para este control', 400);
+  }
+
+  if (checked) {
+    await OrderChecklistCheck.findOrCreate({
+      where: { order_id: orderId, status, item_key: itemKey },
+      defaults: { order_id: orderId, status, item_key: itemKey, checked_by: user.id },
+    });
+  } else {
+    await OrderChecklistCheck.destroy({ where: { order_id: orderId, status, item_key: itemKey } });
+  }
+
+  return getOrderChecklist(orderId);
 }
