@@ -194,11 +194,12 @@ async function computeStoreFilterOptions() {
   `);
 
   const [sizes] = await sequelize.query(`
-    SELECT DISTINCT cps.size_name
+    SELECT cps.size_name, MIN(cps.sort_order) AS min_order
     FROM catalog_product_sizes cps
     JOIN catalog_products cp ON cp.id = cps.product_id
     WHERE cp.show_in_store = 1 AND cp.active = 1 AND cps.stock_quantity > 0
-    ORDER BY cps.sort_order, cps.size_name
+    GROUP BY cps.size_name
+    ORDER BY min_order, cps.size_name
   `);
 
   const [priceRange] = await sequelize.query(`
