@@ -119,12 +119,18 @@ export async function forgotPasswordService(email: string): Promise<void> {
     used: false,
   });
 
-  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+  // El sistema vive en su propio subdominio (sistema.indians.com.ar). Usamos una
+  // env dedicada porque FRONTEND_URL puede ser una lista (CSV) de orígenes CORS.
+  const systemUrl =
+    process.env.SYSTEM_URL ||
+    process.env.FRONTEND_URL?.split(',')[0].trim() ||
+    'http://localhost:5173';
+  const resetUrl = `${systemUrl}/reset-password?token=${token}`;
 
   await sendMail({
     to: user.email,
-    subject: 'Recuperación de contraseña — Sistema Textil',
-    html: buildPasswordResetEmail(resetUrl),
+    subject: 'Restablecer contraseña — Indians Textil',
+    html: buildPasswordResetEmail(resetUrl, user.name),
   });
 }
 

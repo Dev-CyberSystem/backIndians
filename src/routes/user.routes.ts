@@ -5,8 +5,8 @@ import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
 import * as ctrl from '../controllers/user.controller';
 
-const PWD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&._\-+])[A-Za-z\d@$!%*#?&._\-+]{6,10}$/;
-const PWD_MSG   = 'La contraseña debe tener entre 6 y 10 caracteres, incluir letras, números y al menos un carácter especial (@$!%*#?&)';
+const PWD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]])[A-Za-z\d@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]]{6,10}$/;
+const PWD_MSG   = 'La contraseña debe tener entre 6 y 10 caracteres, incluir letras, números y al menos un carácter especial (@ $ ! % * # ? & . _ - + / etc.)';
 
 const router = Router();
 
