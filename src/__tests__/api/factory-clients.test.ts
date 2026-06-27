@@ -23,7 +23,9 @@ describe('Clientes — API', () => {
     const id = create.body.data?.id;
     expect(id).toBeTruthy();
 
-    const list = await api().get(`${API}/clients`).set(...auth(token));
+    // Usamos el buscador del listado para no depender de la paginación
+    // (la DB puede tener muchos clientes de pruebas anteriores).
+    const list = await api().get(`${API}/clients?search=${encodeURIComponent(name)}`).set(...auth(token));
     expect(list.status).toBe(200);
     const rows = list.body.data?.rows ?? list.body.data ?? [];
     expect(rows.some((c: any) => c.id === id || c.name === name)).toBe(true);

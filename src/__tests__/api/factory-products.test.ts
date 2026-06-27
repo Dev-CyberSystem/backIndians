@@ -17,10 +17,19 @@ describe('Prendas (productos base) — API', () => {
     const id = create.body.data?.id;
     expect(id).toBeTruthy();
 
-    const list = await api().get(`${API}/products`).set(...auth(admin));
-    expect(list.status).toBe(200);
-    const rows = list.body.data?.rows ?? list.body.data ?? [];
-    expect(rows.some((p: any) => p.id === id)).toBe(true);
+    // El listado ordena por nombre y pagina; la DB puede tener muchas prendas de
+    // pruebas anteriores. Recorremos las páginas (con límite alto) hasta hallarla.
+    const first = await api().get(`${API}/products?limit=100&page=1`).set(...auth(admin));
+    expect(first.status).toBe(200);
+    const total = first.body.meta?.total ?? (first.body.data ?? []).length;
+    const totalPages = Math.max(1, Math.ceil(total / 100));
+
+    let found = (first.body.data ?? []).some((p: any) => p.id === id);
+    for (let page = 2; page <= totalPages && !found; page++) {
+      const res = await api().get(`${API}/products?limit=100&page=${page}`).set(...auth(admin));
+      found = (res.body.data ?? []).some((p: any) => p.id === id);
+    }
+    expect(found).toBe(true);
   });
 
   it('edita el precio de una prenda', async () => {
