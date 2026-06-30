@@ -6,6 +6,7 @@ import {
   CreationOptional,
 } from 'sequelize';
 import { sequelize } from '../config/db';
+import type { AfipStatus } from './Invoice';
 
 export type StoreOrderStatus =
   | 'pending_payment'
@@ -55,6 +56,18 @@ export class StoreOrder extends Model<
   declare payment_proof_url: CreationOptional<string | null>;
   declare payment_proof_url_2: CreationOptional<string | null>;
   declare notes: CreationOptional<string | null>;
+  declare afip_status: CreationOptional<AfipStatus | null>;
+  declare afip_tipo_comprobante: CreationOptional<number | null>;
+  declare afip_concepto: CreationOptional<number | null>;
+  declare afip_iva_alicuota: CreationOptional<number | null>;
+  declare afip_doc_tipo: CreationOptional<number | null>;
+  declare afip_condicion_iva_receptor: CreationOptional<number | null>;
+  declare afip_punto_venta: CreationOptional<number | null>;
+  declare afip_cbte_nro: CreationOptional<number | null>;
+  declare afip_cae: CreationOptional<string | null>;
+  declare afip_cae_vto: CreationOptional<string | null>;
+  declare afip_sent_at: CreationOptional<Date | null>;
+  declare afip_error: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -105,6 +118,18 @@ StoreOrder.init(
     payment_proof_url:   { type: DataTypes.STRING(500), allowNull: true },
     payment_proof_url_2: { type: DataTypes.STRING(500), allowNull: true },
     notes: { type: DataTypes.TEXT, allowNull: true },
+    afip_status:                 { type: DataTypes.ENUM('pending', 'sent', 'error'), allowNull: true },
+    afip_tipo_comprobante:       { type: DataTypes.TINYINT.UNSIGNED,                 allowNull: true },
+    afip_concepto:               { type: DataTypes.TINYINT.UNSIGNED,                 allowNull: true },
+    afip_iva_alicuota:           { type: DataTypes.DECIMAL(5, 2),                    allowNull: true, get() { const v = this.getDataValue('afip_iva_alicuota'); return v === null || v === undefined ? null : parseFloat(String(v)); } },
+    afip_doc_tipo:               { type: DataTypes.TINYINT.UNSIGNED,                 allowNull: true },
+    afip_condicion_iva_receptor: { type: DataTypes.TINYINT.UNSIGNED,                 allowNull: true },
+    afip_punto_venta:            { type: DataTypes.SMALLINT.UNSIGNED,                allowNull: true },
+    afip_cbte_nro:               { type: DataTypes.INTEGER.UNSIGNED,                 allowNull: true },
+    afip_cae:                    { type: DataTypes.STRING(20),                       allowNull: true },
+    afip_cae_vto:                { type: DataTypes.DATEONLY,                         allowNull: true },
+    afip_sent_at:                { type: DataTypes.DATE,                             allowNull: true },
+    afip_error:                  { type: DataTypes.TEXT,                             allowNull: true },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },

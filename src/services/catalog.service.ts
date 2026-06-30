@@ -514,7 +514,7 @@ export async function listCatalogInvoices(
         model: CatalogOrder, as: 'order',
         ...(hasOrderFilter ? { where: orderWhere, required: true } : {}),
         include: [
-          { model: Client, as: 'client', attributes: ['id', 'name'] },
+          { model: Client, as: 'client', attributes: ['id', 'name', 'cuit', 'condicion_iva'] },
           { model: User, as: 'seller', attributes: ['id', 'name'] },
         ],
       },

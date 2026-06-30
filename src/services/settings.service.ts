@@ -49,6 +49,8 @@ const VALID_KEYS: string[] = [
   'bank_transfer_cbu', 'bank_transfer_alias', 'bank_transfer_holder',
   // Tienda — chatbot de atención
   'store_chatbot_enabled', 'store_chatbot_greeting',
+  // AFIP / ARCA — Facturación electrónica
+  'afip_enabled', 'afip_environment', 'afip_punto_venta', 'afip_concepto_default',
 ];
 
 export async function getAllSettings(): Promise<Record<string, string>> {

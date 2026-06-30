@@ -44,14 +44,22 @@ async function generateInvoiceNumber(transaction?: Transaction): Promise<string>
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   const dateStr = `${y}${m}${d}`;
-  const isoDate = `${y}-${m}-${d}`;
+  const prefix = `FAC-${dateStr}-`;
 
-  const rows = await sequelize.query<{ cnt: string }>(
-    `SELECT COUNT(*) AS cnt FROM invoices WHERE DATE(createdAt) = :isoDate`,
-    { replacements: { isoDate }, type: QueryTypes.SELECT, transaction }
+  // MAX del correlativo del día (no COUNT): inmune a huecos por facturas borradas
+  // que harían reusar un número ya existente. Ver generateOrderNumber.
+  const rows = await sequelize.query<{ mx: number | null }>(
+    `SELECT MAX(CAST(SUBSTRING(invoice_number, :from) AS UNSIGNED)) AS mx
+       FROM invoices
+      WHERE invoice_number LIKE :like`,
+    {
+      replacements: { from: prefix.length + 1, like: `${prefix}%` },
+      type: QueryTypes.SELECT,
+      transaction,
+    }
   );
-  const count = Number(rows[0]?.cnt ?? 0);
-  return `FAC-${dateStr}-${String(count + 1).padStart(4, '0')}`;
+  const next = Number(rows[0]?.mx ?? 0) + 1;
+  return `${prefix}${String(next).padStart(4, '0')}`;
 }
 
 function calcTotal(orderTotal: number, extraItems: InvoiceExtraItem[], discount: number): number {
@@ -125,7 +133,7 @@ export async function listInvoices(
         required: true,
         where: Object.keys(orderWhere).length ? orderWhere : undefined,
         include: [
-          { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name'] },
+          { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name', 'cuit', 'condicion_iva'] },
           { model: User, as: 'seller', attributes: ['id', 'name'] },
         ],
       },

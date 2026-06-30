@@ -14,6 +14,7 @@ import catalogRoutes from './catalog.routes';
 import storeRoutes from './store.routes';
 import uploadRoutes from './upload.routes';
 import logsRoutes from './logs.routes';
+import afipRoutes from './afip.routes';
 
 export const router = Router();
 
@@ -32,3 +33,4 @@ router.use('/catalog', catalogRoutes);
 router.use('/store', storeRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/logs', logsRoutes);
+router.use('/', afipRoutes);
