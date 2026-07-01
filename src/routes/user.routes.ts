@@ -55,6 +55,12 @@ router.patch(
   ctrl.toggleUser
 );
 
+router.post(
+  '/:id/resend-welcome',
+  [param('id').isInt({ min: 1 }).withMessage('ID inválido'), validate],
+  ctrl.resendWelcome
+);
+
 router.patch(
   '/:id/password',
   [

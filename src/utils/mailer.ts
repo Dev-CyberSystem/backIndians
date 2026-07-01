@@ -19,6 +19,57 @@ export async function sendMail({ to, subject, html }: MailOptions): Promise<void
   }
 }
 
+// Etiquetas amigables de rol (mismas que la UI de administración, ver UsersPage.tsx)
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Administrador',
+  billing: 'Facturación',
+  workshop: 'Taller',
+  seller: 'Vendedor',
+};
+
+// Template de bienvenida — se envía cuando un administrador crea un usuario.
+// Informa los datos de acceso a la cuenta con el mismo estilo de marca.
+export function buildWelcomeEmail(params: {
+  name: string;
+  email: string;
+  role: string;
+  password?: string;
+  loginUrl: string;
+}): string {
+  const { name, email, role, password, loginUrl } = params;
+  const roleLabel = ROLE_LABELS[role] || role;
+
+  const passwordRow = password
+    ? `<tr>
+         <td style="padding:8px 12px;color:#6b7280;font-size:13px;">Contraseña</td>
+         <td style="padding:8px 12px;font-weight:600;font-family:monospace;">${escapeHtml(password)}</td>
+       </tr>`
+    : '';
+
+  return `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+      <h2 style="color:#1d4ed8;">¡Bienvenido/a, ${escapeHtml(name)}!</h2>
+      <p>Se creó una cuenta para vos en el sistema Indians. Estos son tus datos de acceso:</p>
+      <table style="width:100%;border-collapse:collapse;background:#f9fafb;border-radius:8px;margin:16px 0;">
+        <tr>
+          <td style="padding:8px 12px;color:#6b7280;font-size:13px;">Email</td>
+          <td style="padding:8px 12px;font-weight:600;">${escapeHtml(email)}</td>
+        </tr>
+        ${passwordRow}
+        <tr>
+          <td style="padding:8px 12px;color:#6b7280;font-size:13px;">Rol</td>
+          <td style="padding:8px 12px;font-weight:600;">${escapeHtml(roleLabel)}</td>
+        </tr>
+      </table>
+      <a href="${loginUrl}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0;">
+        Ingresar al sistema
+      </a>
+      ${password ? '<p style="color:#6b7280;font-size:13px;">Te recomendamos cambiar tu contraseña luego del primer ingreso.</p>' : ''}
+      <p style="color:#9ca3af;font-size:12px;margin-top:16px;">O pegá este enlace en tu navegador:<br>${loginUrl}</p>
+    </div>
+  `;
+}
+
 // Template para el email de recuperación de contraseña — mismo estilo de marca
 // que los emails de la tienda (ver email.service.ts).
 export function buildPasswordResetEmail(resetUrl: string, name?: string): string {
