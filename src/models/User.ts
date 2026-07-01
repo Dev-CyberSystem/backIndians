@@ -19,6 +19,8 @@ export class User extends Model<
   declare role: UserRole;
   declare active: CreationOptional<boolean>;
   declare session_version: CreationOptional<number>;
+  declare welcome_email_sent_at: CreationOptional<Date | null>;
+  declare welcome_email_error: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -57,6 +59,16 @@ User.init(
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       defaultValue: 1,
+    },
+    welcome_email_sent_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    welcome_email_error: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+      defaultValue: null,
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
