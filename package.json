@@ -12,6 +12,8 @@
     "seed:admin": "ts-node --project tsconfig.seed.json seeders/create-admin.ts",
     "seed:sellers": "ts-node --project tsconfig.seed.json seeders/sellers.ts",
     "seed:store-customers": "ts-node --project tsconfig.seed.json seeders/store-customers.ts",
+    "reset-password": "ts-node --project tsconfig.seed.json seeders/reset-password.ts",
+    "reset:admin-prod": "ts-node --project tsconfig.seed.json seeders/reset-admin-prod.ts",
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo:all",
     "typecheck": "tsc --noEmit",

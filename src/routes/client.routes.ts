@@ -4,6 +4,7 @@ import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
 import * as ctrl from '../controllers/client.controller';
+import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
 
 const CUIT_REGEX  = /^\d{2}-\d{8}-\d$/;
 const PHONE_REGEX = /^[+\d\s\-()\/.]{6,30}$/;
@@ -20,7 +21,7 @@ const clientFields = [
     .matches(PHONE_REGEX).withMessage('Teléfono inválido (ej: +54 351 000-0000)'),
   body('email')
     .optional({ nullable: true }).trim()
-    .isEmail().withMessage('Email inválido').normalizeEmail()
+    .isEmail().withMessage('Email inválido').normalizeEmail(EMAIL_NORMALIZE_OPTS)
     .isLength({ max: 255 }).withMessage('Email demasiado largo'),
   body('address')
     .optional({ nullable: true }).trim()

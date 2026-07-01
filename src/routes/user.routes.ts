@@ -4,6 +4,7 @@ import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
 import * as ctrl from '../controllers/user.controller';
+import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
 
 const PWD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]])[A-Za-z\d@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]]{6,10}$/;
 const PWD_MSG   = 'La contraseña debe tener entre 6 y 10 caracteres, incluir letras, números y al menos un carácter especial (@ $ ! % * # ? & . _ - + / etc.)';
@@ -21,7 +22,7 @@ router.post(
       .trim().notEmpty().withMessage('Nombre requerido')
       .isLength({ max: 150 }).withMessage('El nombre no puede superar los 150 caracteres'),
     body('email')
-      .trim().isEmail().withMessage('Email inválido').normalizeEmail()
+      .trim().isEmail().withMessage('Email inválido').normalizeEmail(EMAIL_NORMALIZE_OPTS)
       .isLength({ max: 255 }).withMessage('Email demasiado largo'),
     body('password')
       .matches(PWD_REGEX).withMessage(PWD_MSG),
@@ -40,7 +41,7 @@ router.put(
       .optional().trim().notEmpty().withMessage('Nombre requerido')
       .isLength({ max: 150 }).withMessage('El nombre no puede superar los 150 caracteres'),
     body('email')
-      .optional().trim().isEmail().withMessage('Email inválido').normalizeEmail(),
+      .optional().trim().isEmail().withMessage('Email inválido').normalizeEmail(EMAIL_NORMALIZE_OPTS),
     body('role')
       .optional().isIn(['admin', 'billing', 'workshop', 'seller']).withMessage('Rol inválido'),
     validate,
