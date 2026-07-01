@@ -4,6 +4,7 @@ import { login, refresh, logout, me, forgotPassword, resetPassword } from '../co
 import { authenticate } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
 import { authLimiter, passwordResetLimiter } from '../middlewares/rateLimit';
+import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
 
 const PWD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]])[A-Za-z\d@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]]{6,10}$/;
 const PWD_MSG   = 'La contraseña debe tener entre 6 y 10 caracteres, incluir letras, números y al menos un carácter especial (@ $ ! % * # ? & . _ - + / etc.)';
@@ -16,7 +17,7 @@ router.post(
   [
     body('email')
       .trim()
-      .isEmail().withMessage('Email inválido').normalizeEmail(),
+      .isEmail().withMessage('Email inválido').normalizeEmail(EMAIL_NORMALIZE_OPTS),
     body('password')
       .notEmpty().withMessage('Contraseña requerida'),
     validate,
@@ -40,7 +41,7 @@ router.post(
   '/forgot-password',
   passwordResetLimiter,
   [
-    body('email').trim().isEmail().withMessage('Email inválido').normalizeEmail(),
+    body('email').trim().isEmail().withMessage('Email inválido').normalizeEmail(EMAIL_NORMALIZE_OPTS),
     validate,
   ],
   forgotPassword

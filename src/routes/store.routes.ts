@@ -16,6 +16,7 @@ import {
   trackLimiter,
 } from '../middlewares/rateLimit';
 import * as ctrl from '../controllers/store.controller';
+import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
 
 const router = Router();
 
@@ -23,7 +24,7 @@ const router = Router();
 // Sequelize ya parametriza las queries (no hay SQLi), pero acotamos tipo/forma/
 // longitud para rechazar payloads basura, payloads gigantes y abuso de bots antes
 // de llegar al service.
-const emailField = (f: string) => body(f).trim().isEmail().withMessage('Email inválido').isLength({ max: 254 }).normalizeEmail();
+const emailField = (f: string) => body(f).trim().isEmail().withMessage('Email inválido').isLength({ max: 254 }).normalizeEmail(EMAIL_NORMALIZE_OPTS);
 
 const registerValidators = [
   body('name').trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 120 }),

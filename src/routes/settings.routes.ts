@@ -4,6 +4,7 @@ import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
 import * as ctrl from '../controllers/settings.controller';
+import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
 
 const router = Router();
 router.use(authenticate, authorize('admin', 'billing'));
@@ -27,7 +28,7 @@ router.put(
       .matches(/^[+\d\s\-()\/.]{0,30}$/).withMessage('Teléfono inválido'),
     body('company_email')
       .optional().trim()
-      .isEmail().withMessage('Email de empresa inválido').normalizeEmail(),
+      .isEmail().withMessage('Email de empresa inválido').normalizeEmail(EMAIL_NORMALIZE_OPTS),
     body('invoice_due_days')
       .optional()
       .isInt({ min: 0, max: 365 }).withMessage('Los días de vencimiento deben ser entre 0 y 365'),
