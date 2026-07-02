@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import { generateInvoicePdf, type InvoiceData } from './store.pdf';
 import { escapeHtml } from './escapeHtml';
+import { emailWrapper } from './mailer';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indians.com.ar';
@@ -53,24 +54,21 @@ export async function sendOrderConfirmationEmail(
     from: FROM,
     to: email,
     subject: `Pedido ${orderNumber} confirmado — Indians Textil`,
-    html: `
-      <div style="font-family:sans-serif;max-width:540px;margin:0 auto;padding:24px;">
-        <h2 style="color:#1d4ed8;">¡Gracias por tu compra, ${escapeHtml(name)}!</h2>
-        <p>Tu pedido <strong>${orderNumber}</strong> fue recibido correctamente.</p>
-        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-          <thead>
-            <tr style="color:#6b7280;font-size:13px;">
-              <th style="text-align:left;padding-bottom:8px;">Producto</th>
-              <th style="text-align:center;padding-bottom:8px;">Cant.</th>
-              <th style="text-align:right;padding-bottom:8px;">Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>${itemsHtml}</tbody>
-        </table>
-        <p style="text-align:right;font-weight:700;font-size:18px;">Total: ${fmtMoney(total)}</p>
-        <p style="color:#6b7280;font-size:13px;">Nos pondremos en contacto para coordinar la entrega.</p>
-      </div>
-    `,
+    html: emailWrapper(`
+      <h2 style="color:#1d4ed8;margin:0 0 8px;">¡Gracias por tu compra, ${escapeHtml(name)}!</h2>
+      <p style="margin:0 0 12px;">Tu pedido <strong>${orderNumber}</strong> fue recibido correctamente.</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <thead>
+          <tr style="color:#6b7280;font-size:13px;">
+            <th style="text-align:left;padding-bottom:8px;">Producto</th>
+            <th style="text-align:center;padding-bottom:8px;">Cant.</th>
+            <th style="text-align:right;padding-bottom:8px;">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>${itemsHtml}</tbody>
+      </table>
+      <p style="text-align:right;font-weight:700;font-size:18px;margin:0;">Total: ${fmtMoney(total)}</p>
+    `, 540),
   });
 }
 
@@ -149,32 +147,29 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
     from: FROM,
     to: data.customerEmail,
     subject: `Factura ${data.orderNumber} — Indians Textil`,
-    html: `
-      <div style="font-family:sans-serif;max-width:580px;margin:0 auto;padding:24px;">
-        <h2 style="color:#1d4ed8;margin-bottom:4px;">Indians Textil</h2>
-        <p style="color:#6b7280;margin-top:0;">Comprobante de compra</p>
-        <p>Hola <strong>${escapeHtml(data.customerName)}</strong>, te enviamos la factura de tu pedido <strong>${data.orderNumber}</strong>.</p>
-        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-          <thead>
-            <tr style="color:#6b7280;font-size:11px;text-transform:uppercase;">
-              <th style="text-align:left;padding-bottom:6px;">Producto</th>
-              <th style="text-align:center;padding-bottom:6px;">Cant.</th>
-              <th style="text-align:right;padding-bottom:6px;">P. unit.</th>
-              <th style="text-align:right;padding-bottom:6px;">Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>${itemsHtml}</tbody>
-          <tfoot>
-            ${discountRow}${shippingRow}
-            <tr>
-              <td colspan="3" style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">Total</td>
-              <td style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">${fmtMoney(data.totalAmount)}</td>
-            </tr>
-          </tfoot>
-        </table>
-        <p style="color:#6b7280;font-size:12px;margin-top:24px;">El comprobante en PDF está adjunto a este email.</p>
-      </div>
-    `,
+    html: emailWrapper(`
+      <h2 style="color:#1d4ed8;margin:0 0 8px;">Comprobante de compra</h2>
+      <p style="margin:0 0 12px;">Hola <strong>${escapeHtml(data.customerName)}</strong>, te enviamos la factura de tu pedido <strong>${data.orderNumber}</strong>.</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <thead>
+          <tr style="color:#6b7280;font-size:11px;text-transform:uppercase;">
+            <th style="text-align:left;padding-bottom:6px;">Producto</th>
+            <th style="text-align:center;padding-bottom:6px;">Cant.</th>
+            <th style="text-align:right;padding-bottom:6px;">P. unit.</th>
+            <th style="text-align:right;padding-bottom:6px;">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>${itemsHtml}</tbody>
+        <tfoot>
+          ${discountRow}${shippingRow}
+          <tr>
+            <td colspan="3" style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">Total</td>
+            <td style="text-align:right;font-weight:700;font-size:15px;padding-top:8px;color:#1d4ed8;">${fmtMoney(data.totalAmount)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <p style="color:#6b7280;font-size:12px;margin-top:24px;">El comprobante en PDF está adjunto a este email.</p>
+    `, 580),
     attachments: [
       {
         filename: `factura-${data.orderNumber}.pdf`,

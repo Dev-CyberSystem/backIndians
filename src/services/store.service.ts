@@ -21,6 +21,7 @@ import {
   sendOrderInvoiceEmail,
 } from '../utils/email.service';
 import { generateInvoicePdf } from '../utils/store.pdf';
+import { getAllSettings } from './settings.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { getIO } from '../config/socket';
 import { cached } from '../utils/cache';
@@ -593,6 +594,11 @@ export async function createStoreOrder(input: CheckoutInput) {
     return storeOrder;
   });
 
+  // Notificar al sistema (admin/billing) que entró un pedido nuevo desde la
+  // tienda, para cualquier método de pago. Fire-and-forget: nunca corta el
+  // checkout ni el pago del cliente.
+  emitStoreOrderCreatedEvent(order);
+
   // 5. Generar preference de MercadoPago solo si el método es MP
   let mpInitPoint: string | null = null;
   let mpSandboxInitPoint: string | null = null;
@@ -701,6 +707,18 @@ function emitStorePaymentEvent(order: StoreOrder): void {
       customerName: order.customer_name,
       status: order.status,
       mp_status: order.mp_status,
+      total: Number(order.total_amount),
+    });
+  } catch { /* socket puede no estar inicializado en tests */ }
+}
+
+function emitStoreOrderCreatedEvent(order: StoreOrder): void {
+  try {
+    getIO().emit('notification:store_order_created', {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      customerName: order.customer_name,
+      paymentMethod: order.payment_method,
       total: Number(order.total_amount),
     });
   } catch { /* socket puede no estar inicializado en tests */ }
@@ -948,9 +966,12 @@ export async function updateStoreOrderTracking(
 async function buildInvoiceData(orderId: number) {
   const order = await getStoreOrderById(orderId);
   const items = (order as any).items as StoreOrderItem[];
+  const settings = await getAllSettings();
   return {
     order,
     invoiceData: {
+      settings,
+      orderId: order.id,
       orderNumber: order.order_number,
       createdAt: order.createdAt as Date,
       customerName: order.customer_name,
