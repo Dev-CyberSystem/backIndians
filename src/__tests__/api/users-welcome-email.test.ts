@@ -14,7 +14,7 @@ jest.mock('../../utils/mailer', () => {
 });
 
 import { sendMail, buildWelcomeEmail } from '../../utils/mailer';
-import { Order, OrderStatusHistory } from '../../models';
+import { Order, OrderStatusHistory, PasswordResetToken } from '../../models';
 
 describe('buildWelcomeEmail — plantilla', () => {
   const html = buildWelcomeEmail({
@@ -188,6 +188,19 @@ describe('DELETE /users — eliminación definitiva con verificación de relacio
     const list = await api().get(`${API}/users`).set('Authorization', `Bearer ${token}`);
     const ids = (list.body.data ?? []).map((u: any) => u.id);
     expect(ids).not.toContain(id);
+  });
+
+  it('elimina un usuario que tiene un token de reset de contraseña (metadata descartable, no bloquea)', async () => {
+    const id = await createUser('seller');
+    await PasswordResetToken.create({
+      user_id: id,
+      token: `qa-reset-token-${id}`,
+      expires_at: new Date(Date.now() + 60 * 60 * 1000),
+      used: false,
+    });
+
+    const del = await api().delete(`${API}/users/${id}`).set('Authorization', `Bearer ${token}`);
+    expect(del.status).toBe(200);
   });
 
   it('bloquea (409) la eliminación de un usuario con actividad registrada', async () => {

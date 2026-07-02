@@ -9,6 +9,7 @@ import {
   StockMovement,
   CashTransaction,
   OrderStatusHistory,
+  PasswordResetToken,
 } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { UserRole } from '../types';
@@ -274,7 +275,12 @@ export async function deleteUser(id: number, requesterId: number): Promise<void>
   }
 
   try {
-    // Borrado físico. Los tokens de reset de contraseña se eliminan en cascada.
+    // Los tokens de reset de contraseña son metadata descartable (no actividad
+    // de negocio): se limpian explícitamente antes de borrar. No confiamos en
+    // el ON DELETE CASCADE de la migración porque un `sync({alter:true})` en
+    // desarrollo puede dejar la FK real como NO ACTION en la base.
+    await PasswordResetToken.destroy({ where: { user_id: id } });
+    // Borrado físico.
     await user.destroy();
   } catch (err: any) {
     // Red de seguridad ante alguna relación no contemplada (ej: imágenes de
