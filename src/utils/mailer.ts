@@ -31,10 +31,10 @@ export async function sendMail({ to, subject, html }: MailOptions): Promise<void
  * Usado por todos los templates de este archivo para que compartan un mismo
  * estilo visual reconocible.
  */
-function emailWrapper(bodyHtml: string): string {
+export function emailWrapper(bodyHtml: string, maxWidth = 480): string {
   return `
     <div style="background:#f4f4f6;padding:32px 16px;font-family:sans-serif;">
-      <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #ececef;">
+      <div style="max-width:${maxWidth}px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #ececef;">
         <div style="text-align:center;padding:32px 24px 16px;">
           <img src="${LOGO_URL}" alt="Indians" width="160" style="display:inline-block;width:160px;max-width:100%;height:auto;" />
           <p style="margin:10px 0 0;color:#9ca3af;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;">

@@ -8,13 +8,20 @@ export interface CompanySettings {
   company_cuit: string;
   company_phone: string;
   company_email: string;
+  company_website: string;
+  company_iva_condition: string;
+  company_activity_start: string;
   invoice_due_days: string;
+  invoice_point_of_sale: string;
+  invoice_default_type: string;
 }
 
 const VALID_KEYS: string[] = [
   // Empresa
   'company_name', 'company_address', 'company_cuit',
-  'company_phone', 'company_email', 'invoice_due_days',
+  'company_phone', 'company_email', 'company_website',
+  'company_iva_condition', 'company_activity_start',
+  'invoice_due_days', 'invoice_point_of_sale', 'invoice_default_type',
   // Tienda — general
   'store_name', 'store_description', 'store_active',
   'store_logo_url', 'store_footer_logo_url', 'store_banner_url', 'store_primary_color',
