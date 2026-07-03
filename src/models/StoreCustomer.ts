@@ -18,9 +18,11 @@ export class StoreCustomer extends Model<
   declare google_id: CreationOptional<string | null>;
   declare email_verified: CreationOptional<boolean>;
   declare verification_token: CreationOptional<string | null>;
+  declare token_expires_at: CreationOptional<Date | null>;
   declare avatar_url: CreationOptional<string | null>;
   declare phone: CreationOptional<string | null>;
   declare active: CreationOptional<boolean>;
+  declare session_version: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -34,9 +36,11 @@ StoreCustomer.init(
     google_id: { type: DataTypes.STRING(255), allowNull: true, unique: true },
     email_verified: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     verification_token: { type: DataTypes.STRING(255), allowNull: true },
+    token_expires_at: { type: DataTypes.DATE, allowNull: true },
     avatar_url: { type: DataTypes.STRING(500), allowNull: true },
     phone: { type: DataTypes.STRING(50), allowNull: true },
     active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+    session_version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },

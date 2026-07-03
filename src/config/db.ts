@@ -13,10 +13,25 @@ const sharedOptions = {
     collate: 'utf8mb4_unicode_ci',
   },
   pool: {
-    max: 4,
+    // max 4 era muy bajo: bajo picos el pool se agotaba y las requests
+    // esperaban/timeouteaban (acquire), inflando aborted_connects. 10 da
+    // margen sin presionar el límite de conexiones de MySQL (max ~151).
+    max: 10,
     min: 0,
     acquire: 30000,
+    // Cierra conexiones idle a los 10s: MUY por debajo del wait_timeout de
+    // MySQL (28800s por defecto), así el pool las cierra ordenadamente antes
+    // de que el server las mate → evita entregar sockets muertos.
     idle: 10000,
+  },
+  dialectOptions: {
+    // mysql2: mantiene vivo el socket TCP para que la red interna de Railway o
+    // los proxies no lo corten en silencio (causa típica de aborted_clients).
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+    // Timeout de establecimiento de conexión (ms). Si el server no responde,
+    // falla rápido en vez de colgar el request.
+    connectTimeout: 20000,
   },
 };
 

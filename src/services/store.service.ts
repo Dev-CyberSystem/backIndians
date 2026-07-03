@@ -1,4 +1,4 @@
-import { Op } from 'sequelize';
+import { Op, col, literal, UniqueConstraintError } from 'sequelize';
 import { sequelize } from '../config/db';
 import {
   CatalogProduct,
@@ -25,6 +25,41 @@ import { getAllSettings } from './settings.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { getIO } from '../config/socket';
 import { cached } from '../utils/cache';
+import { cloudinary } from '../config/cloudinary';
+
+// ─── Comprobantes de pago: URLs firmadas ─────────────────────────────────────
+
+function signedProofUrl(publicId: string): string {
+  return cloudinary.url(publicId, {
+    type: 'authenticated',
+    resource_type: 'image',
+    secure: true,
+    sign_url: true,
+  });
+}
+
+/**
+ * Reemplaza las URLs de comprobantes por URLs firmadas de Cloudinary
+ * (assets `authenticated`) cuando hay `public_id` guardado. Los comprobantes
+ * viejos (sin public_id) se subieron como públicos → se dejan tal cual.
+ * Recibe/devuelve un objeto plano (toJSON) y elimina los public_id del payload.
+ */
+export function signPaymentProofs<T extends {
+  payment_proof_url?: string | null;
+  payment_proof_url_2?: string | null;
+  payment_proof_public_id?: string | null;
+  payment_proof_public_id_2?: string | null;
+}>(order: T): T {
+  if (order.payment_proof_public_id) {
+    order.payment_proof_url = signedProofUrl(order.payment_proof_public_id);
+  }
+  if (order.payment_proof_public_id_2) {
+    order.payment_proof_url_2 = signedProofUrl(order.payment_proof_public_id_2);
+  }
+  delete order.payment_proof_public_id;
+  delete order.payment_proof_public_id_2;
+  return order;
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -530,69 +565,112 @@ export async function createStoreOrder(input: CheckoutInput) {
 
   const totalAmount = parseFloat((subtotal - discountAmount + shippingCost).toFixed(2));
 
-  // 4. Crear pedido en transacción
-  const order = await sequelize.transaction(async (t) => {
-    const orderNumber = await generateStoreOrderNumber();
+  // 4. Crear pedido en transacción.
+  // Reintentamos si el número de pedido colisiona (dos checkouts simultáneos
+  // pueden calcular el mismo ECOM-...-NNNN → viola el índice único). Solo se
+  // reintenta ante UniqueConstraintError; cualquier otro error (ej. stock)
+  // aborta de inmediato.
+  const MAX_ORDER_ATTEMPTS = 3;
+  let order: StoreOrder | undefined;
 
-    const storeOrder = await StoreOrder.create(
-      {
-        order_number: orderNumber,
-        customer_id: input.customerId ?? null,
-        customer_name: input.customerName,
-        customer_email: input.customerEmail,
-        customer_phone: input.customerPhone ?? null,
-        status: 'pending_payment',
-        subtotal,
-        discount_amount: discountAmount,
-        shipping_cost: shippingCost,
-        total_amount: totalAmount,
-        shipping_type: input.shipping_type,
-        shipping_address: input.shipping_address ?? null,
-        coupon_id: couponId,
-        coupon_code: couponCode,
-        payment_method: input.payment_method ?? 'mercadopago',
-        notes: input.notes ?? null,
-      },
-      { transaction: t }
-    );
+  for (let attempt = 1; attempt <= MAX_ORDER_ATTEMPTS; attempt++) {
+    try {
+      order = await sequelize.transaction(async (t) => {
+        const orderNumber = await generateStoreOrderNumber();
 
-    await StoreOrderItem.bulkCreate(
-      resolvedItems.map((item) => ({
-        store_order_id: storeOrder.id,
-        catalog_product_id: item.catalog_product_id,
-        product_title: item.product_title,
-        size_name: item.size_name,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        subtotal: item.subtotal,
-      })),
-      { transaction: t }
-    );
+        const storeOrder = await StoreOrder.create(
+          {
+            order_number: orderNumber,
+            customer_id: input.customerId ?? null,
+            customer_name: input.customerName,
+            customer_email: input.customerEmail,
+            customer_phone: input.customerPhone ?? null,
+            status: 'pending_payment',
+            subtotal,
+            discount_amount: discountAmount,
+            shipping_cost: shippingCost,
+            total_amount: totalAmount,
+            shipping_type: input.shipping_type,
+            shipping_address: input.shipping_address ?? null,
+            coupon_id: couponId,
+            coupon_code: couponCode,
+            payment_method: input.payment_method ?? 'mercadopago',
+            notes: input.notes ?? null,
+          },
+          { transaction: t }
+        );
 
-    // Descontar stock
-    await Promise.all(
-      resolvedItems.map(async (item) => {
-        if (item.sizeRecord) {
-          await item.sizeRecord.decrement('stock_quantity', {
-            by: item.quantity,
-            transaction: t,
-          });
-        } else {
-          await item.productRecord.decrement('stock_quantity', {
-            by: item.quantity,
-            transaction: t,
-          });
+        await StoreOrderItem.bulkCreate(
+          resolvedItems.map((item) => ({
+            store_order_id: storeOrder.id,
+            catalog_product_id: item.catalog_product_id,
+            product_title: item.product_title,
+            size_name: item.size_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            subtotal: item.subtotal,
+          })),
+          { transaction: t }
+        );
+
+        // Descontar stock de forma ATÓMICA para evitar sobreventa: el UPDATE
+        // condicional (stock_quantity >= qty) solo afecta filas con stock
+        // suficiente. Si afecta 0 filas, otro pedido concurrente ya lo agotó y
+        // abortamos la transacción. Secuencial (no Promise.all) para no mezclar
+        // sentencias en la misma conexión de la transacción.
+        for (const item of resolvedItems) {
+          const qty = Math.trunc(Number(item.quantity));
+          const label = item.size_name
+            ? `${item.product_title} — talle ${item.size_name}`
+            : item.product_title;
+
+          if (item.sizeRecord) {
+            const [affected] = await CatalogProductSize.update(
+              { stock_quantity: literal(`stock_quantity - ${qty}`) },
+              { where: { id: item.sizeRecord.id, stock_quantity: { [Op.gte]: qty } }, transaction: t }
+            );
+            if (affected === 0) throw new AppError(`Stock insuficiente para ${label}`, 409);
+          } else {
+            const [affected] = await CatalogProduct.update(
+              { stock_quantity: literal(`stock_quantity - ${qty}`) },
+              { where: { id: item.productRecord.id, stock_quantity: { [Op.gte]: qty } }, transaction: t }
+            );
+            if (affected === 0) throw new AppError(`Stock insuficiente para ${label}`, 409);
+          }
         }
-      })
-    );
 
-    // Incrementar uso del cupón
-    if (couponRecord) {
-      await couponRecord.increment('used_count', { transaction: t });
+        // Incrementar uso del cupón de forma ATÓMICA: solo si aún no alcanzó
+        // max_uses (o es ilimitado). Si afecta 0 filas, otro pedido concurrente
+        // lo agotó → abortamos para no exceder el límite.
+        if (couponRecord) {
+          const [affected] = await StoreCoupon.update(
+            { used_count: literal('used_count + 1') },
+            {
+              where: {
+                id: couponRecord.id,
+                [Op.or]: [
+                  { max_uses: null },
+                  { used_count: { [Op.lt]: col('max_uses') } },
+                ],
+              },
+              transaction: t,
+            }
+          );
+          if (affected === 0) throw new AppError('El cupón ya no está disponible', 409);
+        }
+
+        return storeOrder;
+      });
+      break; // éxito
+    } catch (err) {
+      if (err instanceof UniqueConstraintError && attempt < MAX_ORDER_ATTEMPTS) {
+        continue; // colisión de order_number → regenerar y reintentar
+      }
+      throw err;
     }
+  }
 
-    return storeOrder;
-  });
+  if (!order) throw new AppError('No se pudo generar el pedido. Intentá nuevamente.', 500);
 
   // Notificar al sistema (admin/billing) que entró un pedido nuevo desde la
   // tienda, para cualquier método de pago. Fire-and-forget: nunca corta el
@@ -667,7 +745,8 @@ export async function createStoreOrder(input: CheckoutInput) {
 export async function savePaymentProof(
   orderNumber: string,
   customerEmail: string,
-  proofUrl: string
+  proofUrl: string,
+  publicId?: string | null
 ) {
   const order = await StoreOrder.findOne({ where: { order_number: orderNumber } });
   if (!order) throw new AppError('Pedido no encontrado', 404);
@@ -683,9 +762,9 @@ export async function savePaymentProof(
   }
 
   if (!order.payment_proof_url) {
-    await order.update({ payment_proof_url: proofUrl });
+    await order.update({ payment_proof_url: proofUrl, payment_proof_public_id: publicId ?? null });
   } else {
-    await order.update({ payment_proof_url_2: proofUrl });
+    await order.update({ payment_proof_url_2: proofUrl, payment_proof_public_id_2: publicId ?? null });
   }
   return order;
 }
@@ -835,14 +914,15 @@ export async function confirmStorePayment(params: {
 export async function getStoreOrderStatusByNumber(orderNumber: string) {
   const order = await StoreOrder.findOne({
     where: { order_number: orderNumber },
-    attributes: ['order_number', 'status', 'mp_status', 'total_amount'],
+    attributes: ['order_number', 'status', 'mp_status'],
   });
   if (!order) throw new AppError('Pedido no encontrado', 404);
+  // Endpoint público y los N° de pedido son secuenciales/adivinables: NO
+  // devolver montos ni PII. Solo lo mínimo para el polling de pago y el chatbot.
   return {
     order_number: order.order_number,
     status: order.status,
     mp_status: order.mp_status,
-    total_amount: Number(order.total_amount),
   };
 }
 
@@ -915,7 +995,8 @@ export async function listStoreOrders(filters: {
     offset,
   });
 
-  return { data: rows, meta: { total: count, page, limit, total_pages: Math.ceil(count / limit) } };
+  const data = rows.map((r) => signPaymentProofs(r.toJSON()));
+  return { data, meta: { total: count, page, limit, total_pages: Math.ceil(count / limit) } };
 }
 
 export async function getStoreOrderById(id: number) {

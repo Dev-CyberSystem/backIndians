@@ -54,6 +54,8 @@ export class StoreOrder extends Model<
   declare payment_method: CreationOptional<StorePaymentMethod>;
   declare payment_proof_url: CreationOptional<string | null>;
   declare payment_proof_url_2: CreationOptional<string | null>;
+  declare payment_proof_public_id: CreationOptional<string | null>;
+  declare payment_proof_public_id_2: CreationOptional<string | null>;
   declare notes: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -104,6 +106,8 @@ StoreOrder.init(
     },
     payment_proof_url:   { type: DataTypes.STRING(500), allowNull: true },
     payment_proof_url_2: { type: DataTypes.STRING(500), allowNull: true },
+    payment_proof_public_id:   { type: DataTypes.STRING(300), allowNull: true },
+    payment_proof_public_id_2: { type: DataTypes.STRING(300), allowNull: true },
     notes: { type: DataTypes.TEXT, allowNull: true },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,

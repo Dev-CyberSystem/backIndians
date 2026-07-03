@@ -6,6 +6,7 @@ import * as wishlistService from '../services/store.wishlist.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { cloudinary } from '../config/cloudinary';
 import { storeEvents } from '../events/storeEvents';
+import { verifyWebhookSignature } from '../services/mercadopago.service';
 
 // ─── Settings públicas ────────────────────────────────────────────────────────
 
@@ -257,6 +258,18 @@ export async function checkout(req: Request, res: Response, next: NextFunction) 
 export async function webhook(req: Request, res: Response, next: NextFunction) {
   try {
     const paymentId = req.query['data.id'] || req.body?.data?.id;
+
+    // Rechazar webhooks con firma inválida (si MP_WEBHOOK_SECRET está configurado).
+    const valid = verifyWebhookSignature({
+      dataId: paymentId != null ? String(paymentId) : undefined,
+      xSignature: req.headers['x-signature'] as string | undefined,
+      xRequestId: req.headers['x-request-id'] as string | undefined,
+    });
+    if (!valid) {
+      res.sendStatus(401);
+      return;
+    }
+
     if (paymentId) await store.handleStoreWebhook(String(paymentId));
     res.sendStatus(200);
   } catch (err) {
@@ -281,19 +294,20 @@ export async function uploadPaymentProof(req: Request, res: Response, next: Next
       return;
     }
 
-    // Subir imagen a Cloudinary
-    const proofUrl = await new Promise<string>((resolve, reject) => {
+    // Subir imagen a Cloudinary como asset `authenticated`: no accesible por URL
+    // pública; se sirve luego con URLs firmadas generadas en cada lectura.
+    const uploaded = await new Promise<{ url: string; publicId: string }>((resolve, reject) => {
       cloudinary.uploader.upload_stream(
-        { folder: 'indians/payment-proofs', resource_type: 'image' },
+        { folder: 'indians/payment-proofs', resource_type: 'image', type: 'authenticated' },
         (err, result) => {
           if (err || !result) return reject(err ?? new Error('Upload fallido'));
-          resolve(result.secure_url);
+          resolve({ url: result.secure_url, publicId: result.public_id });
         }
       ).end(req.file!.buffer);
     });
 
-    const order = await store.savePaymentProof(orderNumber, customerEmail, proofUrl);
-    res.json({ success: true, data: { order } });
+    const order = await store.savePaymentProof(orderNumber, customerEmail, uploaded.url, uploaded.publicId);
+    res.json({ success: true, data: { order: store.signPaymentProofs(order.toJSON()) } });
   } catch (err) {
     next(err);
   }
@@ -346,7 +360,8 @@ export async function listOrders(req: Request, res: Response, next: NextFunction
 
 export async function getOrder(req: Request, res: Response, next: NextFunction) {
   try {
-    res.json({ success: true, data: await store.getStoreOrderById(Number(req.params.id)) });
+    const order = await store.getStoreOrderById(Number(req.params.id));
+    res.json({ success: true, data: store.signPaymentProofs(order.toJSON()) });
   } catch (err) {
     next(err);
   }
@@ -360,7 +375,7 @@ export async function updateOrderStatus(req: Request, res: Response, next: NextF
       status as StoreOrderStatus,
       { tracking_number: tracking_number ?? undefined, courier_name: courier_name ?? undefined }
     );
-    res.json({ success: true, data: result });
+    res.json({ success: true, data: store.signPaymentProofs(result.toJSON()) });
   } catch (err) {
     next(err);
   }
@@ -509,7 +524,21 @@ export async function getMetrics(req: Request, res: Response, next: NextFunction
 
 // ─── SSE: eventos en tiempo real para la tienda pública ──────────────────────
 
+// Tope de conexiones SSE simultáneas por IP. Cada conexión es un socket abierto
+// (no cuenta contra el rate-limiter, que mide requests). Sin este cap, un cliente
+// podría abrir cientos de EventSource y agotar los sockets/handlers del proceso.
+const sseConnectionsByIp = new Map<string, number>();
+const MAX_SSE_PER_IP = 5;
+
 export function sseStoreEvents(req: Request, res: Response) {
+  const ip = req.ip || 'unknown';
+  const current = sseConnectionsByIp.get(ip) ?? 0;
+  if (current >= MAX_SSE_PER_IP) {
+    res.status(429).json({ success: false, message: 'Demasiadas conexiones simultáneas' });
+    return;
+  }
+  sseConnectionsByIp.set(ip, current + 1);
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -531,5 +560,8 @@ export function sseStoreEvents(req: Request, res: Response) {
   req.on('close', () => {
     clearInterval(ping);
     storeEvents.off('products_changed', onProductsChanged);
+    const n = (sseConnectionsByIp.get(ip) ?? 1) - 1;
+    if (n <= 0) sseConnectionsByIp.delete(ip);
+    else sseConnectionsByIp.set(ip, n);
   });
 }
