@@ -7,6 +7,8 @@ import { StoreOrderStatus } from '../models/StoreOrder';
 import { cloudinary } from '../config/cloudinary';
 import { storeEvents } from '../events/storeEvents';
 import { verifyWebhookSignature } from '../services/mercadopago.service';
+import * as abandonedCart from '../services/abandonedCart.service';
+import { AuthRequest } from '../types';
 
 // ─── Settings públicas ────────────────────────────────────────────────────────
 
@@ -517,6 +519,34 @@ export async function getMetrics(req: Request, res: Response, next: NextFunction
   try {
     const metrics = await store.getStoreMetrics(req.query.period as string | undefined);
     res.json({ success: true, data: metrics });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getAudience(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await analytics.getAudienceMetrics(req.query.period as string | undefined);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getAbandonedCarts(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const carts = await abandonedCart.getAbandonedCarts();
+    res.json({ success: true, data: carts });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function sendAbandonedCartReminder(req: Request, res: Response, next: NextFunction) {
+  try {
+    const adminId = (req as unknown as AuthRequest).user!.id;
+    await abandonedCart.sendAbandonedCartReminder(Number(req.params.customerId), adminId);
+    res.json({ success: true, data: { message: 'Email de recupero enviado' } });
   } catch (err) {
     next(err);
   }

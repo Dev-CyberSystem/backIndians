@@ -7,6 +7,7 @@ import { StoreAddress } from './StoreAddress';
 import { StoreCoupon } from './StoreCoupon';
 import { StoreOrder } from './StoreOrder';
 import { StoreOrderItem } from './StoreOrderItem';
+import { StoreCartReminder } from './StoreCartReminder';
 import { User } from './User';
 import { Client } from './Client';
 import { Product } from './Product';
@@ -147,6 +148,11 @@ StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
 StoreCustomer.hasMany(StoreWishlist, { foreignKey: 'customer_id', as: 'wishlist', onDelete: 'CASCADE' });
 StoreWishlist.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
 
+// StoreCartReminder ↔ StoreCustomer / User
+StoreCustomer.hasMany(StoreCartReminder, { foreignKey: 'customer_id', as: 'cart_reminders', onDelete: 'CASCADE' });
+StoreCartReminder.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+StoreCartReminder.belongsTo(User, { foreignKey: 'sent_by', as: 'sender' });
+
 // StoreWishlist ↔ CatalogProduct
 CatalogProduct.hasMany(StoreWishlist, { foreignKey: 'catalog_product_id', as: 'wishlisted_by' });
 StoreWishlist.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
@@ -208,6 +214,7 @@ export {
   StoreCoupon,
   StoreOrder,
   StoreOrderItem,
+  StoreCartReminder,
   StoreWishlist,
   User,
   Client,

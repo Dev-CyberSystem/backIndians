@@ -156,4 +156,16 @@ router.get('/admin/metrics', authenticate, authorize('admin', 'billing'), ctrl.g
 // ─── Admin: analytics de eventos ─────────────────────────────────────────────
 router.get('/admin/event-analytics', authenticate, authorize('admin', 'billing'), ctrl.getEventAnalytics);
 
+// ─── Admin: audiencia y carritos abandonados ─────────────────────────────────
+router.get('/admin/audience', authenticate, authorize('admin', 'billing'), ctrl.getAudience);
+router.get('/admin/abandoned-carts', authenticate, authorize('admin', 'billing'), ctrl.getAbandonedCarts);
+router.post(
+  '/admin/abandoned-carts/:customerId/send',
+  authenticate,
+  authorize('admin', 'billing'),
+  param('customerId').isInt({ min: 1 }),
+  validate,
+  ctrl.sendAbandonedCartReminder
+);
+
 export default router;

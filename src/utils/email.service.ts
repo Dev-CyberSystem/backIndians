@@ -199,3 +199,40 @@ export async function sendPasswordResetEmailStore(email: string, name: string, t
     `,
   });
 }
+
+export async function sendAbandonedCartEmail(
+  email: string,
+  name: string,
+  products: { id: number; title: string; price: number; image: string | null }[]
+) {
+  const itemsHtml = products.map((p) => `
+    <tr>
+      <td style="padding:8px 0;border-bottom:1px solid #f0f0f0;width:64px;">
+        ${p.image
+          ? `<img src="${p.image}" alt="${escapeHtml(p.title)}" width="56" style="width:56px;height:56px;object-fit:cover;border-radius:8px;display:block;" />`
+          : ''}
+      </td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:14px;color:#111;">${escapeHtml(p.title)}</td>
+      <td style="padding:8px 0;border-bottom:1px solid #f0f0f0;text-align:right;font-size:14px;font-weight:600;color:#111;">${fmtMoney(p.price)}</td>
+    </tr>
+  `).join('');
+
+  await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: '¿Te quedó algo en la bolsa? — Indians Textil',
+    html: emailWrapper(`
+      <h2 style="color:#1d4ed8;margin:0 0 8px;">Hola ${escapeHtml(name)}, ¡te esperamos!</h2>
+      <p style="margin:0 0 12px;">Vimos que dejaste algunos productos en tu bolsa. Todavía están disponibles — completá tu compra antes de que se agoten.</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tbody>${itemsHtml}</tbody>
+      </table>
+      <div style="text-align:center;margin:20px 0 4px;">
+        <a href="${STORE_URL}/carrito" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">
+          Volver a mi bolsa
+        </a>
+      </div>
+      <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;">Si ya completaste tu compra, ignorá este mensaje. ¡Gracias por elegirnos!</p>
+    `, 520),
+  });
+}
