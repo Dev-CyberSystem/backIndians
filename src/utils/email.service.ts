@@ -2,14 +2,14 @@ import { Resend } from 'resend';
 import { generateInvoicePdf, type InvoiceData } from './store.pdf';
 import { escapeHtml } from './escapeHtml';
 import { emailWrapper } from './mailer';
+import { formatPriceNumber } from './money';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indians.com.ar';
 const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
 
 // Formato de moneda es-AR: 63000 → "$63.000,00"
-const fmtMoney = (n: number) =>
-  `$${Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtMoney = (n: number) => `$${formatPriceNumber(n)}`;
 
 export async function sendVerificationEmail(email: string, name: string, token: string) {
   const link = `${STORE_URL}/auth/verificar?token=${token}`;

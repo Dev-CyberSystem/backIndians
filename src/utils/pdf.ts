@@ -6,6 +6,7 @@ import { SizeChart } from '../models/SizeChart';
 import { Sponsor, Customization } from '../types';
 import { CompanySettings } from '../services/settings.service';
 import { drawIndiansLogo } from './logo';
+import { formatPriceNumber } from './money';
 
 function streamToBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -352,7 +353,7 @@ const INVOICE_TYPE_CODES: Record<string, string> = {
   A: '01', B: '06', C: '11', M: '51', E: '19', X: '99',
 };
 
-const money = (n: number) => `$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (n: number) => `$ ${formatPriceNumber(n)}`;
 
 // ─── PDF de factura ───────────────────────────────────────────────────────────
 // Reproduce el modelo de comprobante del negocio. La letra del comprobante es
