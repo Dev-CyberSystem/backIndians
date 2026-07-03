@@ -1,5 +1,47 @@
+import crypto from 'crypto';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { AppError } from '../middlewares/errorHandler';
+
+/**
+ * Valida la firma (`x-signature`) que MercadoPago envía en sus webhooks.
+ * Manifiesto según doc de MP: `id:<data.id>;request-id:<x-request-id>;ts:<ts>;`
+ * firmado con HMAC-SHA256 y el secreto del webhook (`MP_WEBHOOK_SECRET`).
+ *
+ * Si `MP_WEBHOOK_SECRET` no está configurado, devuelve `true` (no rompe el flujo
+ * existente; el pago igual se verifica luego contra la API de MP). Una vez
+ * seteado el secreto en el panel de MP + Railway, rechaza requests falsificadas.
+ */
+export function verifyWebhookSignature(params: {
+  dataId: string | undefined;
+  xSignature: string | undefined;
+  xRequestId: string | undefined;
+}): boolean {
+  const secret = process.env.MP_WEBHOOK_SECRET;
+  if (!secret) return true;
+
+  const { dataId, xSignature, xRequestId } = params;
+  if (!xSignature) return false;
+
+  const parts = Object.fromEntries(
+    xSignature.split(',').map((kv) => {
+      const [k, v] = kv.split('=');
+      return [k?.trim(), v?.trim()];
+    })
+  ) as Record<string, string | undefined>;
+
+  const ts = parts.ts;
+  const v1 = parts.v1;
+  if (!ts || !v1) return false;
+
+  const manifest = `id:${(dataId ?? '').toLowerCase()};request-id:${xRequestId ?? ''};ts:${ts};`;
+  const expected = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
+  } catch {
+    return false;
+  }
+}
 
 function getClient() {
   const token = process.env.MP_ACCESS_TOKEN;

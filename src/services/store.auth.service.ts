@@ -12,6 +12,10 @@ import {
 const STORE_JWT_SECRET = process.env.STORE_JWT_SECRET || process.env.JWT_SECRET!;
 const STORE_JWT_REFRESH_SECRET = process.env.STORE_JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET!;
 
+// Vencimiento de los tokens de un solo uso (columna verification_token).
+const VERIFY_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // verificación de email: 24 h
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;       // reset de contraseña: 1 h
+
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 interface StoreTokenPair {
@@ -23,10 +27,11 @@ export interface StoreJwtPayload {
   sub: number;
   email: string;
   type: 'store_customer';
+  session_version: number;
 }
 
-function generateStoreTokens(customerId: number, email: string): StoreTokenPair {
-  const payload: StoreJwtPayload = { sub: customerId, email, type: 'store_customer' };
+function generateStoreTokens(customerId: number, email: string, sessionVersion: number): StoreTokenPair {
+  const payload: StoreJwtPayload = { sub: customerId, email, type: 'store_customer', session_version: sessionVersion };
   const accessToken = jwt.sign(payload, STORE_JWT_SECRET, { expiresIn: '15m' });
   const refreshToken = jwt.sign(payload, STORE_JWT_REFRESH_SECRET, { expiresIn: '30d' });
   return { accessToken, refreshToken };
@@ -48,6 +53,7 @@ export async function storeRegisterService(data: {
     email: data.email,
     password_hash,
     verification_token,
+    token_expires_at: new Date(Date.now() + VERIFY_TOKEN_TTL_MS),
     email_verified: false,
   });
 
@@ -58,11 +64,17 @@ export async function storeRegisterService(data: {
 
 export async function storeVerifyEmailService(token: string): Promise<void> {
   const customer = await StoreCustomer.findOne({ where: { verification_token: token } });
-  if (!customer) throw new AppError('Token inválido o expirado', 400);
+  if (!customer || isTokenExpired(customer)) throw new AppError('Token inválido o expirado', 400);
 
   customer.email_verified = true;
   customer.verification_token = null;
+  customer.token_expires_at = null;
   await customer.save();
+}
+
+// token_expires_at NULL = sin vencimiento (tokens previos a la migración 051).
+function isTokenExpired(customer: StoreCustomer): boolean {
+  return customer.token_expires_at != null && customer.token_expires_at.getTime() < Date.now();
 }
 
 export async function storeLoginService(
@@ -77,7 +89,7 @@ export async function storeLoginService(
   const valid = await bcrypt.compare(password, customer.password_hash);
   if (!valid) throw new AppError('Credenciales inválidas', 401);
 
-  const tokens = generateStoreTokens(customer.id, customer.email);
+  const tokens = generateStoreTokens(customer.id, customer.email, customer.session_version);
   const { password_hash: _, verification_token: __, ...safe } = customer.toJSON();
   return { customer: safe, tokens };
 }
@@ -93,6 +105,9 @@ export async function storeGoogleAuthService(idToken: string): Promise<{
   });
   const payload = ticket.getPayload();
   if (!payload || !payload.email) throw new AppError('Token de Google inválido', 400);
+  // No confiar en el email si Google no lo verificó: evita vincular la cuenta a
+  // un email ajeno no confirmado (vector de account takeover).
+  if (payload.email_verified !== true) throw new AppError('El email de Google no está verificado', 400);
 
   const { email, name, picture, sub: google_id } = payload;
 
@@ -116,7 +131,7 @@ export async function storeGoogleAuthService(idToken: string): Promise<{
     await customer.save();
   }
 
-  const tokens = generateStoreTokens(customer.id, customer.email);
+  const tokens = generateStoreTokens(customer.id, customer.email, customer.session_version);
   const { password_hash: _, verification_token: __, ...safe } = customer.toJSON();
   return { customer: safe, tokens, isNew };
 }
@@ -134,11 +149,17 @@ export async function storeRefreshTokenService(
   if (payload.type !== 'store_customer') throw new AppError('Token inválido', 401);
 
   const customer = await StoreCustomer.findByPk(payload.sub, {
-    attributes: ['id', 'email', 'active'],
+    attributes: ['id', 'email', 'active', 'session_version'],
   });
   if (!customer || !customer.active) throw new AppError('Cuenta no disponible', 401);
 
-  return generateStoreTokens(customer.id, customer.email);
+  // Invalida refresh tokens viejos: si la sesión fue revocada (ej: reset de
+  // contraseña incrementa session_version), el token deja de servir.
+  if ((payload.session_version ?? 0) !== customer.session_version) {
+    throw new AppError('Sesión expirada. Iniciá sesión de nuevo.', 401);
+  }
+
+  return generateStoreTokens(customer.id, customer.email, customer.session_version);
 }
 
 export async function storeForgotPasswordService(email: string): Promise<void> {
@@ -148,6 +169,7 @@ export async function storeForgotPasswordService(email: string): Promise<void> {
 
   const token = uuidv4();
   customer.verification_token = token;
+  customer.token_expires_at = new Date(Date.now() + RESET_TOKEN_TTL_MS);
   await customer.save();
 
   await sendPasswordResetEmailStore(email, customer.name, token);
@@ -155,10 +177,13 @@ export async function storeForgotPasswordService(email: string): Promise<void> {
 
 export async function storeResetPasswordService(token: string, newPassword: string): Promise<void> {
   const customer = await StoreCustomer.findOne({ where: { verification_token: token } });
-  if (!customer) throw new AppError('Token inválido o expirado', 400);
+  if (!customer || isTokenExpired(customer)) throw new AppError('Token inválido o expirado', 400);
 
   customer.password_hash = await bcrypt.hash(newPassword, 12);
   customer.verification_token = null;
+  customer.token_expires_at = null;
+  // Revoca todas las sesiones/refresh tokens previos tras cambiar la contraseña.
+  customer.session_version = (customer.session_version ?? 0) + 1;
   await customer.save();
 }
 
@@ -220,9 +245,14 @@ export async function storeDeleteAddressService(customerId: number, addressId: n
 }
 
 export function verifyStoreToken(token: string): StoreJwtPayload {
+  let payload: StoreJwtPayload;
   try {
-    return jwt.verify(token, STORE_JWT_SECRET) as unknown as StoreJwtPayload;
+    payload = jwt.verify(token, STORE_JWT_SECRET) as unknown as StoreJwtPayload;
   } catch {
     throw new AppError('Token inválido', 401);
   }
+  // Rechazar tokens del sistema: si STORE_JWT_SECRET cae a JWT_SECRET, un token
+  // de usuario del sistema tendría firma válida pero no debe autenticar en la tienda.
+  if (payload.type !== 'store_customer') throw new AppError('Token inválido', 401);
+  return payload;
 }

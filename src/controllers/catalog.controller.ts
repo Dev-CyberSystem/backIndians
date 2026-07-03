@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../types';
 import * as catalogService from '../services/catalog.service';
 import { storeEvents } from '../events/storeEvents';
+import { verifyWebhookSignature } from '../services/mercadopago.service';
 
 // ─── Productos ────────────────────────────────────────────────────────────────
 
@@ -228,6 +229,17 @@ export async function deleteInvoiceImage(req: AuthRequest, res: Response, next: 
 export async function mpWebhook(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const paymentId = req.query['data.id'] as string || req.body?.data?.id;
+
+    const valid = verifyWebhookSignature({
+      dataId: paymentId != null ? String(paymentId) : undefined,
+      xSignature: req.headers['x-signature'] as string | undefined,
+      xRequestId: req.headers['x-request-id'] as string | undefined,
+    });
+    if (!valid) {
+      res.sendStatus(401);
+      return;
+    }
+
     if (paymentId) {
       await catalogService.handleMPWebhook(String(paymentId));
     }

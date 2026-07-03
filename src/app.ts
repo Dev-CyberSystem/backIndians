@@ -47,8 +47,10 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // ─── Parseo de cuerpo ────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// 1mb alcanza de sobra para cualquier JSON legítimo de la app (las imágenes van
+// por multipart/multer, no por JSON). Reduce la superficie de DoS por body grande.
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ─── Contexto de transacción + logger por request ─────────────────────────────
 app.use(requestContext);
