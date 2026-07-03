@@ -1,11 +1,41 @@
 import http from 'http';
-import { Op } from 'sequelize';
+import { Op, QueryTypes } from 'sequelize';
 import { sequelize } from '../config/db';
 import { StoreEvent } from '../models/StoreEvent';
+import { StoreCustomer } from '../models/StoreCustomer';
 import { CatalogProduct } from '../models/CatalogProduct';
 import { CatalogProductImage } from '../models/CatalogProductImage';
 import { CatalogProductSize } from '../models/CatalogProductSize';
 import { Client } from '../models/Client';
+
+// Estados de pedido que cuentan como "venta concretada" (mismos que getStoreMetrics,
+// para que las unidades vendidas coincidan con los ingresos del Resumen).
+const PAID_STATUSES = ['paid', 'processing', 'shipped', 'delivered'];
+
+// Resuelve el rango [from, to] de un período "YYYY-MM" (mes), "YYYY" (año) o el
+// mes actual por defecto. Devuelve también el año completo para el desglose mensual.
+function resolvePeriodRange(period?: string): { from: Date; to: Date; yearFrom: Date; yearTo: Date } {
+  const now = new Date();
+  let from: Date;
+  let to: Date;
+
+  if (period && /^\d{4}-\d{2}$/.test(period)) {
+    const [y, m] = period.split('-').map(Number);
+    from = new Date(y, m - 1, 1);
+    to = new Date(y, m, 0, 23, 59, 59, 999);
+  } else if (period && /^\d{4}$/.test(period)) {
+    const y = Number(period);
+    from = new Date(y, 0, 1);
+    to = new Date(y, 11, 31, 23, 59, 59, 999);
+  } else {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to = now;
+  }
+
+  const yearFrom = new Date(from.getFullYear(), 0, 1);
+  const yearTo = new Date(from.getFullYear(), 11, 31, 23, 59, 59, 999);
+  return { from, to, yearFrom, yearTo };
+}
 
 // ─── Geolocalización con cache en memoria ────────────────────────────────────
 
@@ -443,5 +473,99 @@ export async function getEventAnalytics(period?: string): Promise<EventAnalytics
     top_searches,
     funnel,
     daily_activity,
+  };
+}
+
+// ─── getAudienceMetrics ───────────────────────────────────────────────────────
+
+export interface AudienceMetrics {
+  units_sold: number;
+  units_daily: Array<{ date: string; units: number }>;
+  units_monthly: Array<{ month: string; units: number }>;
+  unique_buyers: number;
+  registered_customers: number;
+  new_customers: number;
+  unique_visits: number;
+  avg_session_seconds: number;
+  sessions_measured: number;
+}
+
+/**
+ * Métricas de comportamiento/audiencia de la tienda para un período:
+ * - unidades vendidas (total, por día del período y por mes del año)
+ * - compradores únicos (por email, sobre pedidos pagados)
+ * - clientes registrados (total y nuevos en el período)
+ * - visitas únicas (sesiones distintas en store_events)
+ * - tiempo de visita promedio (aprox: último − primer evento de cada sesión)
+ */
+export async function getAudienceMetrics(period?: string): Promise<AudienceMetrics> {
+  const { from, to, yearFrom, yearTo } = resolvePeriodRange(period);
+
+  // ── Unidades vendidas por día (dentro del período) ──────────────────────────
+  const dailyUnits = await sequelize.query<{ date: string; units: string }>(
+    `SELECT DATE(so.createdAt) AS date, SUM(soi.quantity) AS units
+       FROM store_orders so
+       JOIN store_order_items soi ON soi.store_order_id = so.id
+      WHERE so.status IN (:statuses) AND so.createdAt BETWEEN :from AND :to
+      GROUP BY DATE(so.createdAt)
+      ORDER BY date ASC`,
+    { replacements: { statuses: PAID_STATUSES, from, to }, type: QueryTypes.SELECT }
+  );
+  const units_daily = dailyUnits.map((r) => ({ date: String(r.date), units: Number(r.units) }));
+  const units_sold = units_daily.reduce((s, r) => s + r.units, 0);
+
+  // ── Unidades vendidas por mes (año completo del período) ─────────────────────
+  const monthlyUnits = await sequelize.query<{ month: string; units: string }>(
+    `SELECT DATE_FORMAT(so.createdAt, '%Y-%m') AS month, SUM(soi.quantity) AS units
+       FROM store_orders so
+       JOIN store_order_items soi ON soi.store_order_id = so.id
+      WHERE so.status IN (:statuses) AND so.createdAt BETWEEN :yearFrom AND :yearTo
+      GROUP BY month
+      ORDER BY month ASC`,
+    { replacements: { statuses: PAID_STATUSES, yearFrom, yearTo }, type: QueryTypes.SELECT }
+  );
+  const units_monthly = monthlyUnits.map((r) => ({ month: String(r.month), units: Number(r.units) }));
+
+  // ── Compradores únicos (por email) en pedidos pagados del período ────────────
+  const [{ n: buyers }] = await sequelize.query<{ n: number }>(
+    `SELECT COUNT(DISTINCT customer_email) AS n
+       FROM store_orders
+      WHERE status IN (:statuses) AND createdAt BETWEEN :from AND :to`,
+    { replacements: { statuses: PAID_STATUSES, from, to }, type: QueryTypes.SELECT }
+  );
+
+  // ── Clientes registrados ────────────────────────────────────────────────────
+  const registered_customers = await StoreCustomer.count();
+  const new_customers = await StoreCustomer.count({ where: { createdAt: { [Op.between]: [from, to] } } });
+
+  // ── Visitas únicas (sesiones distintas) ─────────────────────────────────────
+  const [{ n: visits }] = await sequelize.query<{ n: number }>(
+    `SELECT COUNT(DISTINCT session_id) AS n
+       FROM store_events
+      WHERE createdAt BETWEEN :from AND :to`,
+    { replacements: { from, to }, type: QueryTypes.SELECT }
+  );
+
+  // ── Tiempo de visita promedio (aprox) por sesión ────────────────────────────
+  const [{ avg_dur, sessions }] = await sequelize.query<{ avg_dur: number | null; sessions: number }>(
+    `SELECT AVG(dur) AS avg_dur, COUNT(*) AS sessions FROM (
+       SELECT session_id, TIMESTAMPDIFF(SECOND, MIN(createdAt), MAX(createdAt)) AS dur
+         FROM store_events
+        WHERE createdAt BETWEEN :from AND :to
+        GROUP BY session_id
+     ) t`,
+    { replacements: { from, to }, type: QueryTypes.SELECT }
+  );
+
+  return {
+    units_sold,
+    units_daily,
+    units_monthly,
+    unique_buyers: Number(buyers) || 0,
+    registered_customers,
+    new_customers,
+    unique_visits: Number(visits) || 0,
+    avg_session_seconds: Math.round(Number(avg_dur) || 0),
+    sessions_measured: Number(sessions) || 0,
   };
 }
