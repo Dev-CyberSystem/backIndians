@@ -169,6 +169,19 @@ export async function sendAbandonedCartReminder(customerId: number, sentBy: numb
     throw new AppError('Este cliente no tiene un carrito abandonado', 400);
   }
 
+  // Idempotente por carrito: si ya se recordó este mismo carrito (reminder con
+  // sent_at >= último cart_add), no reenviar — evita spam por doble click o
+  // por una lista desactualizada. Vuelve a ser elegible si el cliente agrega
+  // productos nuevos (nuevo lastAdd).
+  const lastReminder = await StoreCartReminder.findOne({
+    where: { customer_id: customerId },
+    order: [['sent_at', 'DESC']],
+    attributes: ['sent_at'],
+  });
+  if (lastReminder && lastReminder.sent_at >= cart.lastAdd) {
+    throw new AppError('Ya se le envió un recordatorio por este carrito', 400);
+  }
+
   const customer = await StoreCustomer.findByPk(customerId, { attributes: ['id', 'name', 'email', 'active'] });
   if (!customer || !customer.active) throw new AppError('Cliente no disponible', 404);
 
