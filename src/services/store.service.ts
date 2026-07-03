@@ -26,6 +26,7 @@ import { StoreOrderStatus } from '../models/StoreOrder';
 import { getIO } from '../config/socket';
 import { cached } from '../utils/cache';
 import { cloudinary } from '../config/cloudinary';
+import { roundPrice } from '../utils/money';
 
 // ─── Comprobantes de pago: URLs firmadas ─────────────────────────────────────
 
@@ -339,10 +340,13 @@ export async function validateCoupon(code: string, subtotal: number) {
     );
   }
 
-  const discount =
+  // Descuento sin decimales (misma regla). El fixed ya viene entero, pero lo
+  // redondeamos igual para blindar cualquier valor decimal cargado.
+  const discount = roundPrice(
     coupon.type === 'percentage'
-      ? parseFloat(((subtotal * Number(coupon.value)) / 100).toFixed(2))
-      : Math.min(Number(coupon.value), subtotal);
+      ? (subtotal * Number(coupon.value)) / 100
+      : Math.min(Number(coupon.value), subtotal)
+  );
 
   return { coupon, discount };
 }
@@ -507,9 +511,9 @@ export async function createStoreOrder(input: CheckoutInput) {
 
     const basePrice = Number(product.public_price ?? product.price);
     const disc = Number((product as any).discount_percentage ?? 0);
-    const price = disc > 0
-      ? parseFloat((basePrice * (100 - disc) / 100).toFixed(2))
-      : basePrice;
+    // Precio a cobrar SIN decimales (regla ≤0,50 abajo / ≥0,51 arriba). Debe
+    // coincidir con effectivePrice del frontend.
+    const price = roundPrice(disc > 0 ? (basePrice * (100 - disc)) / 100 : basePrice);
     const sizes = (product as any).sizes as CatalogProductSize[];
     let sizeRecord: CatalogProductSize | undefined;
 
@@ -526,7 +530,7 @@ export async function createStoreOrder(input: CheckoutInput) {
       }
     }
 
-    const itemSubtotal = parseFloat((price * cartItem.quantity).toFixed(2));
+    const itemSubtotal = roundPrice(price * cartItem.quantity);
     subtotal += itemSubtotal;
 
     resolvedItems.push({
@@ -559,11 +563,11 @@ export async function createStoreOrder(input: CheckoutInput) {
   let shippingCost = 0;
   if (input.shipping_type === 'delivery') {
     const freeMin = parseFloat(await getStoreSetting('free_shipping_min')) || 0;
-    const cost = parseFloat(await getStoreSetting('shipping_cost')) || 0;
+    const cost = roundPrice(parseFloat(await getStoreSetting('shipping_cost')) || 0);
     shippingCost = subtotal - discountAmount >= freeMin && freeMin > 0 ? 0 : cost;
   }
 
-  const totalAmount = parseFloat((subtotal - discountAmount + shippingCost).toFixed(2));
+  const totalAmount = roundPrice(subtotal - discountAmount + shippingCost);
 
   // 4. Crear pedido en transacción.
   // Reintentamos si el número de pedido colisiona (dos checkouts simultáneos

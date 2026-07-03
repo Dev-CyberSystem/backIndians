@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { drawIndiansLogo } from './logo';
+import { formatPriceNumber } from './money';
 
 export interface InvoiceItem {
   product_title: string;
@@ -39,8 +40,7 @@ const INVOICE_TYPE_CODES: Record<string, string> = {
   A: '01', B: '06', C: '11', M: '51', E: '19', X: '99',
 };
 
-const money = (n: number) =>
-  `$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (n: number) => `$ ${formatPriceNumber(n)}`;
 
 // Reproduce el modelo de comprobante del negocio (mismo layout que la factura del
 // sistema) para los pedidos de la tienda online. La letra sale "X" por defecto
