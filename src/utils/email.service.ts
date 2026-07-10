@@ -220,16 +220,16 @@ export async function sendAbandonedCartEmail(
   await resend.emails.send({
     from: FROM,
     to: email,
-    subject: '¿Te quedó algo en la bolsa? — Indians Textil',
+    subject: '¿Te quedó algo en el carrito? — Indians Textil',
     html: emailWrapper(`
       <h2 style="color:#1d4ed8;margin:0 0 8px;">Hola ${escapeHtml(name)}, ¡te esperamos!</h2>
-      <p style="margin:0 0 12px;">Vimos que dejaste algunos productos en tu bolsa. Todavía están disponibles — completá tu compra antes de que se agoten.</p>
+      <p style="margin:0 0 12px;">Vimos que dejaste algunos productos en tu carrito. Todavía están disponibles — completá tu compra antes de que se agoten.</p>
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
         <tbody>${itemsHtml}</tbody>
       </table>
       <div style="text-align:center;margin:20px 0 4px;">
         <a href="${STORE_URL}/carrito" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">
-          Volver a mi bolsa
+          Volver a mi carrito
         </a>
       </div>
       <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;">Si ya completaste tu compra, ignorá este mensaje. ¡Gracias por elegirnos!</p>
