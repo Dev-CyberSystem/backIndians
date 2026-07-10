@@ -33,7 +33,7 @@ export async function refresh(req: Request, res: Response, next: NextFunction): 
   }
 }
 
-// El logout se maneja en el cliente eliminando los tokens.
+// El logout. se maneja en el cliente eliminando los tokens.
 // En producción se podría implementar una blacklist de tokens con Redis.
 export function logout(_req: Request, res: Response): void {
   res.json({ success: true, data: { message: 'Sesión cerrada correctamente' } });
