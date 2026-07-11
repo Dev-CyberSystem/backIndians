@@ -19,6 +19,9 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --forceExit"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.5.1",
