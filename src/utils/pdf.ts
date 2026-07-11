@@ -185,20 +185,28 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
       .font('Helvetica').text(item.has_cuff ? (item.cuff_color || 'Sí (sin color especificado)') : 'Sin puño');
 
     // ── Materiales de aplicación ────────────────────────────────────────────
-    const hasMaterials = item.logo_material || item.size_label_type || item.composition_label;
+    const hasMaterials = item.has_brand || item.has_shield || item.logo_material
+      || item.size_label_type || item.composition_label;
     if (hasMaterials) {
       SECTION(doc, 'Materiales de aplicación');
       doc.fontSize(9);
-      labelValue(doc, 'Marca / Escudo', item.logo_material);
+      if (item.has_brand) {
+        labelValue(doc, 'Marca', [item.brand_material, item.brand_dimensions].filter(Boolean).join(' — ') || 'Sí');
+      }
+      if (item.has_shield) {
+        labelValue(doc, 'Escudo', [item.shield_material, item.shield_dimensions].filter(Boolean).join(' — ') || 'Sí');
+      }
+      labelValue(doc, 'Marca / Escudo (legado)', item.logo_material);
       labelValue(doc, 'Talle', item.size_label_type);
       labelValue(doc, 'Etiqueta composición', item.composition_label);
     }
 
     // ── Detalle de tela ─────────────────────────────────────────────────────
-    const hasFabric = item.fabric_composition || item.fabric_weight;
+    const hasFabric = fabricNames || item.fabric_composition || item.fabric_weight;
     if (hasFabric) {
       SECTION(doc, 'Detalle de tela');
       doc.fontSize(9);
+      labelValue(doc, 'Tela(s)', fabricNames);
       labelValue(doc, 'Composición', item.fabric_composition);
       labelValue(doc, 'Gramaje', item.fabric_weight);
     }
@@ -210,19 +218,21 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
       doc.fontSize(9);
 
       // Cabecera de tabla
-      const sColX = [55, 300];
+      const sColX = [55, 260, 420];
       const sHeaderY = doc.y;
       doc.font('Helvetica-Bold')
-        .text('Elemento', sColX[0], sHeaderY, { width: 240 })
-        .text('Ubicación', sColX[1], sHeaderY, { width: 240 });
+        .text('Elemento', sColX[0], sHeaderY, { width: 195 })
+        .text('Ubicación', sColX[1], sHeaderY, { width: 150 })
+        .text('Tamaño', sColX[2], sHeaderY, { width: 120 });
       doc.moveDown(0.2);
       doc.moveTo(55, doc.y).lineTo(540, doc.y).stroke('#AAAAAA').moveDown(0.2);
 
       doc.font('Helvetica');
       for (const sp of sponsors) {
         const spY = doc.y;
-        doc.text(sp.element || '-', sColX[0], spY, { width: 240 });
-        doc.text(sp.location || '-', sColX[1], spY, { width: 240 });
+        doc.text(sp.element || '-', sColX[0], spY, { width: 195 });
+        doc.text(sp.location || '-', sColX[1], spY, { width: 150 });
+        doc.text(sp.size || '-', sColX[2], spY, { width: 120 });
         doc.moveDown(0.2);
       }
     }
@@ -246,6 +256,18 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
       if (custom.number_font) {
         doc.font('Helvetica-Bold').text('Tipografía: ', 310, custY2, { continued: true, width: 235 })
           .font('Helvetica').text(custom.number_font);
+      }
+
+      if (custom.number_size || custom.name_size) {
+        const custYSize = doc.y;
+        if (custom.number_size) {
+          doc.font('Helvetica-Bold').text('Tamaño número: ', 55, custYSize, { continued: true, width: 235 })
+            .font('Helvetica').text(custom.number_size);
+        }
+        if (custom.name_size) {
+          doc.font('Helvetica-Bold').text('Tamaño nombre: ', 310, custYSize, { continued: true, width: 235 })
+            .font('Helvetica').text(custom.name_size);
+        }
       }
 
       if (custom.number_color_home || custom.number_color_away) {

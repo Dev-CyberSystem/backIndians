@@ -48,7 +48,13 @@ export interface OrderItemInput {
   socks_description?: string;
 
   // Materiales de aplicación
-  logo_material?: string;
+  logo_material?: string; // legacy
+  has_brand?: boolean;
+  brand_material?: string;
+  brand_dimensions?: string;
+  has_shield?: boolean;
+  shield_material?: string;
+  shield_dimensions?: string;
   size_label_type?: string;
   composition_label?: string;
 
@@ -244,6 +250,12 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
     socks_description: item.socks_description || null,
     // Materiales de aplicación
     logo_material: item.logo_material || null,
+    has_brand: item.has_brand ?? false,
+    brand_material: item.has_brand ? (item.brand_material || null) : null,
+    brand_dimensions: item.has_brand ? (item.brand_dimensions || null) : null,
+    has_shield: item.has_shield ?? false,
+    shield_material: item.has_shield ? (item.shield_material || null) : null,
+    shield_dimensions: item.has_shield ? (item.shield_dimensions || null) : null,
     size_label_type: item.size_label_type || null,
     composition_label: item.composition_label || null,
     // Detalle de tela

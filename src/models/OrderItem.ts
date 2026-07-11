@@ -36,7 +36,13 @@ export class OrderItem extends Model<
   declare socks_description: CreationOptional<string | null>;  // Medias
 
   // ─── Materiales de aplicación ────────────────────────────────────────────
-  declare logo_material: CreationOptional<string | null>;       // Materiales Marca/Escudo
+  declare logo_material: CreationOptional<string | null>;       // legacy — Materiales Marca/Escudo (texto libre)
+  declare has_brand: CreationOptional<boolean>;                 // Marca
+  declare brand_material: CreationOptional<string | null>;
+  declare brand_dimensions: CreationOptional<string | null>;
+  declare has_shield: CreationOptional<boolean>;                // Escudo
+  declare shield_material: CreationOptional<string | null>;
+  declare shield_dimensions: CreationOptional<string | null>;
   declare size_label_type: CreationOptional<string | null>;     // Talle (DTF NEGRO, etc.)
   declare composition_label: CreationOptional<string | null>;   // Etiqueta de composición
 
@@ -159,7 +165,37 @@ OrderItem.init(
     logo_material: {
       type: DataTypes.STRING(300),
       allowNull: true,
-      comment: 'Materiales Marca/Escudo (VINILO, TPU, DTF...)',
+      comment: 'Legacy — Materiales Marca/Escudo en texto libre (VINILO, TPU, DTF...)',
+    },
+    has_brand: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    brand_material: {
+      type: DataTypes.STRING(300),
+      allowNull: true,
+      comment: 'Material de la marca (VINILO, TPU, DTF...)',
+    },
+    brand_dimensions: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      comment: 'Dimensiones de la marca (Ej: 5x5 cm)',
+    },
+    has_shield: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    shield_material: {
+      type: DataTypes.STRING(300),
+      allowNull: true,
+      comment: 'Material del escudo (VINILO, TPU, DTF...)',
+    },
+    shield_dimensions: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      comment: 'Dimensiones del escudo (Ej: 8x8 cm)',
     },
     size_label_type: {
       type: DataTypes.STRING(100),
