@@ -83,6 +83,9 @@ router.post(
     // Bordado
     body('items.*.has_embroidery').optional().isBoolean(),
     body('items.*.embroidery_notes').optional().isString(),
+    // Puño
+    body('items.*.has_cuff').optional().isBoolean(),
+    body('items.*.cuff_color').optional().isString(),
     // Precio y notas
     body('items.*.unit_price').optional().isFloat({ min: 0 }),
     body('items.*.notes').optional().isString(),
@@ -131,6 +134,8 @@ router.put(
     body('items.*.customization').optional().isObject(),
     body('items.*.has_embroidery').optional().isBoolean(),
     body('items.*.embroidery_notes').optional().isString(),
+    body('items.*.has_cuff').optional().isBoolean(),
+    body('items.*.cuff_color').optional().isString(),
     body('items.*.unit_price').optional().isFloat({ min: 0 }),
     body('items.*.notes').optional().isString(),
     validate,

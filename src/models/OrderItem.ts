@@ -56,6 +56,10 @@ export class OrderItem extends Model<
   declare has_embroidery: CreationOptional<boolean>;
   declare embroidery_notes: CreationOptional<string | null>;
 
+  // ─── Puño ────────────────────────────────────────────────────────────────
+  declare has_cuff: CreationOptional<boolean>;
+  declare cuff_color: CreationOptional<string | null>;
+
   // ─── Cantidades por talla y datos de jugadores ──────────────────────────
   // { "id_SizeChart": cantidad } — ej: { "1": 5, "2": 10 }
   declare sizes: SizesMap;
@@ -202,6 +206,17 @@ OrderItem.init(
     },
     embroidery_notes: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    // Puño
+    has_cuff: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    cuff_color: {
+      type: DataTypes.STRING(150),
       allowNull: true,
     },
 

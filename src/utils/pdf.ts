@@ -181,6 +181,9 @@ export async function generateOrderPDF(order: Order): Promise<Buffer> {
       }
     }
 
+    doc.font('Helvetica-Bold').text('Puño: ', leftX, doc.y, { continued: true, width: colW })
+      .font('Helvetica').text(item.has_cuff ? (item.cuff_color || 'Sí (sin color especificado)') : 'Sin puño');
+
     // ── Materiales de aplicación ────────────────────────────────────────────
     const hasMaterials = item.logo_material || item.size_label_type || item.composition_label;
     if (hasMaterials) {

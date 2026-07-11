@@ -64,6 +64,10 @@ export interface OrderItemInput {
   has_embroidery?: boolean;
   embroidery_notes?: string;
 
+  // Puño
+  has_cuff?: boolean;
+  cuff_color?: string;
+
   // Tallas, jugadores y precio
   sizes: SizesMap;
   players_data?: Record<string, { name: string; number: string }[]>;
@@ -251,6 +255,9 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
     // Bordado
     has_embroidery: item.has_embroidery ?? false,
     embroidery_notes: item.embroidery_notes || null,
+    // Puño
+    has_cuff: item.has_cuff ?? false,
+    cuff_color: item.has_cuff ? (item.cuff_color || null) : null,
     // Tallas, jugadores y precio
     sizes: item.sizes,
     players_data: item.players_data ?? null,
