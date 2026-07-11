@@ -48,7 +48,13 @@ export interface OrderItemInput {
   socks_description?: string;
 
   // Materiales de aplicación
-  logo_material?: string;
+  logo_material?: string; // legacy
+  has_brand?: boolean;
+  brand_material?: string;
+  brand_dimensions?: string;
+  has_shield?: boolean;
+  shield_material?: string;
+  shield_dimensions?: string;
   size_label_type?: string;
   composition_label?: string;
 
@@ -63,6 +69,10 @@ export interface OrderItemInput {
   // Bordado
   has_embroidery?: boolean;
   embroidery_notes?: string;
+
+  // Puño
+  has_cuff?: boolean;
+  cuff_color?: string;
 
   // Tallas, jugadores y precio
   sizes: SizesMap;
@@ -240,6 +250,12 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
     socks_description: item.socks_description || null,
     // Materiales de aplicación
     logo_material: item.logo_material || null,
+    has_brand: item.has_brand ?? false,
+    brand_material: item.has_brand ? (item.brand_material || null) : null,
+    brand_dimensions: item.has_brand ? (item.brand_dimensions || null) : null,
+    has_shield: item.has_shield ?? false,
+    shield_material: item.has_shield ? (item.shield_material || null) : null,
+    shield_dimensions: item.has_shield ? (item.shield_dimensions || null) : null,
     size_label_type: item.size_label_type || null,
     composition_label: item.composition_label || null,
     // Detalle de tela
@@ -251,6 +267,9 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
     // Bordado
     has_embroidery: item.has_embroidery ?? false,
     embroidery_notes: item.embroidery_notes || null,
+    // Puño
+    has_cuff: item.has_cuff ?? false,
+    cuff_color: item.has_cuff ? (item.cuff_color || null) : null,
     // Tallas, jugadores y precio
     sizes: item.sizes,
     players_data: item.players_data ?? null,

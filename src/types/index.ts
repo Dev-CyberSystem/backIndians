@@ -36,6 +36,7 @@ export type SleeveType = 'raglan' | 'classic';
 export interface Sponsor {
   element: string;   // "Escudo del club", "Marca", "Sponsor principal", etc.
   location: string;  // "Pecho izquierdo", "Espalda superior", "Manga derecha", etc.
+  size?: string;      // Tamaño del aplique (ej: "10x10 cm")
 }
 
 // Datos de personalización individual (número, nombre)
@@ -44,6 +45,8 @@ export interface Customization {
   number_on_chest: boolean;
   player_name: boolean;
   number_font?: string;           // Tipografía (ej: "IND_Ñ")
+  number_size?: string;           // Tamaño del número (ej: "20 cm")
+  name_size?: string;             // Tamaño del nombre (ej: "5 cm")
   number_color_home?: string;     // Color número titular
   number_color_away?: string;     // Color número alternativa
 }

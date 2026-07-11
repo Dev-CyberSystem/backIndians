@@ -10,6 +10,8 @@
     "build:start": "npm run build && npm start",
     "seed": "ts-node --project tsconfig.seed.json seeders/index.ts",
     "seed:admin": "ts-node --project tsconfig.seed.json seeders/create-admin.ts",
+    "seed:test": "npm run seed && npm run seed:admin",
+    "test:full": "npm run seed:test && npm test",
     "seed:sellers": "ts-node --project tsconfig.seed.json seeders/sellers.ts",
     "seed:store-customers": "ts-node --project tsconfig.seed.json seeders/store-customers.ts",
     "reset-password": "ts-node --project tsconfig.seed.json seeders/reset-password.ts",
