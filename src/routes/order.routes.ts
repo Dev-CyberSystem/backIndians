@@ -70,6 +70,12 @@ router.post(
     body('items.*.socks_description').optional().isString(),
     // Materiales
     body('items.*.logo_material').optional().isString(),
+    body('items.*.has_brand').optional().isBoolean(),
+    body('items.*.brand_material').optional().isString(),
+    body('items.*.brand_dimensions').optional().isString(),
+    body('items.*.has_shield').optional().isBoolean(),
+    body('items.*.shield_material').optional().isString(),
+    body('items.*.shield_dimensions').optional().isString(),
     body('items.*.size_label_type').optional().isString(),
     body('items.*.composition_label').optional().isString(),
     // Tela
@@ -83,6 +89,9 @@ router.post(
     // Bordado
     body('items.*.has_embroidery').optional().isBoolean(),
     body('items.*.embroidery_notes').optional().isString(),
+    // Puño
+    body('items.*.has_cuff').optional().isBoolean(),
+    body('items.*.cuff_color').optional().isString(),
     // Precio y notas
     body('items.*.unit_price').optional().isFloat({ min: 0 }),
     body('items.*.notes').optional().isString(),
@@ -123,6 +132,12 @@ router.put(
     body('items.*.short_description').optional().isString(),
     body('items.*.socks_description').optional().isString(),
     body('items.*.logo_material').optional().isString(),
+    body('items.*.has_brand').optional().isBoolean(),
+    body('items.*.brand_material').optional().isString(),
+    body('items.*.brand_dimensions').optional().isString(),
+    body('items.*.has_shield').optional().isBoolean(),
+    body('items.*.shield_material').optional().isString(),
+    body('items.*.shield_dimensions').optional().isString(),
     body('items.*.size_label_type').optional().isString(),
     body('items.*.composition_label').optional().isString(),
     body('items.*.fabric_composition').optional().isString(),
@@ -131,6 +146,8 @@ router.put(
     body('items.*.customization').optional().isObject(),
     body('items.*.has_embroidery').optional().isBoolean(),
     body('items.*.embroidery_notes').optional().isString(),
+    body('items.*.has_cuff').optional().isBoolean(),
+    body('items.*.cuff_color').optional().isString(),
     body('items.*.unit_price').optional().isFloat({ min: 0 }),
     body('items.*.notes').optional().isString(),
     validate,
