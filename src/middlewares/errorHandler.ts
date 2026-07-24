@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ValidationError } from 'sequelize';
+import { ValidationError, UniqueConstraintError } from 'sequelize';
 import { logger } from '../utils/logger';
 import type { LogContext } from '../types/logging';
 
@@ -64,6 +64,22 @@ export function errorHandler(
   _next: NextFunction
 ): void {
   const ctx = buildLogContext(req);
+
+  // Choque de unicidad en base → 409 con mensaje claro (UniqueConstraintError
+  // extiende ValidationError, por eso va primero).
+  if (err instanceof UniqueConstraintError) {
+    const fields = Object.keys(err.fields ?? {});
+    const isGarmentClientName = fields.includes('name') && fields.includes('client_id');
+    logger.warn('db.unique', { ...ctx, message: 'Valor duplicado', meta: { ...ctx.meta, fields } });
+    res.status(409).json({
+      success: false,
+      message: isGarmentClientName
+        ? 'Ya existe una prenda con ese nombre para este cliente. Usá otro nombre.'
+        : 'Ya existe un registro con esos datos (valor duplicado).',
+      errors: err.errors.map((e) => ({ field: e.path, message: e.message })),
+    });
+    return;
+  }
 
   // Errores de validación de Sequelize → 422 (WARN: es un error esperable del input)
   if (err instanceof ValidationError) {

@@ -48,6 +48,29 @@ export async function ensureSchema(): Promise<void> {
     } catch (e) {
       logger.error('ensureSchema.removeNameUnique', e, { meta: { fatal: false } });
     }
+
+    // Unicidad por cliente: no se permite el mismo nombre de prenda dentro del
+    // mismo cliente (pero sí entre clientes distintos).
+    try {
+      const indexes = (await qi.showIndex('garment_types')) as Array<{
+        name: string; unique: boolean; fields?: Array<{ attribute: string }>;
+      }>;
+      const hasComposite = indexes.some(
+        (ix) => ix.unique && (ix.fields?.length ?? 0) === 2
+          && !!ix.fields?.some((f) => f.attribute === 'client_id')
+          && !!ix.fields?.some((f) => f.attribute === 'name')
+      );
+      if (!hasComposite) {
+        await qi.addConstraint('garment_types', {
+          fields: ['client_id', 'name'],
+          type: 'unique',
+          name: 'uq_garment_types_client_name',
+        });
+        logger.info('ensureSchema.addConstraint', { meta: { table: 'garment_types', constraint: 'uq_garment_types_client_name' } });
+      }
+    } catch (e) {
+      logger.error('ensureSchema.addClientNameUnique', e, { meta: { fatal: false } });
+    }
   } catch (err) {
     // No es fatal: en un entorno ya migrado esto no hace falta.
     logger.error('ensureSchema.failed', err, { meta: { fatal: false } });

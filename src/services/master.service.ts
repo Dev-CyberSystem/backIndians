@@ -1,5 +1,16 @@
+import { Op } from 'sequelize';
 import { GarmentType, FabricType, SizeChart } from '../models';
 import { AppError } from '../middlewares/errorHandler';
+
+const duplicateNameError = (clientId: number | null) =>
+  new AppError(
+    clientId
+      ? 'Ya existe una prenda con ese nombre para este cliente. Usá otro nombre.'
+      : 'Ya existe una prenda global con ese nombre.',
+    409,
+    undefined,
+    { code: 'GARMENT_NAME_DUPLICATE', type: 'BusinessRuleError' }
+  );
 
 // ─── Tipos comunes para las tablas maestras ────────────────────────────────
 
@@ -28,9 +39,13 @@ export async function listGarmentTypes(onlyActive = true, clientId?: number) {
 export async function createGarmentType(
   input: MasterItemInput & { client_id?: number | null }
 ): Promise<GarmentType> {
+  const client_id = input.client_id ?? null;
+  // No permitir el mismo nombre dentro del mismo cliente (mensaje claro antes del DB).
+  const existing = await GarmentType.findOne({ where: { client_id, name: input.name } });
+  if (existing) throw duplicateNameError(client_id);
   return GarmentType.create({
     name: input.name,
-    client_id: input.client_id ?? null,
+    client_id,
     active: input.active ?? true,
     sort_order: input.sort_order ?? 0,
   });
@@ -42,6 +57,12 @@ export async function updateGarmentType(
 ): Promise<GarmentType> {
   const item = await GarmentType.findByPk(id);
   if (!item) throw new AppError('Tipo de prenda no encontrado', 404);
+  if (input.name && input.name !== item.name) {
+    const dup = await GarmentType.findOne({
+      where: { client_id: item.client_id, name: input.name, id: { [Op.ne]: id } },
+    });
+    if (dup) throw duplicateNameError(item.client_id);
+  }
   await item.update(input);
   return item;
 }
