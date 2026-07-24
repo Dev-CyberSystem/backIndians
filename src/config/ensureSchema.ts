@@ -31,6 +31,23 @@ export async function ensureSchema(): Promise<void> {
       });
       logger.info('ensureSchema.addColumn', { meta: { table: 'garment_types', column: 'client_id' } });
     }
+
+    // Con el modelo por-cliente el nombre NO debe ser único global (dos clientes
+    // pueden tener "Camiseta"). Elimina el índice único heredado sobre `name`.
+    try {
+      const indexes = (await qi.showIndex('garment_types')) as Array<{
+        name: string; unique: boolean; fields?: Array<{ attribute: string }>;
+      }>;
+      const nameUnique = indexes.find(
+        (ix) => ix.unique && (ix.fields?.length ?? 0) === 1 && ix.fields?.[0]?.attribute === 'name'
+      );
+      if (nameUnique) {
+        await qi.removeIndex('garment_types', nameUnique.name);
+        logger.info('ensureSchema.removeIndex', { meta: { table: 'garment_types', index: nameUnique.name } });
+      }
+    } catch (e) {
+      logger.error('ensureSchema.removeNameUnique', e, { meta: { fatal: false } });
+    }
   } catch (err) {
     // No es fatal: en un entorno ya migrado esto no hace falta.
     logger.error('ensureSchema.failed', err, { meta: { fatal: false } });
