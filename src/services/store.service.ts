@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { Op, col, literal, UniqueConstraintError } from 'sequelize';
 import { sequelize } from '../config/db';
 import {
@@ -6,9 +7,11 @@ import {
   CatalogProductSize,
   StoreOrder,
   StoreOrderItem,
+  StoreOrderStatusHistory,
   StoreCoupon,
   StoreCustomer,
   Settings,
+  User,
 } from '../models';
 import { Client } from '../models/Client';
 import { GarmentType } from '../models/GarmentType';
@@ -16,13 +19,19 @@ import { AppError } from '../middlewares/errorHandler';
 import { createPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
 import {
   sendOrderConfirmationEmail,
-  sendPaymentApprovedEmail,
-  sendPaymentRejectedEmail,
   sendOrderInvoiceEmail,
+  sendStoreOrderStatusEmail,
+  statusNotifiesCustomer,
 } from '../utils/email.service';
+import { enqueueEmail } from '../utils/emailQueue';
 import { generateInvoicePdf } from '../utils/store.pdf';
 import { getAllSettings } from './settings.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
+import {
+  STORE_STATUS_LABELS,
+  isValidStoreTransition,
+  statusRequiresShipping,
+} from '../config/storeOrderFlow';
 import { getIO } from '../config/socket';
 import { cached } from '../utils/cache';
 import { cloudinary } from '../config/cloudinary';
@@ -67,6 +76,26 @@ export function signPaymentProofs<T extends {
 async function getStoreSetting(key: string): Promise<string> {
   const row = await Settings.findOne({ where: { key } });
   return row?.value ?? '';
+}
+
+// ─── Seguimiento: token opaco + link público ─────────────────────────────────
+
+const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
+const DEFAULT_TRACKING_EXPIRY_DAYS = 30;
+
+/** Token opaco no adivinable para el link público de seguimiento. */
+function generateTrackingToken(): string {
+  return randomBytes(24).toString('hex'); // 48 chars, cabe en STRING(64)
+}
+
+export function buildTrackingUrl(token: string): string {
+  return `${STORE_URL}/seguimiento/${token}`;
+}
+
+/** Días de vigencia del link tras "Entregado" (setting configurable, default 30). */
+async function getTrackingExpiryDays(): Promise<number> {
+  const raw = parseInt(await getStoreSetting('tracking_link_expiry_days'), 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TRACKING_EXPIRY_DAYS;
 }
 
 async function generateStoreOrderNumber(): Promise<string> {
@@ -590,6 +619,7 @@ export async function createStoreOrder(input: CheckoutInput) {
             customer_email: input.customerEmail,
             customer_phone: input.customerPhone ?? null,
             status: 'pending_payment',
+            tracking_token: generateTrackingToken(),
             subtotal,
             discount_amount: discountAmount,
             shipping_cost: shippingCost,
@@ -807,44 +837,251 @@ function emitStoreOrderCreatedEvent(order: StoreOrder): void {
   } catch { /* socket puede no estar inicializado en tests */ }
 }
 
+// ─── Cambio de estado (transición + historial + mail) ────────────────────────
+
+export interface StatusChangeOptions {
+  /** Admin/billing que hizo el cambio. null = cambio automático del sistema. */
+  changedBy?: number | null;
+  note?: string | null;
+  tracking?: { tracking_number?: string | null; courier_name?: string | null };
+  /** false = no valida la transición (flujo de pago automático del webhook). */
+  enforceTransition?: boolean;
+}
+
 /**
- * Aplica el resultado de un pago a un pedido. Idempotente: solo dispara emails
- * y eventos cuando el estado realmente cambia (evita duplicados entre webhook
- * y la confirmación al volver el cliente).
+ * Punto único para cambiar el estado de un pedido de la tienda. Valida la
+ * transición, actualiza datos de despacho, escribe el historial (traza inmutable)
+ * y encola el mail al comprador — todo de forma idempotente:
+ *
+ *  - Si el estado NO cambia realmente, no escribe historial ni envía mail
+ *    (evita duplicados entre webhook y retorno del cliente).
+ *  - El mail se ENCOLA (desacoplado): si falla, el cambio ya quedó persistido y
+ *    el envío se reintenta/loguea sin cortar la operación.
+ */
+export async function recordStoreOrderStatusChange(
+  order: StoreOrder,
+  newStatus: StoreOrderStatus,
+  options: StatusChangeOptions = {}
+): Promise<{ changed: boolean; emailQueued: boolean }> {
+  const prevStatus = order.status as StoreOrderStatus;
+  const tracking = options.tracking ?? {};
+  const statusChanged = newStatus !== prevStatus;
+
+  // Validar transición (salvo el flujo de pago automático)
+  if (statusChanged && options.enforceTransition !== false) {
+    if (!isValidStoreTransition(prevStatus, newStatus)) {
+      throw new AppError(
+        `No se puede pasar el pedido de "${STORE_STATUS_LABELS[prevStatus]}" a "${STORE_STATUS_LABELS[newStatus]}"`,
+        409
+      );
+    }
+  }
+
+  // Datos de despacho (mergeados con lo ya cargado)
+  const mergedCourier = tracking.courier_name !== undefined ? tracking.courier_name : order.courier_name;
+  const mergedTracking = tracking.tracking_number !== undefined ? tracking.tracking_number : order.tracking_number;
+  if (statusChanged && statusRequiresShipping(newStatus) && (!mergedCourier || !mergedTracking)) {
+    throw new AppError('Para marcar "En camino" cargá el transportista y el N° de seguimiento', 400);
+  }
+
+  // Vencimiento del token al entregar (se calcula fuera de la transacción)
+  let deliveredExpiry: Date | null | undefined;
+  if (statusChanged && newStatus === 'delivered') {
+    const days = await getTrackingExpiryDays();
+    deliveredExpiry = new Date(Date.now() + days * 86_400_000);
+  }
+
+  const token = order.tracking_token ?? generateTrackingToken();
+
+  await sequelize.transaction(async (t) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updates: any = {
+      courier_name: mergedCourier ?? null,
+      tracking_number: mergedTracking ?? null,
+      tracking_token: token,
+    };
+    if (statusChanged) {
+      updates.status = newStatus;
+      if (deliveredExpiry !== undefined) updates.tracking_token_expires_at = deliveredExpiry;
+    }
+    await order.update(updates, { transaction: t });
+
+    if (statusChanged) {
+      await StoreOrderStatusHistory.create(
+        {
+          store_order_id: order.id,
+          previous_status: prevStatus,
+          new_status: newStatus,
+          note: options.note ?? null,
+          changed_by: options.changedBy ?? null,
+        },
+        { transaction: t }
+      );
+    }
+  });
+
+  // Encolar mail (desacoplado del guardado) solo si el estado notifica
+  const emailQueued = statusChanged && statusNotifiesCustomer(newStatus);
+  if (emailQueued) {
+    const payload = {
+      email: order.customer_email,
+      name: order.customer_name,
+      orderNumber: order.order_number,
+      status: newStatus,
+      courierName: order.courier_name,
+      trackingNumber: order.tracking_number,
+      trackingUrl: buildTrackingUrl(token),
+    };
+    enqueueEmail(
+      `store_order_status:${order.order_number}:${newStatus}`,
+      () => sendStoreOrderStatusEmail(payload)
+    );
+  }
+
+  return { changed: statusChanged, emailQueued };
+}
+
+// ─── Vista de seguimiento (solo lectura, sin datos internos) ──────────────────
+
+export interface TrackingTimelineEntry {
+  status: StoreOrderStatus;
+  status_label: string;
+  at: Date;
+  note?: string | null;
+}
+
+export interface TrackingView {
+  order_number: string;
+  status: StoreOrderStatus;
+  status_label: string;
+  shipping_type: 'pickup' | 'delivery';
+  courier_name: string | null;
+  tracking_number: string | null;
+  created_at: Date;
+  timeline: TrackingTimelineEntry[];
+  items: { product_title: string; size_name: string | null; quantity: number }[];
+}
+
+/**
+ * Serializa un pedido a la vista pública de seguimiento. Expone SOLO lo necesario
+ * para que el comprador siga su pedido: nunca montos, notas internas, email/teléfono,
+ * comprobantes de pago ni el token.
+ */
+function buildTrackingView(order: StoreOrder): TrackingView {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const history = ((order as any).status_history as StoreOrderStatusHistory[] | undefined) ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = ((order as any).items as StoreOrderItem[] | undefined) ?? [];
+
+  const sorted = [...history].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
+  // La línea de tiempo arranca en la creación (pending_payment) y suma cada cambio.
+  const timeline: TrackingTimelineEntry[] = [
+    {
+      status: 'pending_payment',
+      status_label: STORE_STATUS_LABELS.pending_payment,
+      at: order.createdAt,
+    },
+    ...sorted.map((h) => ({
+      status: h.new_status,
+      status_label: STORE_STATUS_LABELS[h.new_status],
+      at: h.createdAt,
+      note: h.note ?? null,
+    })),
+  ];
+
+  const status = order.status as StoreOrderStatus;
+  return {
+    order_number: order.order_number,
+    status,
+    status_label: STORE_STATUS_LABELS[status],
+    shipping_type: order.shipping_type,
+    courier_name: order.courier_name ?? null,
+    tracking_number: order.tracking_number ?? null,
+    created_at: order.createdAt,
+    timeline,
+    items: items.map((i) => ({
+      product_title: i.product_title,
+      size_name: i.size_name ?? null,
+      quantity: Number(i.quantity),
+    })),
+  };
+}
+
+const TRACKING_INCLUDES = [
+  { model: StoreOrderItem, as: 'items', attributes: ['product_title', 'size_name', 'quantity'] },
+  { model: StoreOrderStatusHistory, as: 'status_history', attributes: ['previous_status', 'new_status', 'note', 'createdAt'] },
+];
+
+/** Seguimiento público por token opaco. 404 si no existe, 410 si venció. */
+export async function getStoreOrderTrackingByToken(token: string): Promise<TrackingView> {
+  const order = await StoreOrder.findOne({ where: { tracking_token: token }, include: TRACKING_INCLUDES });
+  if (!order) throw new AppError('Seguimiento no encontrado', 404);
+
+  if (order.tracking_token_expires_at && order.tracking_token_expires_at.getTime() < Date.now()) {
+    throw new AppError('El enlace de seguimiento expiró', 410, undefined, { type: 'TrackingLinkExpired' });
+  }
+  return buildTrackingView(order);
+}
+
+/** Seguimiento para el dueño logueado (no afectado por el vencimiento del token). */
+export async function getStoreOrderTrackingForCustomer(orderNumber: string, customerId: number): Promise<TrackingView> {
+  const customer = await StoreCustomer.findByPk(customerId);
+  if (!customer) throw new AppError('Cliente no encontrado', 404);
+
+  const order = await StoreOrder.findOne({
+    where: {
+      order_number: orderNumber,
+      [Op.or]: [
+        { customer_id: customerId },
+        { customer_id: null, customer_email: customer.email },
+      ],
+    },
+    include: TRACKING_INCLUDES,
+  });
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+  return buildTrackingView(order);
+}
+
+/** Regenera el token de seguimiento (admin). Renueva el vencimiento si ya fue entregado. */
+export async function regenerateTrackingToken(id: number): Promise<StoreOrder> {
+  const order = await StoreOrder.findByPk(id);
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+  const token = generateTrackingToken();
+  const expires = order.status === 'delivered'
+    ? new Date(Date.now() + (await getTrackingExpiryDays()) * 86_400_000)
+    : order.tracking_token_expires_at;
+  await order.update({ tracking_token: token, tracking_token_expires_at: expires });
+  return order;
+}
+
+/**
+ * Aplica el resultado de un pago a un pedido. Idempotente: la transición de estado
+ * (y su mail/historial) solo ocurre cuando el estado realmente cambia.
  */
 async function applyPaymentResult(
   order: StoreOrder,
   mpStatus: string,
   paymentId: string | null
 ): Promise<StoreOrder> {
-  const prevStatus = order.status;
   const newStatus = mapMpStatusToOrderStatus(mpStatus, order.status);
 
+  // Actualizar los campos de MercadoPago siempre (aunque el estado no cambie)
   await order.update({
     mp_payment_id: paymentId ? String(paymentId) : order.mp_payment_id,
     mp_status: mpStatus,
-    status: newStatus,
   });
 
-  // Solo notificar en transiciones reales de estado
-  if (newStatus !== prevStatus) {
-    emitStorePaymentEvent(order);
+  // Transición de estado (sistema): historial + mail por estado, sin validar
+  // transición porque el flujo de pago puede saltar estados.
+  const { changed } = await recordStoreOrderStatusChange(order, newStatus, {
+    enforceTransition: false,
+    note: `Pago MercadoPago: ${mpStatus}`,
+  });
 
-    if (newStatus === 'paid') {
-      try {
-        await sendPaymentApprovedEmail(
-          order.customer_email,
-          order.customer_name,
-          order.order_number,
-          Number(order.total_amount)
-        );
-      } catch { /* el email no es crítico para el flujo de pago */ }
-    } else if (newStatus === 'cancelled') {
-      try {
-        await sendPaymentRejectedEmail(order.customer_email, order.customer_name, order.order_number);
-      } catch { /* no crítico */ }
-    }
-  }
+  if (changed) emitStorePaymentEvent(order);
 
   return order;
 }
@@ -1019,23 +1256,45 @@ export async function getStoreOrderById(id: number) {
         ],
       },
       { model: StoreCustomer, as: 'customer', attributes: ['id', 'name', 'email', 'phone'] },
+      {
+        model: StoreOrderStatusHistory,
+        as: 'status_history',
+        attributes: ['id', 'previous_status', 'new_status', 'note', 'changed_by', 'createdAt'],
+        include: [{ model: User, as: 'changer', attributes: ['id', 'name'] }],
+      },
     ],
+    order: [[{ model: StoreOrderStatusHistory, as: 'status_history' }, 'createdAt', 'ASC']],
   });
   if (!order) throw new AppError('Pedido no encontrado', 404);
   return order;
 }
 
+/**
+ * Cambia el estado de un pedido desde administración: valida la transición, escribe
+ * el historial (con el admin que lo hizo) y encola el mail al comprador. Devuelve
+ * el pedido recargado (con historial) y si se encoló un mail (para el feedback UX).
+ */
 export async function updateStoreOrderStatus(
   id: number,
   status: StoreOrderStatus,
-  tracking?: { tracking_number?: string | null; courier_name?: string | null }
-) {
+  tracking?: { tracking_number?: string | null; courier_name?: string | null },
+  changedBy?: number | null,
+  note?: string | null
+): Promise<{ order: StoreOrder; emailQueued: boolean }> {
   const order = await StoreOrder.findByPk(id);
   if (!order) throw new AppError('Pedido no encontrado', 404);
-  await order.update({ status, ...(tracking ?? {}) });
-  return order;
+
+  const { emailQueued } = await recordStoreOrderStatusChange(order, status, {
+    changedBy: changedBy ?? null,
+    note: note ?? null,
+    tracking,
+  });
+
+  const fresh = await getStoreOrderById(id);
+  return { order: fresh, emailQueued };
 }
 
+/** Corrección de datos de despacho sin cambiar el estado (no dispara mail). */
 export async function updateStoreOrderTracking(
   id: number,
   data: { tracking_number?: string | null; courier_name?: string | null }

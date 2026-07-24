@@ -3,6 +3,7 @@ import { generateInvoicePdf, type InvoiceData } from './store.pdf';
 import { escapeHtml } from './escapeHtml';
 import { emailWrapper } from './mailer';
 import { formatPriceNumber } from './money';
+import type { StoreOrderStatus } from '../models/StoreOrder';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indians.com.ar';
@@ -177,6 +178,158 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
       },
     ],
   });
+}
+
+// ─── Notificación de cambio de estado del pedido ─────────────────────────────
+
+interface StatusTemplate {
+  /** true si este estado NO envía mail (p. ej. estados internos sin novedad útil). */
+  skip?: boolean;
+  color: string;
+  badge?: string;
+  title: string;
+  intro: string;
+  /** Muestra el bloque de transportista + N° de seguimiento si está cargado. */
+  showTracking?: boolean;
+}
+
+// Copy por estado. Mantiene la identidad visual del mail de confirmación
+// (emailWrapper) pero con un texto propio de cada etapa.
+function statusTemplate(status: StoreOrderStatus, name: string): StatusTemplate {
+  const hi = `Hola ${escapeHtml(name)},`;
+  switch (status) {
+    case 'paid':
+      return {
+        color: '#16a34a', badge: '✓ Pago acreditado',
+        title: '¡Recibimos tu pago!',
+        intro: `${hi} confirmamos el pago de tu pedido. Ya lo estamos preparando.`,
+      };
+    case 'processing':
+      return {
+        color: '#1d4ed8', badge: '📦 En preparación',
+        title: 'Estamos preparando tu pedido',
+        intro: `${hi} tu pedido entró en preparación. Te avisamos apenas salga para el envío.`,
+      };
+    case 'review':
+      return {
+        color: '#ea580c', badge: '🔎 En revisión',
+        title: 'Estamos revisando tu pedido',
+        intro: `${hi} tu pedido está en revisión. En breve continuamos con la preparación.`,
+      };
+    case 'awaiting_courier':
+      return {
+        color: '#4f46e5', badge: '⏳ Esperando el correo',
+        title: 'Tu pedido está listo para despachar',
+        intro: `${hi} tu pedido ya está embalado y esperando que lo retire el correo.`,
+      };
+    case 'shipped':
+      return {
+        color: '#7c3aed', badge: '🚚 En camino',
+        title: '¡Tu pedido está en camino!',
+        intro: `${hi} despachamos tu pedido. Podés seguir el envío con los datos de abajo.`,
+        showTracking: true,
+      };
+    case 'delivered':
+      return {
+        color: '#059669', badge: '🎉 Entregado',
+        title: '¡Tu pedido fue entregado!',
+        intro: `${hi} tu pedido fue entregado. ¡Gracias por comprar en Indians Textil!`,
+      };
+    case 'delayed':
+      return {
+        color: '#d97706', badge: '⚠️ Demorado',
+        title: 'Tu pedido está demorado',
+        intro: `${hi} tu pedido sufrió una demora. Estamos trabajando para resolverlo lo antes posible. Disculpá las molestias.`,
+        showTracking: true,
+      };
+    case 'returned':
+      return {
+        color: '#dc2626', badge: '↩️ Devuelto',
+        title: 'Tu pedido fue devuelto',
+        intro: `${hi} registramos la devolución de tu pedido. Si tenés dudas, escribinos y te ayudamos.`,
+      };
+    case 'cancelled':
+      return {
+        color: '#dc2626', badge: '✕ Cancelado',
+        title: 'Tu pedido fue cancelado',
+        intro: `${hi} tu pedido fue cancelado. Si creés que es un error, escribinos y lo revisamos.`,
+      };
+    default:
+      // pending_payment u otros estados internos: no notificamos.
+      return { skip: true, color: '#6b7280', title: '', intro: '' };
+  }
+}
+
+export interface StoreOrderStatusEmailParams {
+  email: string;
+  name: string;
+  orderNumber: string;
+  status: StoreOrderStatus;
+  courierName?: string | null;
+  trackingNumber?: string | null;
+  trackingUrl: string;
+}
+
+/** Indica si un estado dispara mail al comprador (evita construir/enviar de más). */
+export function statusNotifiesCustomer(status: StoreOrderStatus): boolean {
+  return !statusTemplate(status, '').skip;
+}
+
+export async function sendStoreOrderStatusEmail(params: StoreOrderStatusEmailParams): Promise<void> {
+  const { email, name, orderNumber, status, courierName, trackingNumber, trackingUrl } = params;
+  const tpl = statusTemplate(status, name);
+  if (tpl.skip) return;
+
+  const badge = tpl.badge
+    ? `<div style="text-align:center;margin-bottom:16px;">
+         <span style="display:inline-block;background:${tpl.color}1a;color:${tpl.color};border-radius:999px;padding:10px 18px;font-weight:700;font-size:14px;">
+           ${tpl.badge}
+         </span>
+       </div>`
+    : '';
+
+  const trackingBlock = tpl.showTracking && (courierName || trackingNumber)
+    ? `<table style="width:100%;border-collapse:collapse;background:#f9fafb;border-radius:8px;margin:16px 0;">
+         ${courierName ? `<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;">Transportista</td><td style="padding:8px 12px;font-weight:600;">${escapeHtml(courierName)}</td></tr>` : ''}
+         ${trackingNumber ? `<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;">N° de seguimiento</td><td style="padding:8px 12px;font-weight:600;font-family:monospace;">${escapeHtml(trackingNumber)}</td></tr>` : ''}
+       </table>`
+    : '';
+
+  await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: `Pedido ${orderNumber}: ${badgeSubject(status)} — Indians Textil`,
+    html: emailWrapper(`
+      ${badge}
+      <h2 style="color:${tpl.color};margin:0 0 8px;">${tpl.title}</h2>
+      <p style="margin:0 0 12px;">${tpl.intro}</p>
+      <p style="margin:0 0 4px;color:#6b7280;font-size:13px;">N° de pedido</p>
+      <p style="margin:0 0 12px;font-weight:700;font-family:monospace;">${escapeHtml(orderNumber)}</p>
+      ${trackingBlock}
+      <div style="text-align:center;margin:20px 0 4px;">
+        <a href="${trackingUrl}" style="display:inline-block;background:${tpl.color};color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">
+          Ver seguimiento de mi pedido
+        </a>
+      </div>
+      <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;">O pegá este enlace en tu navegador:<br>${trackingUrl}</p>
+    `, 540),
+  });
+}
+
+// Subject corto por estado (sin emoji, para la línea de asunto).
+function badgeSubject(status: StoreOrderStatus): string {
+  const map: Partial<Record<StoreOrderStatus, string>> = {
+    paid: 'pago acreditado',
+    processing: 'en preparación',
+    review: 'en revisión',
+    awaiting_courier: 'listo para despachar',
+    shipped: 'en camino',
+    delivered: 'entregado',
+    delayed: 'demorado',
+    returned: 'devuelto',
+    cancelled: 'cancelado',
+  };
+  return map[status] ?? 'actualización';
 }
 
 export async function sendPasswordResetEmailStore(email: string, name: string, token: string) {

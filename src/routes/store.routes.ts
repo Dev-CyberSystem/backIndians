@@ -105,6 +105,7 @@ router.post('/me/addresses', requireStoreAuth, ctrl.upsertAddress);
 router.delete('/me/addresses/:addressId', requireStoreAuth, ctrl.deleteAddress);
 router.get('/me/orders', requireStoreAuth, ctrl.getMyOrders);
 router.get('/me/orders/:orderNumber/invoice', requireStoreAuth, ctrl.downloadMyInvoice);
+router.get('/me/orders/:orderNumber/tracking', requireStoreAuth, ctrl.getMyOrderTracking);
 router.get('/me/wishlist', requireStoreAuth, ctrl.getWishlist);
 router.post('/me/wishlist/merge', requireStoreAuth, body('ids').isArray(), validate, ctrl.mergeWishlist);
 router.post('/me/wishlist/:productId/toggle', requireStoreAuth, param('productId').isInt({ min: 1 }), validate, ctrl.toggleWishlistItem);
@@ -131,6 +132,9 @@ router.post('/checkout', checkoutLimiter, optionalStoreAuth, checkoutValidators,
 router.post('/payment/confirm', paymentStatusLimiter, ctrl.confirmPayment);
 router.get('/orders/:orderNumber/status', paymentStatusLimiter, param('orderNumber').isString().notEmpty().isLength({ max: 60 }), validate, ctrl.getOrderStatus);
 
+// ─── Seguimiento de pedido por token opaco (público, sin login) ──────────────
+router.get('/track/:token', paymentStatusLimiter, param('token').isString().notEmpty().isLength({ min: 16, max: 64 }), validate, ctrl.getOrderTracking);
+
 // ─── Comprobante de transferencia bancaria (auth opcional — guests pasan email en body) ──
 router.post('/orders/:orderNumber/payment-proof', paymentProofLimiter, optionalStoreAuth, upload.single('file'), ctrl.uploadPaymentProof);
 
@@ -138,9 +142,24 @@ router.post('/orders/:orderNumber/payment-proof', paymentProofLimiter, optionalS
 router.post('/webhook/mp', ctrl.webhook);
 
 // ─── Admin: pedidos de la tienda ─────────────────────────────────────────────
+const STORE_STATUS_VALUES = [
+  'pending_payment', 'paid', 'processing', 'review', 'awaiting_courier',
+  'shipped', 'delivered', 'cancelled', 'delayed', 'returned',
+];
+
+const updateStatusValidators = [
+  param('id').isInt({ min: 1 }),
+  body('status').isIn(STORE_STATUS_VALUES).withMessage('Estado inválido'),
+  body('tracking_number').optional({ nullable: true }).isString().isLength({ max: 200 }),
+  body('courier_name').optional({ nullable: true }).isString().isLength({ max: 200 }),
+  body('note').optional({ nullable: true }).isString().isLength({ max: 500 }),
+  validate,
+];
+
 router.get('/admin/orders', authenticate, authorize('admin', 'billing'), ctrl.listOrders);
 router.get('/admin/orders/:id', authenticate, authorize('admin', 'billing'), ctrl.getOrder);
-router.patch('/admin/orders/:id/status', authenticate, authorize('admin', 'billing'), ctrl.updateOrderStatus);
+router.patch('/admin/orders/:id/status', authenticate, authorize('admin', 'billing'), updateStatusValidators, ctrl.updateOrderStatus);
+router.post('/admin/orders/:id/regenerate-tracking', authenticate, authorize('admin', 'billing'), param('id').isInt({ min: 1 }), validate, ctrl.regenerateOrderTracking);
 router.post('/admin/orders/:id/send-invoice', authenticate, authorize('admin', 'billing'), ctrl.sendInvoice);
 router.get('/admin/orders/:id/invoice', authenticate, authorize('admin', 'billing'), ctrl.downloadInvoiceAdmin);
 
