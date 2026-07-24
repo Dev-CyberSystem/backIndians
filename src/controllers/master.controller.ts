@@ -6,7 +6,8 @@ import * as masterService from '../services/master.service';
 
 export async function listGarmentTypes(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const items = await masterService.listGarmentTypes();
+    const clientId = req.query.client_id ? parseInt(req.query.client_id as string) : undefined;
+    const items = await masterService.listGarmentTypes(true, clientId);
     res.json({ success: true, data: items });
   } catch (err) { next(err); }
 }
@@ -21,6 +22,13 @@ export async function createGarmentType(req: AuthRequest, res: Response, next: N
 export async function updateGarmentType(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const item = await masterService.updateGarmentType(parseInt(req.params.id), req.body);
+    res.json({ success: true, data: item });
+  } catch (err) { next(err); }
+}
+
+export async function setGarmentCostCategory(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const item = await masterService.setGarmentCostCategory(parseInt(req.params.id), req.body.cost_category ?? null);
     res.json({ success: true, data: item });
   } catch (err) { next(err); }
 }

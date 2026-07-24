@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { body, param } from 'express-validator';
+import { body, param, query } from 'express-validator';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
@@ -11,12 +11,21 @@ const router = Router();
 router.use(authenticate);
 
 // ─── Tipos de prenda ──────────────────────────────────────────────────────────
-router.get('/garment-types', ctrl.listGarmentTypes);
+// ?client_id=X filtra las prendas del cliente (los globales/legado quedan fuera).
+router.get(
+  '/garment-types',
+  [query('client_id').optional().isInt({ min: 1 }), validate],
+  ctrl.listGarmentTypes
+);
 
 router.post(
   '/garment-types',
   authorize('admin'),
-  [body('name').notEmpty().withMessage('Nombre requerido'), validate],
+  [
+    body('name').notEmpty().withMessage('Nombre requerido'),
+    body('client_id').optional({ nullable: true }).isInt({ min: 1 }),
+    validate,
+  ],
   ctrl.createGarmentType
 );
 
@@ -31,6 +40,19 @@ router.put(
     validate,
   ],
   ctrl.updateGarmentType
+);
+
+// Categoría de costo — admin y billing (necesaria para cargar costos)
+router.put(
+  '/garment-types/:id/cost-category',
+  authorize('admin', 'billing'),
+  [
+    param('id').isInt({ min: 1 }),
+    body('cost_category').custom((v) => v === null || v === 'jersey' || v === 'shorts')
+      .withMessage('Categoría inválida'),
+    validate,
+  ],
+  ctrl.setGarmentCostCategory
 );
 
 // ─── Tipos de tela ────────────────────────────────────────────────────────────

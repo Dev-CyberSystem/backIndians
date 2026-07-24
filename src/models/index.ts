@@ -30,6 +30,11 @@ import { StockItem } from './StockItem';
 import { StockCategory } from './StockCategory';
 import { StockMovement } from './StockMovement';
 import { GarmentType } from './GarmentType';
+import { GarmentCostItem } from './GarmentCostItem';
+import { GarmentCost } from './GarmentCost';
+import { GarmentCostVersion } from './GarmentCostVersion';
+import { GarmentCostVersionItem } from './GarmentCostVersionItem';
+import { OrderCostDetail } from './OrderCostDetail';
 import { FabricType } from './FabricType';
 import { SizeChart } from './SizeChart';
 import { PasswordResetToken } from './PasswordResetToken';
@@ -121,6 +126,36 @@ CashTransactionCategory.hasMany(CashTransaction, { foreignKey: 'category_id', as
 // CashTransaction ↔ User
 CashTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 User.hasMany(CashTransaction, { foreignKey: 'created_by', as: 'cash_transactions' });
+
+// ─── Tipos de prenda por cliente ────────────────────────────────────────────
+// client_id NULL = tipo global/legado (compartido por todos).
+GarmentType.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Client.hasMany(GarmentType, { foreignKey: 'client_id', as: 'garment_types' });
+
+// ─── Costos de prendas ──────────────────────────────────────────────────────
+
+// GarmentCost ↔ Client / GarmentType
+GarmentCost.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Client.hasMany(GarmentCost, { foreignKey: 'client_id', as: 'garment_costs' });
+GarmentCost.belongsTo(GarmentType, { foreignKey: 'garment_type_id', as: 'garmentType' });
+GarmentType.hasMany(GarmentCost, { foreignKey: 'garment_type_id', as: 'garment_costs' });
+GarmentCost.belongsTo(User, { foreignKey: 'updated_by', as: 'editor' });
+
+// GarmentCost ↔ GarmentCostVersion (historial)
+GarmentCost.hasMany(GarmentCostVersion, { foreignKey: 'garment_cost_id', as: 'versions', onDelete: 'CASCADE' });
+GarmentCostVersion.belongsTo(GarmentCost, { foreignKey: 'garment_cost_id', as: 'garment_cost' });
+GarmentCost.belongsTo(GarmentCostVersion, { foreignKey: 'current_version_id', as: 'current_version' });
+GarmentCostVersion.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
+
+// GarmentCostVersion ↔ GarmentCostVersionItem
+GarmentCostVersion.hasMany(GarmentCostVersionItem, { foreignKey: 'version_id', as: 'items', onDelete: 'CASCADE' });
+GarmentCostVersionItem.belongsTo(GarmentCostVersion, { foreignKey: 'version_id', as: 'version' });
+GarmentCostVersionItem.belongsTo(GarmentCostItem, { foreignKey: 'cost_item_id', as: 'cost_item' });
+
+// Order ↔ OrderCostDetail (snapshot congelado)
+Order.hasMany(OrderCostDetail, { foreignKey: 'order_id', as: 'cost_details', onDelete: 'CASCADE' });
+OrderCostDetail.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
+OrderCostDetail.belongsTo(GarmentType, { foreignKey: 'garment_type_id', as: 'garmentType' });
 
 // ─── Tienda (Ecommerce) ─────────────────────────────────────────────────────
 
@@ -234,6 +269,11 @@ export {
   Invoice,
   StockItem,
   GarmentType,
+  GarmentCostItem,
+  GarmentCost,
+  GarmentCostVersion,
+  GarmentCostVersionItem,
+  OrderCostDetail,
   FabricType,
   SizeChart,
   PasswordResetToken,

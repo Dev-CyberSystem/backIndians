@@ -56,7 +56,9 @@ router.post(
     body('items.*.stock_fabric_id').optional().isInt({ min: 1 }),
     body('items.*.stock_fabric_ids').optional().isArray(),
     body('items.*.stock_fabric_ids.*').optional().isInt({ min: 1 }),
-    body('items.*.color').notEmpty().withMessage('color requerido'),
+    // color opcional: el pedido del vendedor (desde el catálogo) no lo carga;
+    // billing/admin lo completan en la revisión de la ficha técnica.
+    body('items.*.color').optional().isString(),
     body('items.*.sizes').isObject().withMessage('sizes debe ser un objeto'),
     // Diseño — opcionales
     body('items.*.color_secondary').optional().isString(),

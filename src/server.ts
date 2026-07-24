@@ -5,6 +5,8 @@ import { app } from './app';
 import { connectDB } from './config/db';
 import { initSocket } from './config/socket';
 import { logger } from './utils/logger';
+import { ensureGarmentCostItems } from './services/cost.service';
+import { ensureSchema } from './config/ensureSchema';
 
 // Importar modelos para que Sequelize los registre y se creen las asociaciones
 import './models/index';
@@ -40,6 +42,14 @@ async function main() {
   try {
     // 1. Conectar a la base de datos (autentica y sincroniza en desarrollo)
     await connectDB();
+
+    // 1a. Asegurar columnas que agregan las migraciones sobre tablas existentes
+    //     (dev usa sync() y no altera tablas ya creadas)
+    await ensureSchema();
+
+    // 1b. Sembrar el maestro de ítems de costo (idempotente; necesario en dev
+    //     donde se usa sync() en lugar de migraciones)
+    await ensureGarmentCostItems();
 
     // 2. Crear servidor HTTP desde la app Express
     const httpServer = http.createServer(app);

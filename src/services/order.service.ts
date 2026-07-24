@@ -1,5 +1,6 @@
 import { Op, QueryTypes, WhereOptions, Transaction } from 'sequelize';
 import { autoCreateInvoiceForOrder } from './invoice.service';
+import { buildOrderCostSnapshot } from './cost.service';
 import { sequelize } from '../config/db';
 import {
   Order,
@@ -237,8 +238,8 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
     fabric_type_id: item.fabric_type_id ?? null,
     stock_fabric_ids: item.stock_fabric_ids?.length ? item.stock_fabric_ids : null,
     stock_fabric_id: item.stock_fabric_ids?.[0] ?? item.stock_fabric_id ?? null,
-    // Diseño y colores
-    color: item.color,
+    // Diseño y colores — color puede venir vacío en pedidos del vendedor
+    color: item.color || '',
     color_secondary: item.color_secondary || null,
     color_sleeves: item.color_sleeves || null,
     color_collar: item.color_collar || null,
@@ -454,6 +455,13 @@ export async function createOrder(
     }, { transaction: t });
 
     await OrderItem.bulkCreate(buildItemsPayload(o.id, items), { transaction: t });
+
+    // Congela el detalle de costos con los costos vigentes de las prendas del cliente
+    const createdItems = await OrderItem.findAll({
+      where: { order_id: o.id }, order: [['id', 'ASC']], transaction: t,
+    });
+    await buildOrderCostSnapshot(o.id, client_id, createdItems, t);
+
     await recordStatusChange(o.id, null, 'pending', currentUser.id, 'Pedido creado', t);
     await autoCreateInvoiceForOrder(o, t);
 
@@ -556,6 +564,12 @@ export async function updateOrder(
         await OrderItem.destroy({ where: { order_id: id }, transaction: t });
         await OrderItem.bulkCreate(buildItemsPayload(id, input.items!), { transaction: t });
         await order.update({ total_amount: calcTotal(input.items!) }, { transaction: t });
+
+        // Re-congela el detalle de costos con los costos vigentes al re-guardar
+        const createdItems = await OrderItem.findAll({
+          where: { order_id: id }, order: [['id', 'ASC']], transaction: t,
+        });
+        await buildOrderCostSnapshot(id, order.client_id, createdItems, t);
       });
     }
   }
