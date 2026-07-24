@@ -110,6 +110,25 @@ describe('Pedidos de producción + checklist — API', () => {
     expect(res.status).toBeLessThan(500);
   });
 
+  it('un vendedor crea un pedido desde el catálogo sin tela ni color', async () => {
+    const seller = await loginAs('seller');
+    const res = await api().post(`${API}/orders`).set(...auth(seller)).send({
+      client_id: clientId,
+      items: [{
+        garment_type_id: garmentTypeId,
+        sizes: { M: 3 },
+        unit_price: 8000,
+        customization: { number_on_back: true },
+      }],
+    });
+    expect(res.status).toBe(201);
+    const order = res.body.data;
+    expect(order.status).toBe('pending');
+    expect(order.items?.[0]?.garment_type_id).toBe(garmentTypeId);
+    // El pedido queda asociado al vendedor que lo creó
+    expect(order.seller_id).toBeTruthy();
+  });
+
   it('registra el historial con quién y cuándo', async () => {
     const id = await createOrder();
     await setStatus(id, 'under_review');

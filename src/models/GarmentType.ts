@@ -13,6 +13,10 @@ export class GarmentType extends Model<
 > {
   declare id: CreationOptional<number>;
   declare name: string;
+  // Cliente dueño de la prenda. NULL = tipo global/legado (compartido).
+  declare client_id: CreationOptional<number | null>;
+  // Categoría de costo: define qué lista de ítems de costo aplica (jersey/shorts).
+  declare cost_category: CreationOptional<'jersey' | 'shorts' | null>;
   declare active: CreationOptional<boolean>;
   declare sort_order: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
@@ -29,6 +33,16 @@ GarmentType.init(
     name: {
       type: DataTypes.STRING(150),
       allowNull: false,
+    },
+    client_id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
+    },
+    cost_category: {
+      type: DataTypes.ENUM('jersey', 'shorts'),
+      allowNull: true,
+      defaultValue: null,
     },
     active: {
       type: DataTypes.BOOLEAN,
