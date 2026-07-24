@@ -54,6 +54,11 @@ export async function connectDB(): Promise<void> {
 
   if (process.env.NODE_ENV !== 'production') {
     // En desarrollo: crea tablas faltantes. En producción usar migraciones.
+    // Antes de sincronizar, deduplica índices: sync() re-crea índices únicos/FK
+    // en tablas con referencias cíclicas en cada arranque y puede pasar el límite
+    // de MySQL de 64 índices por tabla (import dinámico para evitar ciclo).
+    const { dedupeIndexes } = await import('./dedupeIndexes');
+    await dedupeIndexes();
     await sequelize.sync();
     console.log('✅ Modelos sincronizados con la base de datos');
   }
