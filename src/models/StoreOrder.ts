@@ -15,7 +15,9 @@ export type StoreOrderStatus =
   | 'awaiting_courier'
   | 'shipped'
   | 'delivered'
-  | 'cancelled';
+  | 'cancelled'
+  | 'delayed'
+  | 'returned';
 
 export type StorePaymentMethod = 'mercadopago' | 'cash' | 'bank_transfer';
 
@@ -51,6 +53,8 @@ export class StoreOrder extends Model<
   declare mp_status: CreationOptional<string | null>;
   declare tracking_number: CreationOptional<string | null>;
   declare courier_name: CreationOptional<string | null>;
+  declare tracking_token: CreationOptional<string | null>;
+  declare tracking_token_expires_at: CreationOptional<Date | null>;
   declare payment_method: CreationOptional<StorePaymentMethod>;
   declare payment_proof_url: CreationOptional<string | null>;
   declare payment_proof_url_2: CreationOptional<string | null>;
@@ -78,7 +82,7 @@ StoreOrder.init(
     customer_email: { type: DataTypes.STRING(255), allowNull: false },
     customer_phone: { type: DataTypes.STRING(50), allowNull: true },
     status: {
-      type: DataTypes.ENUM('pending_payment', 'paid', 'processing', 'review', 'awaiting_courier', 'shipped', 'delivered', 'cancelled'),
+      type: DataTypes.ENUM('pending_payment', 'paid', 'processing', 'review', 'awaiting_courier', 'shipped', 'delivered', 'cancelled', 'delayed', 'returned'),
       allowNull: false,
       defaultValue: 'pending_payment',
     },
@@ -99,6 +103,8 @@ StoreOrder.init(
     mp_status: { type: DataTypes.STRING(50), allowNull: true },
     tracking_number: { type: DataTypes.STRING(200), allowNull: true },
     courier_name: { type: DataTypes.STRING(200), allowNull: true },
+    tracking_token: { type: DataTypes.STRING(64), allowNull: true, unique: true },
+    tracking_token_expires_at: { type: DataTypes.DATE, allowNull: true },
     payment_method: {
       type: DataTypes.ENUM('mercadopago', 'cash', 'bank_transfer'),
       allowNull: false,

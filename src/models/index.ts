@@ -7,6 +7,7 @@ import { StoreAddress } from './StoreAddress';
 import { StoreCoupon } from './StoreCoupon';
 import { StoreOrder } from './StoreOrder';
 import { StoreOrderItem } from './StoreOrderItem';
+import { StoreOrderStatusHistory } from './StoreOrderStatusHistory';
 import { StoreCartReminder } from './StoreCartReminder';
 import { User } from './User';
 import { Client } from './Client';
@@ -171,6 +172,11 @@ StoreOrder.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' 
 StoreOrder.hasMany(StoreOrderItem, { foreignKey: 'store_order_id', as: 'items', onDelete: 'CASCADE' });
 StoreOrderItem.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'order' });
 
+// StoreOrder ↔ StoreOrderStatusHistory (traza de cambios de estado)
+StoreOrder.hasMany(StoreOrderStatusHistory, { foreignKey: 'store_order_id', as: 'status_history', onDelete: 'CASCADE' });
+StoreOrderStatusHistory.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'order' });
+StoreOrderStatusHistory.belongsTo(User, { foreignKey: 'changed_by', as: 'changer' });
+
 // StoreOrderItem ↔ CatalogProduct
 StoreOrderItem.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
 CatalogProduct.hasMany(StoreOrderItem, { foreignKey: 'catalog_product_id', as: 'store_order_items' });
@@ -249,6 +255,7 @@ export {
   StoreCoupon,
   StoreOrder,
   StoreOrderItem,
+  StoreOrderStatusHistory,
   StoreCartReminder,
   StoreWishlist,
   User,

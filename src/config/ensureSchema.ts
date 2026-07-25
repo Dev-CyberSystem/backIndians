@@ -75,4 +75,61 @@ export async function ensureSchema(): Promise<void> {
     // No es fatal: en un entorno ya migrado esto no hace falta.
     logger.error('ensureSchema.failed', err, { meta: { fatal: false } });
   }
+
+  // ─── Seguimiento de pedidos de la tienda (migración 066) ────────────────────
+  try {
+    const storeOrders = await qi.describeTable('store_orders');
+
+    // ENUM ampliado con delayed/returned (sync() no altera ENUMs existentes).
+    // IMPORTANTE: guardado — un ALTER de ENUM reconstruye y bloquea la tabla en
+    // MySQL. Sin este guard correría en CADA arranque (ensureSchema se ejecuta
+    // siempre, también en producción). Solo se ejecuta si el valor aún no existe.
+    const statusDef = JSON.stringify(storeOrders.status ?? {});
+    if (!statusDef.includes('delayed') || !statusDef.includes('returned')) {
+      await qi.sequelize.query(`
+        ALTER TABLE store_orders
+        MODIFY COLUMN status
+        ENUM('pending_payment','paid','processing','review','awaiting_courier','shipped','delivered','cancelled','delayed','returned')
+        NOT NULL DEFAULT 'pending_payment'
+      `);
+      logger.info('ensureSchema.enumExpanded', { meta: { table: 'store_orders', column: 'status' } });
+    }
+
+    if (!storeOrders.tracking_token) {
+      await qi.addColumn('store_orders', 'tracking_token', {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      });
+      await qi.addIndex('store_orders', ['tracking_token'], {
+        name: 'uq_store_orders_tracking_token',
+        unique: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_orders', column: 'tracking_token' } });
+    }
+
+    if (!storeOrders.tracking_token_expires_at) {
+      await qi.addColumn('store_orders', 'tracking_token_expires_at', {
+        type: DataTypes.DATE,
+        allowNull: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_orders', column: 'tracking_token_expires_at' } });
+    }
+
+    // Setting de vencimiento del link (default 30 días)
+    const [settingRows] = await qi.sequelize.query(
+      "SELECT `key` FROM settings WHERE `key` = 'tracking_link_expiry_days' LIMIT 1"
+    );
+    if (!(settingRows as unknown[]).length) {
+      const now = new Date();
+      await qi.bulkInsert('settings', [{
+        key: 'tracking_link_expiry_days',
+        value: '30',
+        createdAt: now,
+        updatedAt: now,
+      }]);
+      logger.info('ensureSchema.seedSetting', { meta: { key: 'tracking_link_expiry_days' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.storeTracking', err, { meta: { fatal: false } });
+  }
 }

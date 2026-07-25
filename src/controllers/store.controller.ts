@@ -360,10 +360,17 @@ export async function listOrders(req: Request, res: Response, next: NextFunction
   }
 }
 
+// Adjunta el link de seguimiento construido con STORE_URL del backend (dominio
+// correcto de la tienda), evitando que el admin lo arme con su propio origen
+// (que en producción es el subdominio del sistema, no el de la tienda).
+function withTrackingUrl<T extends { tracking_token?: string | null }>(json: T): T & { tracking_url: string | null } {
+  return { ...json, tracking_url: json.tracking_token ? store.buildTrackingUrl(json.tracking_token) : null };
+}
+
 export async function getOrder(req: Request, res: Response, next: NextFunction) {
   try {
     const order = await store.getStoreOrderById(Number(req.params.id));
-    res.json({ success: true, data: store.signPaymentProofs(order.toJSON()) });
+    res.json({ success: true, data: withTrackingUrl(store.signPaymentProofs(order.toJSON())) });
   } catch (err) {
     next(err);
   }
@@ -371,13 +378,54 @@ export async function getOrder(req: Request, res: Response, next: NextFunction) 
 
 export async function updateOrderStatus(req: Request, res: Response, next: NextFunction) {
   try {
-    const { status, tracking_number, courier_name } = req.body;
-    const result = await store.updateStoreOrderStatus(
+    const { status, tracking_number, courier_name, note } = req.body;
+    const adminId = (req as unknown as AuthRequest).user?.id ?? null;
+    const { order, emailQueued } = await store.updateStoreOrderStatus(
       Number(req.params.id),
       status as StoreOrderStatus,
-      { tracking_number: tracking_number ?? undefined, courier_name: courier_name ?? undefined }
+      { tracking_number: tracking_number ?? undefined, courier_name: courier_name ?? undefined },
+      adminId,
+      note ?? null,
     );
-    res.json({ success: true, data: store.signPaymentProofs(result.toJSON()) });
+    // email_queued va dentro de data (no en meta: el interceptor admin trata meta
+    // como paginación). Es un campo transitorio para el feedback de la UI.
+    res.json({
+      success: true,
+      data: { ...withTrackingUrl(store.signPaymentProofs(order.toJSON())), email_queued: emailQueued },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Admin: regenerar el token del link de seguimiento
+export async function regenerateOrderTracking(req: Request, res: Response, next: NextFunction) {
+  try {
+    const order = await store.regenerateTrackingToken(Number(req.params.id));
+    res.json({ success: true, data: { tracking_url: store.buildTrackingUrl(order.tracking_token!) } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Público: seguimiento por token opaco (sin login). 404 si no existe, 410 si venció.
+export async function getOrderTracking(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await store.getStoreOrderTrackingByToken(String(req.params.token));
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Comprador logueado: seguimiento de un pedido propio (no afectado por vencimiento).
+export async function getMyOrderTracking(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await store.getStoreOrderTrackingForCustomer(
+      String(req.params.orderNumber),
+      req.storeCustomerId!,
+    );
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }

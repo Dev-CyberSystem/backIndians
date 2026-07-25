@@ -56,6 +56,8 @@ const VALID_KEYS: string[] = [
   'bank_transfer_cbu', 'bank_transfer_alias', 'bank_transfer_holder',
   // Tienda — chatbot de atención
   'store_chatbot_enabled', 'store_chatbot_greeting',
+  // Tienda — seguimiento de pedidos (días de vigencia del link tras "Entregado")
+  'tracking_link_expiry_days',
 ];
 
 export async function getAllSettings(): Promise<Record<string, string>> {
