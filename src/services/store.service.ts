@@ -947,7 +947,6 @@ export interface TrackingTimelineEntry {
   status: StoreOrderStatus;
   status_label: string;
   at: Date;
-  note?: string | null;
 }
 
 export interface TrackingView {
@@ -978,6 +977,8 @@ function buildTrackingView(order: StoreOrder): TrackingView {
   );
 
   // La línea de tiempo arranca en la creación (pending_payment) y suma cada cambio.
+  // NO se incluye `note`: son notas internas de administración, no deben filtrarse
+  // al comprador (vista pública y logueada comparten este serializer).
   const timeline: TrackingTimelineEntry[] = [
     {
       status: 'pending_payment',
@@ -988,7 +989,6 @@ function buildTrackingView(order: StoreOrder): TrackingView {
       status: h.new_status,
       status_label: STORE_STATUS_LABELS[h.new_status],
       at: h.createdAt,
-      note: h.note ?? null,
     })),
   ];
 
@@ -1012,7 +1012,8 @@ function buildTrackingView(order: StoreOrder): TrackingView {
 
 const TRACKING_INCLUDES = [
   { model: StoreOrderItem, as: 'items', attributes: ['product_title', 'size_name', 'quantity'] },
-  { model: StoreOrderStatusHistory, as: 'status_history', attributes: ['previous_status', 'new_status', 'note', 'createdAt'] },
+  // `note` NO se trae: es interna de administración (no debe filtrarse al comprador).
+  { model: StoreOrderStatusHistory, as: 'status_history', attributes: ['previous_status', 'new_status', 'createdAt'] },
 ];
 
 /** Seguimiento público por token opaco. 404 si no existe, 410 si venció. */

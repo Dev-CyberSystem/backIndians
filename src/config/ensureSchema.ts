@@ -80,13 +80,20 @@ export async function ensureSchema(): Promise<void> {
   try {
     const storeOrders = await qi.describeTable('store_orders');
 
-    // ENUM ampliado con delayed/returned (sync() no altera ENUMs existentes)
-    await qi.sequelize.query(`
-      ALTER TABLE store_orders
-      MODIFY COLUMN status
-      ENUM('pending_payment','paid','processing','review','awaiting_courier','shipped','delivered','cancelled','delayed','returned')
-      NOT NULL DEFAULT 'pending_payment'
-    `);
+    // ENUM ampliado con delayed/returned (sync() no altera ENUMs existentes).
+    // IMPORTANTE: guardado — un ALTER de ENUM reconstruye y bloquea la tabla en
+    // MySQL. Sin este guard correría en CADA arranque (ensureSchema se ejecuta
+    // siempre, también en producción). Solo se ejecuta si el valor aún no existe.
+    const statusDef = JSON.stringify(storeOrders.status ?? {});
+    if (!statusDef.includes('delayed') || !statusDef.includes('returned')) {
+      await qi.sequelize.query(`
+        ALTER TABLE store_orders
+        MODIFY COLUMN status
+        ENUM('pending_payment','paid','processing','review','awaiting_courier','shipped','delivered','cancelled','delayed','returned')
+        NOT NULL DEFAULT 'pending_payment'
+      `);
+      logger.info('ensureSchema.enumExpanded', { meta: { table: 'store_orders', column: 'status' } });
+    }
 
     if (!storeOrders.tracking_token) {
       await qi.addColumn('store_orders', 'tracking_token', {

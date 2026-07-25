@@ -360,10 +360,17 @@ export async function listOrders(req: Request, res: Response, next: NextFunction
   }
 }
 
+// Adjunta el link de seguimiento construido con STORE_URL del backend (dominio
+// correcto de la tienda), evitando que el admin lo arme con su propio origen
+// (que en producción es el subdominio del sistema, no el de la tienda).
+function withTrackingUrl<T extends { tracking_token?: string | null }>(json: T): T & { tracking_url: string | null } {
+  return { ...json, tracking_url: json.tracking_token ? store.buildTrackingUrl(json.tracking_token) : null };
+}
+
 export async function getOrder(req: Request, res: Response, next: NextFunction) {
   try {
     const order = await store.getStoreOrderById(Number(req.params.id));
-    res.json({ success: true, data: store.signPaymentProofs(order.toJSON()) });
+    res.json({ success: true, data: withTrackingUrl(store.signPaymentProofs(order.toJSON())) });
   } catch (err) {
     next(err);
   }
@@ -384,7 +391,7 @@ export async function updateOrderStatus(req: Request, res: Response, next: NextF
     // como paginación). Es un campo transitorio para el feedback de la UI.
     res.json({
       success: true,
-      data: { ...store.signPaymentProofs(order.toJSON()), email_queued: emailQueued },
+      data: { ...withTrackingUrl(store.signPaymentProofs(order.toJSON())), email_queued: emailQueued },
     });
   } catch (err) {
     next(err);

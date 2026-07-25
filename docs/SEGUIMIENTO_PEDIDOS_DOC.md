@@ -225,7 +225,25 @@ dibuja la **línea de tiempo** a partir de este historial (estado inicial
   **filtrados por transición válida**; **modal de confirmación** que aclara que se
   enviará un mail al comprador + nota interna opcional; feedback según
   `email_queued`; **línea de tiempo** del historial; **copiar/regenerar** el link de
-  seguimiento.
+  seguimiento. El link a copiar viene del backend (`tracking_url`, armado con
+  `STORE_URL`) — **no** de `window.location.origin`, porque en producción el admin
+  corre en el subdominio del sistema y la tienda en el dominio raíz.
+
+## Notas de producción (hardening)
+
+- **La `note` de cada cambio es interna**: se persiste en el historial y se muestra
+  **solo al admin** (detalle del pedido). El serializer de seguimiento del comprador
+  (`buildTrackingView`) **no** la trae ni la expone (ni pública ni logueada).
+- **`ensureSchema` no re-altera el ENUM en cada arranque**: el `ALTER TABLE ...
+  MODIFY status ENUM(...)` está **guardado** para ejecutarse solo si faltan
+  `delayed`/`returned` (un ALTER de ENUM reconstruye y bloquea la tabla en MySQL, y
+  `ensureSchema` corre en cada boot, también en producción).
+- **Índices**: `tracking_token` tiene índice **único**; `store_order_status_history`
+  tiene índice por `store_order_id`. Todas las lecturas nuevas (por token, por
+  pedido) pegan a un índice. El listado de pedidos del admin **no** carga el
+  historial (solo el detalle), para mantenerlo liviano.
+- **Antes de deployear**: restaurar `STORE_URL` al dominio de la tienda si se cambió
+  para pruebas locales.
 - **`components/store/StoreField.tsx`** y **`components/store/StoreChatbot.tsx`**:
   se agregaron `delayed`/`returned` a los mapas de etiquetas/colores de estado.
 
