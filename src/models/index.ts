@@ -17,6 +17,7 @@ import { CatalogProductImage } from './CatalogProductImage';
 import { CatalogProductSize } from './CatalogProductSize';
 import { CatalogOrder } from './CatalogOrder';
 import { CatalogOrderItem } from './CatalogOrderItem';
+import { CatalogStockMovement } from './CatalogStockMovement';
 import { CatalogInvoice } from './CatalogInvoice';
 import { CatalogInvoiceImage } from './CatalogInvoiceImage';
 import { InvoicePayment } from './InvoicePayment';
@@ -112,6 +113,15 @@ StockItem.hasMany(StockMovement, { foreignKey: 'stock_item_id', as: 'movements' 
 // StockMovement ↔ User
 StockMovement.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 User.hasMany(StockMovement, { foreignKey: 'user_id', as: 'stock_movements' });
+
+// CatalogStockMovement ↔ CatalogProduct / CatalogProductSize / StoreOrder / CatalogOrder / User
+CatalogStockMovement.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
+CatalogProduct.hasMany(CatalogStockMovement, { foreignKey: 'catalog_product_id', as: 'stock_movements' });
+CatalogStockMovement.belongsTo(CatalogProductSize, { foreignKey: 'catalog_product_size_id', as: 'size' });
+CatalogProductSize.hasMany(CatalogStockMovement, { foreignKey: 'catalog_product_size_id', as: 'stock_movements' });
+CatalogStockMovement.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'store_order' });
+CatalogStockMovement.belongsTo(CatalogOrder, { foreignKey: 'catalog_order_id', as: 'catalog_order' });
+CatalogStockMovement.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 // CashTransaction ↔ CashAccount (cuenta origen)
 CashTransaction.belongsTo(CashAccount, { foreignKey: 'account_id', as: 'account' });

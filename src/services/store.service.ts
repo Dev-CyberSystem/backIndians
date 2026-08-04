@@ -16,6 +16,7 @@ import {
 import { Client } from '../models/Client';
 import { GarmentType } from '../models/GarmentType';
 import { AppError } from '../middlewares/errorHandler';
+import * as stockLedger from './stockLedger.service';
 import { createPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
 import {
   sendOrderConfirmationEmail,
@@ -647,10 +648,10 @@ export async function createStoreOrder(input: CheckoutInput) {
           { transaction: t }
         );
 
-        // Descontar stock de forma ATÓMICA para evitar sobreventa: el UPDATE
-        // condicional (stock_quantity >= qty) solo afecta filas con stock
-        // suficiente. Si afecta 0 filas, otro pedido concurrente ya lo agotó y
-        // abortamos la transacción. Secuencial (no Promise.all) para no mezclar
+        // Descontar stock a través del ledger centralizado (stockLedger.service.ts),
+        // único punto autorizado a tocar stock_quantity. Deja movimiento auditable
+        // y valida disponibilidad de forma atómica (lock de fila + chequeo dentro
+        // de esta misma transacción). Secuencial (no Promise.all) para no mezclar
         // sentencias en la misma conexión de la transacción.
         for (const item of resolvedItems) {
           const qty = Math.trunc(Number(item.quantity));
@@ -658,18 +659,23 @@ export async function createStoreOrder(input: CheckoutInput) {
             ? `${item.product_title} — talle ${item.size_name}`
             : item.product_title;
 
-          if (item.sizeRecord) {
-            const [affected] = await CatalogProductSize.update(
-              { stock_quantity: literal(`stock_quantity - ${qty}`) },
-              { where: { id: item.sizeRecord.id, stock_quantity: { [Op.gte]: qty } }, transaction: t }
-            );
-            if (affected === 0) throw new AppError(`Stock insuficiente para ${label}`, 409);
-          } else {
-            const [affected] = await CatalogProduct.update(
-              { stock_quantity: literal(`stock_quantity - ${qty}`) },
-              { where: { id: item.productRecord.id, stock_quantity: { [Op.gte]: qty } }, transaction: t }
-            );
-            if (affected === 0) throw new AppError(`Stock insuficiente para ${label}`, 409);
+          try {
+            await stockLedger.adjustStock({
+              transaction: t,
+              type: 'sale',
+              source: 'store',
+              catalogProductId: item.productRecord.id,
+              catalogProductSizeId: item.sizeRecord ? item.sizeRecord.id : null,
+              delta: -qty,
+              requireAvailable: true,
+              storeOrderId: storeOrder.id,
+              reason: `Checkout tienda online ${storeOrder.order_number}`,
+            });
+          } catch (err) {
+            if (err instanceof AppError && err.statusCode === 409) {
+              throw new AppError(`Stock insuficiente para ${label}`, 409);
+            }
+            throw err;
           }
         }
 

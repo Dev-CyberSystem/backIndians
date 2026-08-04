@@ -63,7 +63,8 @@ export async function adjustProductStock(req: AuthRequest, res: Response, next: 
   try {
     const product = await catalogService.adjustProductStock(
       parseInt(req.params.id),
-      parseInt(req.body.stock_quantity)
+      parseInt(req.body.stock_quantity),
+      req.user?.id ?? null
     );
     storeEvents.emit('products_changed');
     res.json({ success: true, data: product });
