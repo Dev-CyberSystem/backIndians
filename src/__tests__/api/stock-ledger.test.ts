@@ -94,9 +94,7 @@ describe('Ledger de stock (catalog_stock_movements) — API', () => {
     expect(after?.id).toBe(before?.id); // no se creó ningún movimiento nuevo
   });
 
-  it('el checkout de la tienda (efectivo) deja un movimiento sale/store con store_order_id', async () => {
-    const before = 12; // 15 - 3 del pedido mayorista anterior
-
+  it('el checkout de la tienda (efectivo) deja un movimiento reserve/store con store_order_id (2.1: reserva, no descuenta todavía)', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       customerName: 'Robot QA Ledger',
       customerEmail: `qa-ledger+${Date.now()}@test.local`,
@@ -111,10 +109,10 @@ describe('Ledger de stock (catalog_stock_movements) — API', () => {
 
     const movement = await lastMovement(productId);
     expect(movement).not.toBeNull();
-    expect(movement!.type).toBe('sale');
+    expect(movement!.type).toBe('reserve');
     expect(movement!.source).toBe('store');
-    expect(movement!.previous_quantity).toBe(before);
-    expect(movement!.new_quantity).toBe(before - 2);
+    expect(movement!.previous_quantity).toBe(0);
+    expect(movement!.new_quantity).toBe(2);
     expect(movement!.store_order_id).not.toBeNull();
   });
 });

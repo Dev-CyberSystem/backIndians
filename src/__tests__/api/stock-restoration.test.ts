@@ -9,6 +9,14 @@ import { restoreStoreOrderStock } from '../../services/store.service';
  * Restitución de stock y liberación de cupón al cancelar (1.3 / C-1, A-9).
  * Usa un producto y un cupón propios (fixtures creados en beforeAll) para
  * tener valores determinísticos — no depende de datos preexistentes.
+ *
+ * Actualizado por 2.1 (reserva de stock con vencimiento): desde 2.1, el
+ * checkout ya no descuenta stock_quantity real — solo reserva
+ * (stock_reserved). El descuento definitivo ocurre al confirmarse el pago
+ * (acá, marcando el pedido "paid" a mano, como haría un admin con un pedido
+ * en efectivo). Este archivo prueba el camino "se confirmó el pago y después
+ * se cancela" (restitución real) — el camino "se cancela antes de pagar"
+ * (liberar la reserva) tiene su propio archivo, stock-reservation.test.ts.
  */
 
 describe('Restitución de stock al cancelar — API', () => {
@@ -61,11 +69,25 @@ describe('Restitución de stock al cancelar — API', () => {
     const orderId = order?.id;
     expect(orderId).toBeTruthy();
 
+    // 2.1: el checkout reserva, no descuenta stock_quantity todavía.
     const productAfterCheckout = await api().get(`${API}/catalog/products/${productId}`).set(...auth(admin));
-    expect(Number(productAfterCheckout.body.data?.stock_quantity)).toBe(6); // 10 - 4
+    expect(Number(productAfterCheckout.body.data?.stock_quantity)).toBe(10); // sin cambios
+    expect(Number(productAfterCheckout.body.data?.stock_reserved)).toBe(4);
 
     const couponAfterCheckout = await StoreCoupon.findByPk(couponId);
     expect(couponAfterCheckout!.used_count).toBe(1);
+
+    // Confirmar el pago (admin marca "Pagado" a mano, como con efectivo) —
+    // ahí recién se descuenta stock_quantity real (2.1).
+    const markPaid = await api()
+      .patch(`${API}/store/admin/orders/${orderId}/status`)
+      .set(...auth(admin))
+      .send({ status: 'paid' });
+    expect(markPaid.status).toBe(200);
+
+    const productAfterPaid = await api().get(`${API}/catalog/products/${productId}`).set(...auth(admin));
+    expect(Number(productAfterPaid.body.data?.stock_quantity)).toBe(6); // 10 - 4
+    expect(Number(productAfterPaid.body.data?.stock_reserved)).toBe(0);
 
     const cancel = await api()
       .patch(`${API}/store/admin/orders/${orderId}/status`)
@@ -115,9 +137,10 @@ describe('Restitución de stock al cancelar — API', () => {
     const productAfterFirstCancel = await api().get(`${API}/catalog/products/${productId}`).set(...auth(admin));
     const stockAfterFirstCancel = Number(productAfterFirstCancel.body.data?.stock_quantity);
 
-    // Por cada pedido hay 2 movimientos legítimos (sale al checkout + cancel
-    // al cancelar) — lo que probamos acá es que una segunda llamada NO agrega
-    // un tercero. Llamada directa a la función (no vía HTTP: la transición
+    // Este pedido se cancela sin haber sido pagado nunca: por cada pedido hay
+    // 2 movimientos legítimos (reserve al checkout + release al cancelar,
+    // 2.1) — lo que probamos acá es que una segunda llamada NO agrega un
+    // tercero. Llamada directa a la función (no vía HTTP: la transición
     // cancelled->cancelled ya está bloqueada por STORE_ORDER_TRANSITIONS, así
     // que probamos la idempotencia de la función en sí, que es lo que
     // realmente la protege — no el guard de la transición).

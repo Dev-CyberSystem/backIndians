@@ -4,10 +4,15 @@ import { CatalogProduct } from '../../models/CatalogProduct';
 
 /*
  * Idempotencia del checkout (1.4 / A-1): dos POST /store/checkout con el
- * mismo header Idempotency-Key deben resolver al MISMO pedido y descontar
+ * mismo header Idempotency-Key deben resolver al MISMO pedido y reservar
  * stock una sola vez, tanto en secuencia (retry después de que el primero ya
  * terminó) como en paralelo (doble clic real). Sin header, el comportamiento
  * no cambia (dos pedidos). Usa un producto propio con stock conocido.
+ *
+ * Actualizado por 2.1 (reserva de stock con vencimiento): el checkout ya no
+ * descuenta stock_quantity real — reserva (stock_reserved). Las aserciones
+ * de acá se movieron a ese campo; lo que se prueba (un solo efecto, no dos)
+ * es lo mismo.
  */
 
 describe('Idempotencia del checkout — API', () => {
@@ -58,7 +63,7 @@ describe('Idempotencia del checkout — API', () => {
     expect(secondOrderId).toBe(firstOrderId); // mismo pedido, no uno nuevo
 
     const product = await CatalogProduct.findByPk(productId);
-    expect(product!.stock_quantity).toBe(7); // 10 - 3, un solo descuento
+    expect(product!.stock_reserved).toBe(3); // una sola reserva de 3
   });
 
   it('dos POST concurrentes con la misma Idempotency-Key crean un solo pedido y un solo descuento', async () => {
@@ -86,7 +91,7 @@ describe('Idempotencia del checkout — API', () => {
     expect(id1).toBe(id2); // ambos requests resuelven al mismo pedido
 
     const product = await CatalogProduct.findByPk(productId);
-    expect(product!.stock_quantity).toBe(6); // 10 - 4, un solo descuento (no 2)
+    expect(product!.stock_reserved).toBe(4); // una sola reserva de 4 (no 8)
   });
 
   it('sin Idempotency-Key, dos POST idénticos crean dos pedidos distintos (comportamiento sin cambios)', async () => {
@@ -107,6 +112,6 @@ describe('Idempotencia del checkout — API', () => {
     expect(first.body.data?.order?.id).not.toBe(second.body.data?.order?.id);
 
     const product = await CatalogProduct.findByPk(productId);
-    expect(product!.stock_quantity).toBe(6); // 10 - 2 - 2, dos descuentos
+    expect(product!.stock_reserved).toBe(4); // 2 + 2, dos reservas distintas
   });
 });

@@ -736,13 +736,114 @@ proyecto. Además, el módulo solo queda **disponible**, no habilitado
 configurar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` (certificado real de ARCA) y
 `company_cuit`, que son acciones tuyas.
 
-### Fase 2 — desglose de tareas pendiente
+### Fase 2 — desglose de tareas
 
-Con las 7 decisiones ya tomadas y el módulo AFIP mergeado, falta producir el
-desglose de tareas de Fase 2 (formato 2.1, 2.2, ... como Fase 1) para:
-reserva de stock con vencimiento de 48hs (preguntas 2+3), flujo de
-devoluciones con revisión (pregunta 4, más allá de lo que ya cubre 1.3),
-reflejar reintegros ejecutados manualmente desde MercadoPago (pregunta 5),
-integración de envíos con Andreani (pregunta 6), y habilitar/activar el
-módulo AFIP en el flujo real de facturación de pedidos de tienda (pregunta
-1). Queda para la próxima conversación de planificación.
+| Tarea | Depende de | Estado |
+|---|---|---|
+| 2.1 | 1.2 | **Resuelto** — ver detalle abajo. |
+| 2.2 | 2.1 | Pendiente. |
+| 2.3 | — | Pendiente. |
+| 2.4 | 2.1 | Pendiente. |
+| 2.5 | Merge AFIP (resuelto) | Pendiente. |
+| 2.6 | — | Pendiente (necesita research spike). |
+| 2.7 | 2.1, 2.3 | Pendiente. |
+| 2.8 | — | Pendiente. |
+
+---
+
+### 2.1 — Reserva de stock con vencimiento
+
+**Estado: Resuelto.**
+
+Implementa la decisión de negocio #2 ("reserva al crear + descuento al
+pagar") — reemplaza el modelo de descuento inmediato que había implementado
+Fase 1 (tareas 1.2/1.3).
+
+**Diseño confirmado con el usuario antes de implementar:** no se creó una
+entidad `store_payments` separada (la sugería el plan original de la
+auditoría) — se resolvió con columnas nuevas en `store_orders`
+(`stock_reserved_at`, `stock_confirmed_at`) + un contador `stock_reserved`
+en `catalog_products`/`catalog_product_sizes`. Más simple, reutiliza el
+ledger existente (1.2) y el patrón de idempotencia por columna que ya usaba
+1.3 (`stock_restored_at`).
+
+- **Migraciones** `20260804-079/080` (columna `stock_reserved` en
+  `catalog_products`/`catalog_product_sizes`, default 0), `081`
+  (`store_orders.stock_reserved_at`/`stock_confirmed_at`), `082` (backfill:
+  pedidos históricos anteriores a 2.1 se marcan `stock_confirmed_at =
+  createdAt` — bajo el modelo viejo TODO pedido creado ya había descontado
+  stock real de verdad, nunca hubo una reserva intermedia; sin este backfill,
+  `restoreStoreOrderStock` los trataría erróneamente como "solo reservados"),
+  `083` (agrega `'reserve'`/`'release'` al ENUM de `catalog_stock_movements.type`).
+- **`stockLedger.service.ts`**: `adjustStock()` gana un parámetro `field`
+  (`'stock_quantity'` default, o `'stock_reserved'`). Para `stock_reserved`
+  con `requireAvailable`, valida que la reserva no supere el stock físico
+  real (en vez de solo chequear negatividad) — mismo lock de fila, misma
+  transacción del caller, mismo movimiento auditable.
+- **`createStoreOrder`**: el loop que antes descontaba `stock_quantity`
+  (`type:'sale'`) ahora reserva (`type:'reserve', field:'stock_reserved'`).
+  Se guarda `stock_reserved_at` en el pedido.
+- **`confirmStoreOrderStock`** (nueva función, mismo patrón que
+  `restoreStoreOrderStock`): convierte la reserva en descuento definitivo —
+  libera `stock_reserved` (`type:'release'`) y descuenta `stock_quantity`
+  real (`type:'sale'`) en dos movimientos separados dentro de la misma
+  transacción. Idempotente por `stock_confirmed_at`. Enganchada en
+  `recordStoreOrderStatusChange`: se dispara al salir de `pending_payment`
+  hacia cualquier estado que no sea `cancelled` (no solo `newStatus==='paid'`
+  — cubre también que el admin salte directo a `processing` con un pago en
+  efectivo/transferencia confirmado a mano). Cubre los 3 caminos existentes
+  sin cambios adicionales: webhook de MP, reconciliación (1.8) y cambio
+  manual del admin — los tres pasan por `recordStoreOrderStatusChange`.
+- **`restoreStoreOrderStock`** (1.3) ahora bifurca según
+  `stock_confirmed_at`: si el pago ya se había confirmado, restituye stock
+  real (comportamiento de 1.3 sin cambios); si no, libera la reserva sin
+  tocar `stock_quantity`. Se extrajo `resolveStoreOrderItemSize()` como
+  helper compartido con `confirmStoreOrderStock` para no duplicar la
+  resolución de talle (FK directo de 1.10, o fallback por texto).
+- **`computeOrderTotals`** (checkout + quote de 1.6): el chequeo de
+  disponibilidad pasa de `stock_quantity < cantidad` a `(stock_quantity -
+  stock_reserved) < cantidad` — cierra el hueco de sobreventa entre carritos
+  concurrentes que dejaba abierto el modelo de Fase 1. Mismo cambio en el
+  filtro de talles de `computeStoreFilterOptions`.
+- **API pública de la tienda** (`listStoreProducts`/`getStoreProduct`):
+  ahora exponen `stock_reserved` junto a `stock_quantity` en las tallas (ya
+  se exponía sin querer a nivel producto, por no tener `attributes`
+  restringido). No se usa todavía en el front de la tienda — ver exclusión
+  abajo.
+
+**Exclusión documentada (a propósito, mismo criterio que las de 1.2):** el
+frontend de la tienda (`StoreProductDetailPage.tsx`, `ProductCard.tsx`)
+sigue mostrando `stock_quantity` física, no `stock_quantity - stock_reserved`
+— un comprador puede ver "5 en stock" con 3 ya reservadas por otros
+carritos. **No es un hueco de seguridad**: el checkout real y el quote
+(`/checkout/quote`, 1.6) sí usan la disponibilidad correcta y rechazan con
+400 si no alcanza — el comprador nunca paga de más ni compra algo
+inexistente, solo puede ver un cartel optimista hasta que confirma. Corregir
+la vitrina es UX (queda para 3.1 de la auditoría original, "aviso de cambios
+de disponibilidad").
+
+**`saveProductSizes` (admin, edita talles de un producto) — mismo hueco ya
+documentado en 1.2:** destruye y recrea las filas de `catalog_product_sizes`
+en cada guardado, lo que también resetea `stock_reserved` a 0 si el admin
+edita talles con reservas activas. No se tocó (mismo criterio de alcance que
+1.2: el rediseño de esa función es un cambio de mayor riesgo, no específico
+de esta tarea).
+
+**Tests:** nuevo `src/__tests__/api/stock-reservation.test.ts` (4 casos): el
+checkout reserva sin tocar `stock_quantity`; confirmar el pago libera la
+reserva y descuenta stock real (movimientos `reserve→release→sale` en
+orden); cancelar antes de pagar libera la reserva sin tocar `stock_quantity`;
+un checkout que supera lo disponible (ya reservado por otro pedido) responde
+400 aunque `stock_quantity` física siga siendo positiva. Se actualizaron
+además los tests existentes que asumían el descuento inmediato de Fase 1
+(`stock-restoration.test.ts`, `store-order-item-size-id.test.ts`,
+`checkout-idempotency.test.ts`, `stock-ledger.test.ts`) para reflejar el
+nuevo modelo — y se corrigió el helper `findPurchasable()` (usado por varios
+tests de otras tareas) para que elija productos por disponibilidad real
+(`stock_quantity - stock_reserved`), no por `stock_quantity` física, porque
+reservas sin confirmar/cancelar de otros tests de la misma corrida podían
+dejar productos sin nada disponible aunque su stock físico siguiera
+positivo. Suite completa: **32/32 suites, 173/173 tests.**
+
+**Verificación:** `npm run typecheck` limpio. Columnas y ENUM nuevo
+confirmados en la DB de dev (`npm run dev` una vez + `describeTable`).

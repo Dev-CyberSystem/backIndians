@@ -1,7 +1,7 @@
 import { DataTypes, Model, InferAttributes, InferCreationAttributes, CreationOptional } from 'sequelize';
 import { sequelize } from '../config/db';
 
-export type CatalogStockMovementType = 'sale' | 'return' | 'cancel' | 'adjustment' | 'in' | 'out' | 'transfer';
+export type CatalogStockMovementType = 'sale' | 'return' | 'cancel' | 'adjustment' | 'in' | 'out' | 'transfer' | 'reserve' | 'release';
 export type CatalogStockMovementSource = 'store' | 'catalog' | 'manual' | 'system';
 
 export class CatalogStockMovement extends Model<
@@ -31,7 +31,7 @@ CatalogStockMovement.init(
     catalog_product_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
     catalog_product_size_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true, defaultValue: null },
     type: {
-      type: DataTypes.ENUM('sale', 'return', 'cancel', 'adjustment', 'in', 'out', 'transfer'),
+      type: DataTypes.ENUM('sale', 'return', 'cancel', 'adjustment', 'in', 'out', 'transfer', 'reserve', 'release'),
       allowNull: false,
     },
     quantity: { type: DataTypes.INTEGER, allowNull: false },

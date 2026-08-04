@@ -5,14 +5,16 @@ import { CatalogProductSize } from '../models/CatalogProductSize';
 import { CatalogStockMovement, type CatalogStockMovementType, type CatalogStockMovementSource } from '../models/CatalogStockMovement';
 
 /**
- * Único punto del sistema autorizado a modificar catalog_products.stock_quantity
- * y catalog_product_sizes.stock_quantity. Cierra C-5: cada cambio queda
- * registrado en catalog_stock_movements dentro de la misma transacción,
- * con cantidad anterior/resultante, motivo, origen y responsable.
+ * Único punto del sistema autorizado a modificar catalog_products/
+ * catalog_product_sizes .stock_quantity y .stock_reserved. Cierra C-5: cada
+ * cambio queda registrado en catalog_stock_movements dentro de la misma
+ * transacción, con cantidad anterior/resultante, motivo, origen y responsable.
  *
  * Siempre requiere una transacción del caller (nunca abre la propia) para
  * poder participar de transacciones más grandes (checkout, pedido mayorista).
  */
+
+export type StockField = 'stock_quantity' | 'stock_reserved';
 
 export interface AdjustStockParams {
   transaction: Transaction;
@@ -21,11 +23,22 @@ export interface AdjustStockParams {
   catalogProductId: number;
   /** Si se da, ajusta catalog_product_sizes; si no, ajusta catalog_products. */
   catalogProductSizeId?: number | null;
+  /**
+   * Campo a modificar. 'stock_quantity' (default) = stock físico real.
+   * 'stock_reserved' (2.1) = contador de reservas de pedidos pending_payment
+   * — disponible para vender = stock_quantity - stock_reserved.
+   */
+  field?: StockField;
   /** Cambio relativo (negativo = descuento, positivo = alta). Exclusivo con setTo. */
   delta?: number;
   /** Cantidad absoluta a fijar (usado por ajustes manuales tipo inventario físico). Exclusivo con delta. */
   setTo?: number;
-  /** Si true y el resultado quedaría negativo, lanza AppError 409 en vez de permitirlo. */
+  /**
+   * Si true: para field='stock_quantity', un resultado negativo lanza 409 en
+   * vez de permitirlo. Para field='stock_reserved', valida que la reserva no
+   * supere el stock físico real (stock_reserved no puede ser mayor a
+   * stock_quantity) en vez de solo chequear negatividad.
+   */
   requireAvailable?: boolean;
   reason?: string | null;
   storeOrderId?: number | null;
@@ -43,7 +56,7 @@ export interface AdjustStockResult {
 export async function adjustStock(params: AdjustStockParams): Promise<AdjustStockResult> {
   const {
     transaction, type, source, catalogProductId, catalogProductSizeId = null,
-    delta, setTo, requireAvailable = false, reason = null,
+    field = 'stock_quantity', delta, setTo, requireAvailable = false, reason = null,
     storeOrderId = null, catalogOrderId = null, userId = null, notes = null,
   } = params;
 
@@ -59,21 +72,27 @@ export async function adjustStock(params: AdjustStockParams): Promise<AdjustStoc
   if (catalogProductSizeId) {
     const size = await CatalogProductSize.findByPk(catalogProductSizeId, { lock: Transaction.LOCK.UPDATE, transaction });
     if (!size) throw new AppError('Talle no encontrado para ajustar stock', 404);
-    previousQuantity = size.stock_quantity;
+    previousQuantity = size[field];
     newQuantity = delta != null ? previousQuantity + delta : (setTo as number);
     if (newQuantity < 0) {
       throw new AppError(requireAvailable ? 'Stock insuficiente' : 'El stock no puede quedar negativo', requireAvailable ? 409 : 400);
     }
-    await size.update({ stock_quantity: newQuantity }, { transaction });
+    if (field === 'stock_reserved' && requireAvailable && newQuantity > size.stock_quantity) {
+      throw new AppError('Stock insuficiente', 409);
+    }
+    await size.update({ [field]: newQuantity }, { transaction });
   } else {
     const product = await CatalogProduct.findByPk(catalogProductId, { lock: Transaction.LOCK.UPDATE, transaction });
     if (!product) throw new AppError('Producto no encontrado para ajustar stock', 404);
-    previousQuantity = product.stock_quantity;
+    previousQuantity = product[field];
     newQuantity = delta != null ? previousQuantity + delta : (setTo as number);
     if (newQuantity < 0) {
       throw new AppError(requireAvailable ? 'Stock insuficiente' : 'El stock no puede quedar negativo', requireAvailable ? 409 : 400);
     }
-    await product.update({ stock_quantity: newQuantity }, { transaction });
+    if (field === 'stock_reserved' && requireAvailable && newQuantity > product.stock_quantity) {
+      throw new AppError('Stock insuficiente', 409);
+    }
+    await product.update({ [field]: newQuantity }, { transaction });
   }
 
   const movement = await CatalogStockMovement.create(

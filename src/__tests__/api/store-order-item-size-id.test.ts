@@ -57,8 +57,9 @@ describe('catalog_product_size_id en store_order_items — API', () => {
     expect(item).not.toBeNull();
     expect(item!.catalog_product_size_id).toBe(sizeMId);
 
-    // Cancelar y verificar que la restitución usa el FK directo: stock del
-    // talle M vuelve a 10 y el movimiento queda linkeado a ese talle.
+    // Cancelar (sin haber confirmado el pago — 2.1 libera la reserva, no
+    // toca stock_quantity) y verificar que usa el FK directo: el movimiento
+    // queda linkeado al talle, no resuelto por size_name.
     const cancel = await api()
       .patch(`${API}/store/admin/orders/${orderId}/status`)
       .set(...auth(admin))
@@ -66,15 +67,16 @@ describe('catalog_product_size_id en store_order_items — API', () => {
     expect(cancel.status).toBe(200);
 
     const sizeMAfter = await CatalogProductSize.findByPk(sizeMId);
-    expect(sizeMAfter!.stock_quantity).toBe(10);
+    expect(sizeMAfter!.stock_quantity).toBe(10); // físico sin cambios, nunca se confirmó el pago
+    expect(sizeMAfter!.stock_reserved).toBe(0); // reserva liberada
 
     const movement = await CatalogStockMovement.findOne({
       where: { catalog_product_size_id: sizeMId, store_order_id: orderId },
       order: [['id', 'DESC']],
     });
     expect(movement).not.toBeNull();
-    expect(movement!.type).toBe('cancel');
-    expect(movement!.previous_quantity).toBe(7); // 10 - 3
-    expect(movement!.new_quantity).toBe(10);
+    expect(movement!.type).toBe('release');
+    expect(movement!.previous_quantity).toBe(3); // lo reservado al checkout
+    expect(movement!.new_quantity).toBe(0);
   });
 });

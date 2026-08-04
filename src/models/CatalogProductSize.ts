@@ -15,6 +15,8 @@ export class CatalogProductSize extends Model<
   declare product_id: number;
   declare size_name: string;
   declare stock_quantity: CreationOptional<number>;
+  /** Reservado por pedidos en pending_payment todavía no confirmados (2.1). Disponible = stock_quantity - stock_reserved. */
+  declare stock_reserved: CreationOptional<number>;
   declare sort_order: CreationOptional<number>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -36,6 +38,11 @@ CatalogProductSize.init(
       allowNull: false,
     },
     stock_quantity: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    stock_reserved: {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       defaultValue: 0,

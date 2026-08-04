@@ -233,7 +233,7 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
     where,
     include: [
       { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
-      { model: CatalogProductSize,  as: 'sizes',  attributes: ['id', 'size_name', 'stock_quantity', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
+      { model: CatalogProductSize,  as: 'sizes',  attributes: ['id', 'size_name', 'stock_quantity', 'stock_reserved', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
       { model: Client,              as: 'client', attributes: ['id', 'name'] },
     ],
     order,
@@ -266,7 +266,7 @@ async function computeStoreFilterOptions() {
     SELECT cps.size_name, MIN(cps.sort_order) AS min_order
     FROM catalog_product_sizes cps
     JOIN catalog_products cp ON cp.id = cps.product_id
-    WHERE cp.show_in_store = 1 AND cp.active = 1 AND cps.stock_quantity > 0
+    WHERE cp.show_in_store = 1 AND cp.active = 1 AND (cps.stock_quantity - cps.stock_reserved) > 0
     GROUP BY cps.size_name
     ORDER BY min_order, cps.size_name
   `);
@@ -340,7 +340,7 @@ export async function getStoreProduct(id: number) {
     where: { id, show_in_store: true, active: true },
     include: [
       { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'] },
-      { model: CatalogProductSize, as: 'sizes', attributes: ['id', 'size_name', 'stock_quantity', 'sort_order'] },
+      { model: CatalogProductSize, as: 'sizes', attributes: ['id', 'size_name', 'stock_quantity', 'stock_reserved', 'sort_order'] },
     ],
   });
   if (!product) throw new AppError('Producto no encontrado', 404);
@@ -650,25 +650,30 @@ async function computeOrderTotals(input: {
         });
         continue;
       }
-      if (sizeRecord.stock_quantity < cartItem.quantity) {
+      // Disponible = stock físico - lo ya reservado por otros pedidos pending_payment (2.1).
+      const sizeAvailable = sizeRecord.stock_quantity - sizeRecord.stock_reserved;
+      if (sizeAvailable < cartItem.quantity) {
         resolvedItems.push({
           catalog_product_id: cartItem.catalog_product_id, size_name: cartItem.size_name,
           product_title: product.title, quantity: cartItem.quantity,
           unit_price: price, subtotal: 0,
           disponible: false,
-          motivo: `Stock insuficiente para ${product.title} — talle ${cartItem.size_name} (disponible: ${sizeRecord.stock_quantity})`,
+          motivo: `Stock insuficiente para ${product.title} — talle ${cartItem.size_name} (disponible: ${Math.max(sizeAvailable, 0)})`,
         });
         continue;
       }
-    } else if (product.stock_quantity < cartItem.quantity) {
-      resolvedItems.push({
-        catalog_product_id: cartItem.catalog_product_id, size_name: null,
-        product_title: product.title, quantity: cartItem.quantity,
-        unit_price: price, subtotal: 0,
-        disponible: false,
-        motivo: `Stock insuficiente para ${product.title} (disponible: ${product.stock_quantity})`,
-      });
-      continue;
+    } else {
+      const productAvailable = product.stock_quantity - product.stock_reserved;
+      if (productAvailable < cartItem.quantity) {
+        resolvedItems.push({
+          catalog_product_id: cartItem.catalog_product_id, size_name: null,
+          product_title: product.title, quantity: cartItem.quantity,
+          unit_price: price, subtotal: 0,
+          disponible: false,
+          motivo: `Stock insuficiente para ${product.title} (disponible: ${Math.max(productAvailable, 0)})`,
+        });
+        continue;
+      }
     }
 
     const itemSubtotal = roundPrice(price * cartItem.quantity);
@@ -829,6 +834,7 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
             customer_phone: input.customerPhone ?? null,
             status: 'pending_payment',
             tracking_token: generateTrackingToken(),
+            stock_reserved_at: new Date(),
             subtotal,
             discount_amount: discountAmount,
             shipping_cost: shippingCost,
@@ -858,11 +864,14 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
           { transaction: t }
         );
 
-        // Descontar stock a través del ledger centralizado (stockLedger.service.ts),
-        // único punto autorizado a tocar stock_quantity. Deja movimiento auditable
-        // y valida disponibilidad de forma atómica (lock de fila + chequeo dentro
-        // de esta misma transacción). Secuencial (no Promise.all) para no mezclar
-        // sentencias en la misma conexión de la transacción.
+        // Reservar stock a través del ledger centralizado (stockLedger.service.ts),
+        // único punto autorizado a tocar stock_quantity/stock_reserved. No se
+        // descuenta stock_quantity todavía (2.1) — solo se reserva; el descuento
+        // definitivo ocurre recién al confirmarse el pago (ver
+        // confirmStoreOrderStock, enganchado en recordStoreOrderStatusChange).
+        // Deja movimiento auditable y valida disponibilidad de forma atómica
+        // (lock de fila + chequeo dentro de esta misma transacción). Secuencial
+        // (no Promise.all) para no mezclar sentencias en la misma conexión.
         for (const item of resolvedItems) {
           const qty = Math.trunc(Number(item.quantity));
           const label = item.size_name
@@ -872,12 +881,13 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
           try {
             await stockLedger.adjustStock({
               transaction: t,
-              type: 'sale',
+              type: 'reserve',
               source: 'store',
               // Ya se validó totals.all_available más arriba: acá siempre hay productRecord.
               catalogProductId: item.productRecord!.id,
               catalogProductSizeId: item.sizeRecord ? item.sizeRecord.id : null,
-              delta: -qty,
+              field: 'stock_reserved',
+              delta: qty,
               requireAvailable: true,
               storeOrderId: storeOrder.id,
               reason: `Checkout tienda online ${storeOrder.order_number}`,
@@ -1094,6 +1104,124 @@ function emitStoreOrderCreatedEvent(order: StoreOrder): void {
  * ERROR y deja un movimiento de stock con `delta:0` a modo de constancia
  * ("revisión manual pendiente"), en vez de adivinar dónde aplicar el ajuste.
  */
+/**
+ * Resuelve el talle de un ítem de pedido por `catalog_product_size_id`
+ * directo (1.10) o, si no lo tiene, por `catalog_product_id` + `size_name`
+ * (fallback por texto — pedidos históricos sin backfill posible por
+ * ambigüedad, o talle borrado desde entonces). Devuelve `unresolved: true`
+ * cuando el ítem tenía talle pero no se pudo resolver ninguno de los dos
+ * caminos, para que el caller decida cómo registrar la anomalía.
+ */
+async function resolveStoreOrderItemSize(
+  item: StoreOrderItem,
+  transaction: Transaction
+): Promise<{ catalogProductSizeId: number | null; unresolved: boolean }> {
+  if (item.catalog_product_size_id) {
+    return { catalogProductSizeId: item.catalog_product_size_id, unresolved: false };
+  }
+  if (item.size_name) {
+    const size = await CatalogProductSize.findOne({
+      where: { product_id: item.catalog_product_id, size_name: item.size_name },
+      transaction,
+    });
+    if (size) return { catalogProductSizeId: size.id, unresolved: false };
+    return { catalogProductSizeId: null, unresolved: true };
+  }
+  return { catalogProductSizeId: null, unresolved: false };
+}
+
+/**
+ * Convierte la reserva de stock de un pedido (2.1) en descuento definitivo:
+ * libera `stock_reserved` y descuenta `stock_quantity` real, atómico dentro
+ * de `transaction`. Se llama al confirmarse el pago (recordStoreOrderStatusChange,
+ * al entrar en 'paid').
+ *
+ * Idempotente: no hace nada si `stock_confirmed_at` ya está seteado.
+ */
+export async function confirmStoreOrderStock(
+  order: StoreOrder,
+  reason: string,
+  userId: number | null,
+  transaction: Transaction
+): Promise<void> {
+  const locked = await StoreOrder.findByPk(order.id, {
+    lock: Transaction.LOCK.UPDATE,
+    transaction,
+  });
+  if (!locked || locked.stock_confirmed_at) return;
+
+  const items = await StoreOrderItem.findAll({
+    where: { store_order_id: order.id },
+    transaction,
+  });
+
+  for (const item of items) {
+    const { catalogProductSizeId, unresolved } = await resolveStoreOrderItemSize(item, transaction);
+
+    if (unresolved) {
+      logger.error(
+        'store.confirmStock.unresolvedSize',
+        new Error('No se pudo resolver el talle para confirmar stock'),
+        {
+          meta: {
+            storeOrderId: order.id,
+            orderNumber: order.order_number,
+            catalogProductId: item.catalog_product_id,
+            sizeName: item.size_name,
+          },
+        }
+      );
+      await stockLedger.adjustStock({
+        transaction,
+        type: 'release',
+        source: 'store',
+        catalogProductId: item.catalog_product_id,
+        catalogProductSizeId: null,
+        field: 'stock_reserved',
+        delta: 0,
+        storeOrderId: order.id,
+        userId,
+        reason,
+        notes: `Talle "${item.size_name}" no encontrado — confirmación de stock pendiente de revisión manual`,
+      });
+      continue;
+    }
+
+    // Libera la reserva y descuenta el stock real como una sola operación
+    // lógica (dos movimientos del ledger, uno por campo). requireAvailable
+    // en falso: el ítem ya estaba reservado, no se vuelve a validar
+    // disponibilidad contra un stock físico que pudo cambiar mientras tanto
+    // (un ajuste manual del admin no debería poder bloquear un pago ya
+    // confirmado — la posible inconsistencia queda para el reporte de 2.7).
+    await stockLedger.adjustStock({
+      transaction,
+      type: 'release',
+      source: 'store',
+      catalogProductId: item.catalog_product_id,
+      catalogProductSizeId,
+      field: 'stock_reserved',
+      delta: -item.quantity,
+      storeOrderId: order.id,
+      userId,
+      reason,
+    });
+    await stockLedger.adjustStock({
+      transaction,
+      type: 'sale',
+      source: 'store',
+      catalogProductId: item.catalog_product_id,
+      catalogProductSizeId,
+      field: 'stock_quantity',
+      delta: -item.quantity,
+      storeOrderId: order.id,
+      userId,
+      reason,
+    });
+  }
+
+  await locked.update({ stock_confirmed_at: new Date() }, { transaction });
+}
+
 export async function restoreStoreOrderStock(
   order: StoreOrder,
   reason: string,
@@ -1106,66 +1234,80 @@ export async function restoreStoreOrderStock(
   });
   if (!locked || locked.stock_restored_at) return;
 
+  // Si el pago nunca se confirmó, no hubo descuento real de stock_quantity
+  // (2.1) — solo se había reservado. Liberar la reserva alcanza, no hay nada
+  // que "restituir" físicamente.
+  const wasConfirmed = Boolean(locked.stock_confirmed_at);
+
   const items = await StoreOrderItem.findAll({
     where: { store_order_id: order.id },
     transaction,
   });
 
   for (const item of items) {
-    let catalogProductSizeId: number | null = null;
+    const { catalogProductSizeId, unresolved } = await resolveStoreOrderItemSize(item, transaction);
 
-    if (item.catalog_product_size_id) {
-      // Vínculo directo (1.10) — pedidos creados desde que existe la columna.
-      catalogProductSizeId = item.catalog_product_size_id;
-    } else if (item.size_name) {
-      // Fallback por texto (pedidos históricos sin backfill posible por
-      // ambigüedad, o talle borrado desde entonces).
-      const size = await CatalogProductSize.findOne({
-        where: { product_id: item.catalog_product_id, size_name: item.size_name },
+    if (unresolved) {
+      logger.error(
+        'store.restoreStock.unresolvedSize',
+        new Error('No se pudo resolver el talle para restituir stock'),
+        {
+          meta: {
+            storeOrderId: order.id,
+            orderNumber: order.order_number,
+            catalogProductId: item.catalog_product_id,
+            sizeName: item.size_name,
+          },
+        }
+      );
+      await stockLedger.adjustStock({
         transaction,
+        type: 'cancel',
+        source: 'store',
+        catalogProductId: item.catalog_product_id,
+        catalogProductSizeId: null,
+        field: wasConfirmed ? 'stock_quantity' : 'stock_reserved',
+        delta: 0,
+        storeOrderId: order.id,
+        userId,
+        reason,
+        notes: `Talle "${item.size_name}" no encontrado — restitución pendiente de revisión manual`,
       });
-      if (size) {
-        catalogProductSizeId = size.id;
-      } else {
-        logger.error(
-          'store.restoreStock.unresolvedSize',
-          new Error('No se pudo resolver el talle para restituir stock'),
-          {
-            meta: {
-              storeOrderId: order.id,
-              orderNumber: order.order_number,
-              catalogProductId: item.catalog_product_id,
-              sizeName: item.size_name,
-            },
-          }
-        );
-        await stockLedger.adjustStock({
-          transaction,
-          type: 'cancel',
-          source: 'store',
-          catalogProductId: item.catalog_product_id,
-          catalogProductSizeId: null,
-          delta: 0,
-          storeOrderId: order.id,
-          userId,
-          reason,
-          notes: `Talle "${item.size_name}" no encontrado — restitución pendiente de revisión manual`,
-        });
-        continue;
-      }
+      continue;
     }
 
-    await stockLedger.adjustStock({
-      transaction,
-      type: 'cancel',
-      source: 'store',
-      catalogProductId: item.catalog_product_id,
-      catalogProductSizeId,
-      delta: item.quantity,
-      storeOrderId: order.id,
-      userId,
-      reason,
-    });
+    if (wasConfirmed) {
+      // El pago ya se había confirmado: stock_quantity real fue descontado
+      // (confirmStoreOrderStock), hay que devolverlo (comportamiento de 1.3
+      // sin cambios).
+      await stockLedger.adjustStock({
+        transaction,
+        type: 'cancel',
+        source: 'store',
+        catalogProductId: item.catalog_product_id,
+        catalogProductSizeId,
+        field: 'stock_quantity',
+        delta: item.quantity,
+        storeOrderId: order.id,
+        userId,
+        reason,
+      });
+    } else {
+      // Nunca se confirmó el pago: solo había una reserva, se libera sin
+      // tocar stock_quantity.
+      await stockLedger.adjustStock({
+        transaction,
+        type: 'release',
+        source: 'store',
+        catalogProductId: item.catalog_product_id,
+        catalogProductSizeId,
+        field: 'stock_reserved',
+        delta: -item.quantity,
+        storeOrderId: order.id,
+        userId,
+        reason,
+      });
+    }
   }
 
   if (locked.coupon_id) {
@@ -1264,6 +1406,21 @@ export async function recordStoreOrderStatusChange(
         },
         { transaction: t }
       );
+
+      // Confirmar la reserva de stock (2.1) al salir de pending_payment hacia
+      // cualquier estado "vivo" (no cancelado): la reserva pasa a descuento
+      // definitivo. No se restringe a newStatus === 'paid' a propósito —
+      // cubre también que el admin salte directo a 'processing' (p. ej. pago
+      // en efectivo/transferencia confirmado a mano). 'cancelled' tiene su
+      // propia rama abajo (libera la reserva en vez de confirmarla).
+      if (prevStatus === 'pending_payment' && newStatus !== 'cancelled') {
+        await confirmStoreOrderStock(
+          order,
+          `Pago confirmado para pedido ${order.order_number}`,
+          options.changedBy ?? null,
+          t
+        );
+      }
 
       // Restituir stock y liberar cupón al entrar en cancelled (C-1/A-9).
       // 'returned' queda afuera a propósito: la restitución ahí es una
