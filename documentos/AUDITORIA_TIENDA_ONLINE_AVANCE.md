@@ -744,7 +744,7 @@ configurar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` (certificado real de ARCA) y
 | 2.2 | 2.1 | **Resuelto** — ver detalle abajo. |
 | 2.3 | — | **Resuelto** — ver detalle abajo. |
 | 2.4 | 2.1 | **Resuelto** — ver detalle abajo. |
-| 2.5 | Merge AFIP (resuelto) | Pendiente. |
+| 2.5 | Merge AFIP (resuelto) | **Resuelto (código) — falta certificado real, acción tuya** — ver detalle abajo. |
 | 2.6 | — | Pendiente (necesita research spike). |
 | 2.7 | 2.1, 2.3 | Pendiente. |
 | 2.8 | — | Pendiente. |
@@ -1065,3 +1065,64 @@ aprobada con un ítem marcado revendible — stock, badges de estado, historial
 y reintegro se vieron correctos en cada paso, cero errores de consola. El
 bug del `PaginatedResponse` se encontró y corrigió durante esta verificación
 (la lista de devoluciones aparecía vacía hasta el fix).
+
+---
+
+### 2.5 — Activar facturación AFIP en pedidos de tienda
+
+**Estado: Resuelto en lo que depende de código — el resto requiere acción
+manual tuya (certificado real de ARCA).**
+
+El módulo AFIP ya estaba mergeado desde antes de Fase 2 (ver hallazgo en
+[project-tienda-fase2-decisiones]) con envío manual funcionando (botón en
+Facturas → pestaña Tienda Online). Al investigar qué faltaba para
+"activarlo" encontré un bug de seguridad real, no solo trabajo pendiente:
+
+**Hallazgo: el toggle "Habilitada/Deshabilitada" de Configuración → AFIP no
+hacía nada.** Ningún punto del código chequeaba `afip_enabled` antes de
+mandar una factura real a ARCA — un admin podía dejarlo "deshabilitado" en
+la UI y el botón de envío igual mandaba comprobantes reales si el
+certificado estuviera cargado. Se corrigió sin preguntar (bug de seguridad
+obvio, no una decisión de negocio): `assertAfipEnabled()` corta ANTES de
+tocar el registro (ni siquiera lo marca `afip_status:'error'` — deshabilitado
+significa deshabilitado, no "intento fallido") en los 3 puntos de envío
+(`sendInvoiceToAfip`, `sendCatalogInvoiceToAfip`, `sendStoreOrderToAfip`,
+todos comparten el núcleo `sendToAfip`).
+
+**Decisión de negocio confirmada con el usuario**: el envío a AFIP de
+pedidos de tienda **sigue siendo manual** (no automático al confirmarse el
+pago) — más seguro mientras el certificado real todavía está en trámite en
+ARCA y no hubo pruebas en producción. Queda documentado para reconsiderar
+más adelante si se quiere automatizar (mismo patrón de enganche que
+`confirmStoreOrderStock`/`recordStoreOrderCashIncome` en
+`recordStoreOrderStatusChange`, no implementado a propósito).
+
+**Backend:** `src/services/afip.service.ts` — nueva función
+`assertAfipEnabled()`, llamada al inicio de las 3 funciones públicas de
+envío.
+
+**Tests:** `afip.test.ts` — se agregó `afip_enabled:'true'` al `beforeAll`
+(si no, los 6 casos existentes hubieran empezado a fallar con el nuevo
+gate) y un caso nuevo (7): con `afip_enabled:'false'`, el envío se rechaza
+(422, mensaje claro), el registro NO queda marcado `afip_status:'error'`
+(sigue `null`) y no se llegó a llamar al mock de `soap` (verificado contando
+`loginCalls`). Suite completa: **35/35 suites, 190/190 tests.**
+
+**No se tocó el frontend a propósito**: el botón AFIP ya muestra el mensaje
+de error claro vía toast cuando el envío falla (incluido "deshabilitada"
+ahora); no se agregó un chequeo preventivo que deshabilite el botón antes de
+hacer el click (requeriría traer el setting `afip_enabled` a cada fila de
+las 3 pestañas de Facturas) — el backoff es aceptable, un click de más con
+un toast claro no amerita esa complejidad extra en esta tarea.
+
+**Pendiente — acción tuya, no de código:**
+1. Completar el trámite de certificado en ARCA (autogestión de
+   certificados) y cargar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` en Railway.
+2. Configurar `company_cuit` (ya existe como setting) y `afip_punto_venta`
+   con los datos reales.
+3. Recién ahí activar el toggle `afip_enabled` en Configuración — hasta
+   entonces, aunque se active, cualquier envío va a fallar con "company_cuit
+   no configurado" o similar (validación que ya existía).
+
+**Verificación:** `npm run typecheck` limpio. Server real levantado
+(`npm run dev`) sin errores.

@@ -287,7 +287,23 @@ async function sendToAfip(params: AfipSendParams): Promise<{
 
 // ─── Public methods ──────────────────────────────────────────────────────────
 
+/**
+ * Corta ANTES de tocar el registro (a propósito, no dentro de sendToAfip):
+ * el toggle "Habilitada/Deshabilitada" de Configuración no chequeaba nada en
+ * ningún lado (2.5) — cualquiera con el rol podía mandar una factura real a
+ * ARCA aunque el admin hubiera dejado el módulo "deshabilitado". Se corta acá
+ * para que ni siquiera quede el registro en `afip_status:'error'`: apagado
+ * significa apagado, no "intento fallido".
+ */
+async function assertAfipEnabled(): Promise<void> {
+  const settings = await getAllSettings();
+  if (settings.afip_enabled !== 'true') {
+    throw new Error('La facturación electrónica AFIP está deshabilitada (Configuración → Tienda online → AFIP)');
+  }
+}
+
 export async function sendInvoiceToAfip(invoiceId: number, params: AfipSendParams): Promise<Invoice> {
+  await assertAfipEnabled();
   const invoice = await Invoice.findByPk(invoiceId);
   if (!invoice) throw new Error('Factura no encontrada');
   if (invoice.afip_status === 'sent') throw new Error('Esta factura ya fue enviada a AFIP');
@@ -317,6 +333,7 @@ export async function sendInvoiceToAfip(invoiceId: number, params: AfipSendParam
 }
 
 export async function sendCatalogInvoiceToAfip(invoiceId: number, params: AfipSendParams): Promise<CatalogInvoice> {
+  await assertAfipEnabled();
   const invoice = await CatalogInvoice.findByPk(invoiceId);
   if (!invoice) throw new Error('Factura de catálogo no encontrada');
   if (invoice.afip_status === 'sent') throw new Error('Esta factura ya fue enviada a AFIP');
@@ -346,6 +363,7 @@ export async function sendCatalogInvoiceToAfip(invoiceId: number, params: AfipSe
 }
 
 export async function sendStoreOrderToAfip(orderId: number, params: AfipSendParams): Promise<StoreOrder> {
+  await assertAfipEnabled();
   const order = await StoreOrder.findByPk(orderId);
   if (!order) throw new Error('Pedido de tienda no encontrado');
   if (order.afip_status === 'sent') throw new Error('Este pedido ya fue enviado a AFIP');

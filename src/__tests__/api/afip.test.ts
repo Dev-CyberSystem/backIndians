@@ -137,9 +137,16 @@ describe('AFIP / ARCA — Robot de pruebas (soap mockeado)', () => {
       ['company_cuit', '20111111112'],
       ['afip_punto_venta', '3'],
       ['afip_environment', 'homo'],
+      ['afip_enabled', 'true'],
     ] as const) {
       await Settings.upsert({ key, value, createdAt: now, updatedAt: now });
     }
+  });
+
+  afterAll(async () => {
+    // Deja el módulo deshabilitado como estaba antes de este archivo — mismo
+    // criterio que otros tests que restauran settings al terminar.
+    await Settings.upsert({ key: 'afip_enabled', value: 'false', createdAt: new Date(), updatedAt: new Date() });
   });
 
   it('1. envía una factura a AFIP y persiste el CAE + numeración correlativa', async () => {
@@ -242,5 +249,24 @@ describe('AFIP / ARCA — Robot de pruebas (soap mockeado)', () => {
     // Bucket de Factura A (tipo 1)
     expect(res.body.byTipo?.['1']?.count).toBeGreaterThanOrEqual(2);
     expect(res.body.invoices?.count).toBeGreaterThanOrEqual(2);
+  });
+
+  it('7. con afip_enabled=false, el envío se rechaza sin tocar el registro ni llamar a AFIP (2.5)', async () => {
+    await Settings.upsert({ key: 'afip_enabled', value: 'false', createdAt: new Date(), updatedAt: new Date() });
+    try {
+      const loginCallsBefore = mockState.loginCalls;
+      const invoiceId = await makeInvoice();
+
+      const res = await api().post(`${API}/invoices/${invoiceId}/afip`).set(...auth(admin)).send(SEND_OK);
+      expect(res.status).toBe(422);
+      expect(String(res.body.error)).toMatch(/deshabilitada/i);
+
+      // No se tocó el registro (sigue null, no 'error') ni se llamó a AFIP.
+      const inv = await api().get(`${API}/invoices/${invoiceId}`).set(...auth(admin));
+      expect(inv.body.data.afip_status).toBeFalsy();
+      expect(mockState.loginCalls).toBe(loginCallsBefore);
+    } finally {
+      await Settings.upsert({ key: 'afip_enabled', value: 'true', createdAt: new Date(), updatedAt: new Date() });
+    }
   });
 });
