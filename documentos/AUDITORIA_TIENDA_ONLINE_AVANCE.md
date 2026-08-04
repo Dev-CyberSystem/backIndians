@@ -26,7 +26,7 @@ Convención: pendiente / en curso / resuelto / descartado.
 | 1.10 | M-8 | **Resuelto** | Ver detalle abajo. `restoreStoreOrderStock` (1.3) ahora prefiere el FK. |
 | 1.4 | A-1 | **Resuelto** | Ver detalle abajo. |
 | 1.5 | A-7 | **Resuelto** | Ver detalle abajo. Casos 13/14/15 de prueba pasan. |
-| 1.6 | C-6, A-3, A-4 | Pendiente | — |
+| 1.6 | C-6, A-3, A-4 | **Resuelto** | Ver detalle abajo. Casos 4/5/6 de prueba pasan. |
 | 1.8 | C-8 (parcial) | Pendiente (depende de 1.1) | — |
 
 ---
@@ -435,12 +435,71 @@ en aislado.
 
 ---
 
+### 1.6 — Total correcto en el checkout
+
+**Estado: Resuelto.**
+
+- **`computeOrderTotals`** (privada, en `store.service.ts`): extraída de
+  `createStoreOrder` — resuelve productos, calcula precios (`roundPrice` +
+  `discount_percentage`, igual que antes), valida cupón (`validateCoupon`,
+  sin cambios) y calcula envío (settings `shipping_cost`/`free_shipping_min`,
+  sin cambios). Cambio de comportamiento clave: en vez de tirar `AppError` en
+  el primer producto con problema, cada ítem queda marcado
+  `disponible`/`motivo` y se sigue evaluando el resto — así el aviso puede
+  ser específico por producto (A-4) en vez de genérico.
+- **`getCheckoutQuote`** (exportada): wrapper público sobre
+  `computeOrderTotals`, sin crear nada — es lo que expone
+  `POST /store/checkout/quote` (nuevo, con su propio `quoteLimiter`, 60/10min
+  por IP, más generoso que `checkoutLimiter` porque no crea pedidos).
+- **`createStoreOrder`** ahora llama a `computeOrderTotals` y:
+  1. Si algún ítem no está disponible, tira el mismo tipo de error que antes
+     (mismo criterio de negocio: no se puede comprar algo no disponible).
+  2. Si el body trae `expected_total` (el total que el frontend mostró) y no
+     coincide con el recalculado (tolerancia $1), **409** con el desglose
+     nuevo en `errors[0].quote` de la respuesta — usando el mecanismo que ya
+     tenía `AppError`, sin tocar el middleware global de errores.
+  3. Este refactor **eliminó ~90 líneas duplicadas** de `createStoreOrder`.
+- **Frontend** (`StoreCheckoutPage.tsx`): `useQuery` (TanStack Query) que
+  llama a `/checkout/quote` cada vez que cambian ítems, tipo de envío o
+  cupón, y muestra ese desglose real (reemplaza el cálculo 100% cliente que
+  nunca incluía el envío). Manda `expected_total` al confirmar. Si el
+  backend devuelve 409, inyecta el desglose nuevo directo en la query cache
+  (`queryClient.setQueryData`, sin round-trip extra) y avisa que hay que
+  revisar y reconfirmar. Ítems no disponibles se listan con su motivo
+  específico y bloquean el botón de confirmar. `StoreCartPage.tsx` no se
+  tocó — no tiene `shipping_type` todavía, así que su mensaje genérico sigue
+  siendo razonable.
+
+**Tests:** nuevo `src/__tests__/api/checkout-quote.test.ts` (5 casos, con
+`shipping_cost` configurado vía `PUT /settings` y restaurado al terminar):
+subtotal/total correctos en retiro; envío incluido en el total para
+delivery; ítem sin stock marcado `disponible:false` con motivo específico
+sin frenar el resto; checkout con `expected_total` desincronizado → 409 con
+el desglose nuevo; checkout con `expected_total` correcto → 201 normal.
+Suite completa: **29/29 suites, 160/160 tests** (el test antes flaky pasó
+esta vez también).
+
+**Verificación manual en navegador:** levanté ambos dev servers y probé el
+flujo real con Playwright (agregar al carrito → checkout → elegir envío a
+domicilio). Confirmado visualmente: "Envío a domicilio" ya no dice
+"Calculado al pagar"; el resumen muestra Subtotal $4.000 + Envío $1.500 =
+Total $5.500 correctamente sumado; retiro en local muestra "Envío: Gratis".
+Sin errores de consola.
+
+**Verificación:** `npm run typecheck` (backend) y `npx tsc --noEmit` +
+`eslint` (frontend, 2 archivos tocados) limpios — los 2 problemas de eslint
+en `StoreCheckoutPage.tsx` son preexistentes (confirmado con `git diff`).
+
+---
+
 ## Preguntas / decisiones pendientes de tu parte
 
 1. Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`:
    confirmado que quedan para Fase 4.
-2. Con esto se cierra toda la Fase 1 salvo **1.6** (total con envío visible
-   en el checkout) y **1.8** (job de reconciliación de pagos, que depende de
-   decidir node-cron vs. cron de Railway). ¿Seguimos con 1.6, con 1.8, o
-   preferís que primero te muestre un estado consolidado de toda la Fase 1
-   antes de seguir?
+2. Con 1.6 resuelta, solo queda **1.8** (job de reconciliación de pagos)
+   para cerrar toda la Fase 1. Necesito que definas: ¿`node-cron` corriendo
+   dentro del proceso del backend (más simple, pero depende de que el
+   proceso esté vivo — Railway lo mantiene arriba así que no debería ser
+   problema), o un cron job separado de Railway que le pegue a un endpoint
+   propio? Mi recomendación es `node-cron` en el proceso — no agrega
+   infraestructura nueva y este backend ya corre 24/7 en Railway.

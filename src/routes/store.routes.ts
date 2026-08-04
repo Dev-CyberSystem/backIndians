@@ -11,6 +11,7 @@ import {
   passwordResetLimiter,
   checkoutLimiter,
   couponLimiter,
+  quoteLimiter,
   paymentProofLimiter,
   paymentStatusLimiter,
   trackLimiter,
@@ -52,7 +53,20 @@ const checkoutValidators = [
   body('payment_method').optional().isIn(['mercadopago', 'cash', 'bank_transfer']).withMessage('Método de pago inválido'),
   body('coupon_code').optional({ nullable: true }).isString().isLength({ max: 64 }),
   body('notes').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  body('expected_total').optional().isFloat({ min: 0 }).withMessage('Total inválido'),
   header('idempotency-key').optional().isUUID().withMessage('Idempotency-Key inválida'),
+  validate,
+];
+
+// Mismo shape que el checkout, sin los datos del comprador (el quote es previo
+// a completar el formulario) — 1.6 / C-6.
+const quoteValidators = [
+  body('items').isArray({ min: 1 }).withMessage('El carrito está vacío'),
+  body('items.*.catalog_product_id').isInt({ min: 1 }).withMessage('Producto inválido'),
+  body('items.*.quantity').isInt({ min: 1, max: 1000 }).withMessage('Cantidad inválida'),
+  body('items.*.size_name').optional({ nullable: true }).isString().isLength({ max: 60 }),
+  body('shipping_type').optional().isIn(['pickup', 'delivery']).withMessage('Tipo de envío inválido'),
+  body('coupon_code').optional({ nullable: true }).isString().isLength({ max: 64 }),
   validate,
 ];
 
@@ -126,6 +140,9 @@ router.get('/products/:id', cache(30), param('id').isInt({ min: 1 }), validate, 
 // ─── Cupones (validar, público) ──────────────────────────────────────────────
 router.post('/coupons/validate', couponLimiter, couponValidators, ctrl.validateCoupon);
 router.get('/promo-popup', cache(30), ctrl.getPromoPopup);
+
+// ─── Presupuesto del checkout (1.6 / C-6) — público, no crea nada ────────────
+router.post('/checkout/quote', quoteLimiter, quoteValidators, ctrl.checkoutQuote);
 
 // ─── Checkout (auth opcional — compradores sin cuenta también pueden comprar) ─
 router.post('/checkout', checkoutLimiter, optionalStoreAuth, checkoutValidators, ctrl.checkout);

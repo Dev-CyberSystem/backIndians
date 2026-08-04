@@ -56,6 +56,13 @@ export const checkoutLimiter = createLimiter('checkout', 15 * 60_000, 25, { skip
 /** Validar cupón: 40 cada 10 min por IP (evita adivinar códigos por fuerza bruta). */
 export const couponLimiter = createLimiter('coupon', 10 * 60_000, 40, { skip: rateLimitDisabled });
 
+/**
+ * Presupuesto de checkout (1.6 / C-6): no crea nada, pero el frontend lo llama
+ * cada vez que cambian ítems/cupón/envío en la página de checkout — más
+ * generoso que checkoutLimiter (que sí crea pedidos). 60 cada 10 min por IP.
+ */
+export const quoteLimiter = createLimiter('quote', 10 * 60_000, 60, { skip: rateLimitDisabled });
+
 /** Subir comprobante de transferencia: 15 por hora por IP (operación cara: sube a Cloudinary). */
 export const paymentProofLimiter = createLimiter('paymentProof', 60 * 60_000, 15, { skip: rateLimitDisabled });
 

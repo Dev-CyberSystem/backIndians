@@ -505,6 +505,8 @@ export interface CheckoutInput {
   back_urls?: { success: string; failure: string; pending: string };
   /** UUID generado por el frontend por intento de checkout (1.4 / A-1). */
   idempotencyKey?: string;
+  /** Total que el cliente vio en el quote antes de confirmar (1.6 / C-6). */
+  expected_total?: number;
 }
 
 export interface CheckoutResult {
@@ -539,6 +541,213 @@ async function buildCheckoutResultFromExisting(order: StoreOrder): Promise<Check
   };
 }
 
+// ─── Cálculo del total del pedido (compartido por el quote y el checkout) ────
+
+export interface QuoteItem {
+  catalog_product_id: number;
+  size_name: string | null;
+  product_title: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+  disponible: boolean;
+  motivo?: string;
+}
+
+export interface OrderQuote {
+  items: QuoteItem[];
+  subtotal: number;
+  discount_amount: number;
+  coupon_code: string | null;
+  shipping_cost: number;
+  total: number;
+  all_available: boolean;
+}
+
+interface ResolvedQuoteItem extends QuoteItem {
+  productRecord?: CatalogProduct;
+  sizeRecord?: CatalogProductSize;
+}
+
+interface ComputedOrderTotals extends OrderQuote {
+  items: QuoteItem[];
+  resolvedItems: ResolvedQuoteItem[];
+  couponRecord: StoreCoupon | null;
+}
+
+/**
+ * Calcula el desglose completo de un pedido (precios, cupón, envío, total) a
+ * partir del carrito — SIN escribir nada en la base. Único punto de cálculo:
+ * lo usan tanto el quote público (1.6 / C-6) como `createStoreOrder`, para
+ * que el total que ve el cliente antes de confirmar sea EXACTAMENTE el que
+ * se cobra. A diferencia de la versión anterior (que abortaba entero en el
+ * primer producto con problema), cada ítem queda marcado
+ * `disponible`/`motivo` — el llamador decide si eso es aceptable (el quote,
+ * que es solo informativo) o bloqueante (el checkout, que no puede comprar
+ * algo no disponible).
+ */
+async function computeOrderTotals(input: {
+  items: CartItem[];
+  coupon_code?: string;
+  shipping_type: 'pickup' | 'delivery';
+}): Promise<ComputedOrderTotals> {
+  if (!input.items || input.items.length === 0) {
+    throw new AppError('El carrito está vacío', 400);
+  }
+
+  // 1. Resolver productos
+  const productIds = [...new Set(input.items.map((i) => i.catalog_product_id))];
+  const products = await CatalogProduct.findAll({
+    where: { id: productIds, show_in_store: true, active: true },
+    include: [{ model: CatalogProductSize, as: 'sizes' }],
+  });
+  const productMap = new Map(products.map((p) => [p.id, p]));
+
+  const resolvedItems: ResolvedQuoteItem[] = [];
+  let subtotal = 0;
+
+  for (const cartItem of input.items) {
+    const product = productMap.get(cartItem.catalog_product_id);
+    if (!product) {
+      resolvedItems.push({
+        catalog_product_id: cartItem.catalog_product_id,
+        size_name: cartItem.size_name ?? null,
+        product_title: `Producto ${cartItem.catalog_product_id}`,
+        quantity: cartItem.quantity,
+        unit_price: 0,
+        subtotal: 0,
+        disponible: false,
+        motivo: 'Este producto ya no está disponible',
+      });
+      continue;
+    }
+
+    const basePrice = Number(product.public_price ?? product.price);
+    const disc = Number(product.discount_percentage ?? 0);
+    // Precio a cobrar SIN decimales (regla ≤0,50 abajo / ≥0,51 arriba). Debe
+    // coincidir con effectivePrice del frontend.
+    const price = roundPrice(disc > 0 ? (basePrice * (100 - disc)) / 100 : basePrice);
+    const sizes = (product as unknown as { sizes?: CatalogProductSize[] }).sizes ?? [];
+    let sizeRecord: CatalogProductSize | undefined;
+
+    if (sizes.length > 0) {
+      if (!cartItem.size_name) {
+        resolvedItems.push({
+          catalog_product_id: cartItem.catalog_product_id, size_name: null,
+          product_title: product.title, quantity: cartItem.quantity,
+          unit_price: price, subtotal: 0,
+          disponible: false, motivo: `Seleccioná un talle para ${product.title}`,
+        });
+        continue;
+      }
+      sizeRecord = sizes.find((s) => s.size_name === cartItem.size_name);
+      if (!sizeRecord) {
+        resolvedItems.push({
+          catalog_product_id: cartItem.catalog_product_id, size_name: cartItem.size_name,
+          product_title: product.title, quantity: cartItem.quantity,
+          unit_price: price, subtotal: 0,
+          disponible: false, motivo: `El talle ${cartItem.size_name} ya no existe para ${product.title}`,
+        });
+        continue;
+      }
+      if (sizeRecord.stock_quantity < cartItem.quantity) {
+        resolvedItems.push({
+          catalog_product_id: cartItem.catalog_product_id, size_name: cartItem.size_name,
+          product_title: product.title, quantity: cartItem.quantity,
+          unit_price: price, subtotal: 0,
+          disponible: false,
+          motivo: `Stock insuficiente para ${product.title} — talle ${cartItem.size_name} (disponible: ${sizeRecord.stock_quantity})`,
+        });
+        continue;
+      }
+    } else if (product.stock_quantity < cartItem.quantity) {
+      resolvedItems.push({
+        catalog_product_id: cartItem.catalog_product_id, size_name: null,
+        product_title: product.title, quantity: cartItem.quantity,
+        unit_price: price, subtotal: 0,
+        disponible: false,
+        motivo: `Stock insuficiente para ${product.title} (disponible: ${product.stock_quantity})`,
+      });
+      continue;
+    }
+
+    const itemSubtotal = roundPrice(price * cartItem.quantity);
+    subtotal += itemSubtotal;
+
+    resolvedItems.push({
+      catalog_product_id: cartItem.catalog_product_id,
+      size_name: cartItem.size_name ?? null,
+      product_title: product.title,
+      quantity: cartItem.quantity,
+      unit_price: price,
+      subtotal: itemSubtotal,
+      disponible: true,
+      productRecord: product,
+      sizeRecord,
+    });
+  }
+
+  const allAvailable = resolvedItems.every((i) => i.disponible);
+
+  // 2. Cupón
+  let discountAmount = 0;
+  let couponRecord: StoreCoupon | null = null;
+  if (input.coupon_code) {
+    const { coupon, discount } = await validateCoupon(input.coupon_code, subtotal);
+    discountAmount = discount;
+    couponRecord = coupon;
+  }
+
+  // 3. Envío
+  let shippingCost = 0;
+  if (input.shipping_type === 'delivery') {
+    const freeMin = parseFloat(await getStoreSetting('free_shipping_min')) || 0;
+    const cost = roundPrice(parseFloat(await getStoreSetting('shipping_cost')) || 0);
+    shippingCost = subtotal - discountAmount >= freeMin && freeMin > 0 ? 0 : cost;
+  }
+
+  const total = roundPrice(subtotal - discountAmount + shippingCost);
+
+  const publicItems: QuoteItem[] = resolvedItems.map(
+    ({ productRecord: _productRecord, sizeRecord: _sizeRecord, ...rest }) => rest
+  );
+
+  return {
+    items: publicItems,
+    resolvedItems,
+    subtotal,
+    discount_amount: discountAmount,
+    coupon_code: couponRecord?.code ?? null,
+    shipping_cost: shippingCost,
+    total,
+    all_available: allAvailable,
+    couponRecord,
+  };
+}
+
+/**
+ * Presupuesto de compra (1.6 / C-6): mismo cálculo que `createStoreOrder`,
+ * sin crear nada. El frontend lo consume para mostrar el desglose real
+ * (incluido el envío) antes de confirmar, y el propio checkout lo vuelve a
+ * calcular al confirmar para verificar que no haya cambiado nada.
+ */
+export async function getCheckoutQuote(input: {
+  items: CartItem[];
+  coupon_code?: string;
+  shipping_type: 'pickup' | 'delivery';
+}): Promise<OrderQuote> {
+  const totals = await computeOrderTotals(input);
+  return {
+    items: totals.items,
+    subtotal: totals.subtotal,
+    discount_amount: totals.discount_amount,
+    coupon_code: totals.coupon_code,
+    shipping_cost: totals.shipping_cost,
+    total: totals.total,
+    all_available: totals.all_available,
+  };
+}
+
 export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutResult> {
   const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
   const BACKEND_URL = process.env.BACKEND_PUBLIC_URL || 'http://localhost:3000';
@@ -553,97 +762,50 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
     if (existing) return buildCheckoutResultFromExisting(existing);
   }
 
-  if (!input.items || input.items.length === 0) {
-    throw new AppError('El carrito está vacío', 400);
-  }
-
-  // 1. Resolver productos y verificar stock
-  const productIds = [...new Set(input.items.map((i) => i.catalog_product_id))];
-  const products = await CatalogProduct.findAll({
-    where: { id: productIds, show_in_store: true, active: true },
-    include: [{ model: CatalogProductSize, as: 'sizes' }],
+  const totals = await computeOrderTotals({
+    items: input.items,
+    coupon_code: input.coupon_code,
+    shipping_type: input.shipping_type,
   });
 
-  const productMap = new Map(products.map((p) => [p.id, p]));
-
-  // Validar y construir items del pedido
-  interface ResolvedItem {
-    catalog_product_id: number;
-    product_title: string;
-    size_name: string | null;
-    quantity: number;
-    unit_price: number;
-    subtotal: number;
-    sizeRecord?: CatalogProductSize;
-    productRecord: CatalogProduct;
+  if (!totals.all_available) {
+    const firstProblem = totals.items.find((i) => !i.disponible);
+    throw new AppError(firstProblem?.motivo ?? 'Hay productos no disponibles en tu pedido', 400);
   }
 
-  const resolvedItems: ResolvedItem[] = [];
-  let subtotal = 0;
-
-  for (const cartItem of input.items) {
-    const product = productMap.get(cartItem.catalog_product_id);
-    if (!product) throw new AppError(`Producto ${cartItem.catalog_product_id} no disponible`, 400);
-
-    const basePrice = Number(product.public_price ?? product.price);
-    const disc = Number((product as any).discount_percentage ?? 0);
-    // Precio a cobrar SIN decimales (regla ≤0,50 abajo / ≥0,51 arriba). Debe
-    // coincidir con effectivePrice del frontend.
-    const price = roundPrice(disc > 0 ? (basePrice * (100 - disc)) / 100 : basePrice);
-    const sizes = (product as any).sizes as CatalogProductSize[];
-    let sizeRecord: CatalogProductSize | undefined;
-
-    if (sizes && sizes.length > 0) {
-      if (!cartItem.size_name) throw new AppError(`Seleccioná un talle para ${product.title}`, 400);
-      sizeRecord = sizes.find((s) => s.size_name === cartItem.size_name);
-      if (!sizeRecord) throw new AppError(`Talle ${cartItem.size_name} no encontrado en ${product.title}`, 400);
-      if (sizeRecord.stock_quantity < cartItem.quantity) {
-        throw new AppError(`Stock insuficiente para ${product.title} — talle ${cartItem.size_name}`, 400);
-      }
-    } else {
-      if (product.stock_quantity < cartItem.quantity) {
-        throw new AppError(`Stock insuficiente para ${product.title}`, 400);
-      }
-    }
-
-    const itemSubtotal = roundPrice(price * cartItem.quantity);
-    subtotal += itemSubtotal;
-
-    resolvedItems.push({
-      catalog_product_id: cartItem.catalog_product_id,
-      product_title: product.title,
-      size_name: cartItem.size_name ?? null,
-      quantity: cartItem.quantity,
-      unit_price: price,
-      subtotal: itemSubtotal,
-      sizeRecord,
-      productRecord: product,
-    });
+  // El total que el cliente vio (el quote) tiene que coincidir con el
+  // recalculado ahora mismo (1.6 / C-6). Si cambió un precio o el costo de
+  // envío entre que se mostró el quote y se confirmó, no cobramos "a
+  // ciegas": 409 con el desglose nuevo para que el cliente lo revise y
+  // reconfirme.
+  if (input.expected_total != null && Math.abs(input.expected_total - totals.total) >= 1) {
+    throw new AppError(
+      'El total cambió desde que armaste el pedido. Revisá el nuevo desglose y confirmá de nuevo.',
+      409,
+      [{
+        quote: {
+          items: totals.items,
+          subtotal: totals.subtotal,
+          discount_amount: totals.discount_amount,
+          coupon_code: totals.coupon_code,
+          shipping_cost: totals.shipping_cost,
+          total: totals.total,
+          all_available: totals.all_available,
+        },
+      }]
+    );
   }
 
-  // 2. Cupón
-  let discountAmount = 0;
-  let couponId: number | null = null;
-  let couponCode: string | null = null;
-  let couponRecord: StoreCoupon | null = null;
-
-  if (input.coupon_code) {
-    const { coupon, discount } = await validateCoupon(input.coupon_code, subtotal);
-    discountAmount = discount;
-    couponId = coupon.id;
-    couponCode = coupon.code;
-    couponRecord = coupon;
-  }
-
-  // 3. Envío
-  let shippingCost = 0;
-  if (input.shipping_type === 'delivery') {
-    const freeMin = parseFloat(await getStoreSetting('free_shipping_min')) || 0;
-    const cost = roundPrice(parseFloat(await getStoreSetting('shipping_cost')) || 0);
-    shippingCost = subtotal - discountAmount >= freeMin && freeMin > 0 ? 0 : cost;
-  }
-
-  const totalAmount = roundPrice(subtotal - discountAmount + shippingCost);
+  const {
+    subtotal,
+    discount_amount: discountAmount,
+    shipping_cost: shippingCost,
+    total: totalAmount,
+    resolvedItems,
+    couponRecord,
+  } = totals;
+  const couponId = couponRecord?.id ?? null;
+  const couponCode = couponRecord?.code ?? null;
 
   // 4. Crear pedido en transacción.
   // Reintentamos si el número de pedido colisiona (dos checkouts simultáneos
@@ -712,7 +874,8 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
               transaction: t,
               type: 'sale',
               source: 'store',
-              catalogProductId: item.productRecord.id,
+              // Ya se validó totals.all_available más arriba: acá siempre hay productRecord.
+              catalogProductId: item.productRecord!.id,
               catalogProductSizeId: item.sizeRecord ? item.sizeRecord.id : null,
               delta: -qty,
               requireAvailable: true,

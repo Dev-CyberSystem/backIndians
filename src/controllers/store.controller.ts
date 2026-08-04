@@ -245,6 +245,19 @@ export async function deleteCoupon(req: Request, res: Response, next: NextFuncti
 
 // ─── Checkout / Pedidos ──────────────────────────────────────────────────────
 
+export async function checkoutQuote(req: Request, res: Response, next: NextFunction) {
+  try {
+    const quote = await store.getCheckoutQuote({
+      items: req.body.items,
+      coupon_code: req.body.coupon_code,
+      shipping_type: req.body.shipping_type ?? 'pickup',
+    });
+    res.json({ success: true, data: quote });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function checkout(req: Request, res: Response, next: NextFunction) {
   try {
     const idempotencyKey = req.headers['idempotency-key'];
