@@ -576,12 +576,173 @@ auditoría original.
 
 1. Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`:
    confirmado que quedan para Fase 4.
-2. Los 5 pedidos cancelados históricos sin stock restituido (ver 1.8 arriba,
-   `ECOM-20260619-0001` y los otros 4): ¿los ajustamos a mano ahora, o los
-   dejamos para cuando hagas el conteo físico?
-3. **Fase 2** (`store_payments`, estados desacoplados, reserva de stock con
-   vencimiento, devoluciones/reintegros, `store_invoices`, integración con
-   caja, reporte de conciliación, permisos granulares, facturación
-   electrónica) depende de las respuestas a la sección 12 del documento de
-   auditoría original — ¿las charlamos ahora o seguimos con otra cosa
-   primero?
+2. ~~Los 5 pedidos cancelados históricos sin stock restituido~~ — **resuelto
+   2026-08-04**: eran clientes semilla de test (`@example.com`, coinciden
+   con `Users.txt`), se borraron de la DB de dev (`DELETE` dentro de
+   transacción, cascada correcta a `store_order_items`, sin movimientos de
+   stock huérfanos — no tenían, son anteriores al ledger de 1.2).
+3. ~~Fase 2 — respuestas a la sección 12~~ — **resuelto 2026-08-04**, ver
+   sección siguiente.
+
+---
+
+## Fase 2 — decisiones de negocio (sección 12 de la auditoría original)
+
+Respondidas por vos el 2026-08-04, verbatim:
+
+| # | Pregunta | Decisión |
+|---|---|---|
+| 1 | Facturación | Hoy no se factura por afuera del sistema. Ya existe un módulo de facturación con ARCA armado (branch `integracionarca`, sin mergear). Factura A no se emite hoy. |
+| 2 | Momento de descuento de stock | **Reserva al crear + descuento al pagar** (alternativa "recomendada" del documento, no el descuento inmediato que implementó Fase 1). |
+| 3 | Ventana de expiración de pedidos impagos | **48 hs, misma ventana para MercadoPago y transferencia** (no diferenciada por medio de pago). |
+| 4 | Devoluciones | **Requiere revisión** (coincide con lo que ya implementa 1.3: el producto no vuelve solo al stock vendible). |
+| 5 | Reintegros | **Se ejecutan desde MercadoPago manualmente** — no hace falta integrar la API de reintegros de MP. |
+| 6 | Envíos | Hay que integrarse con **Andreani** (no alcanza con costo plano/zonificación simple). |
+| 7 | Roles | **No hace falta** un rol operador separado — A-11 queda como está. |
+
+**Nota importante sobre la pregunta 2:** esto es un cambio de diseño respecto
+de lo que Fase 1 (tarea 1.2/1.3) implementó — hoy el stock se descuenta
+inmediato al crear el pedido (`createStoreOrder` → `stockLedger.adjustStock`)
+y se restituye solo si se cancela. Pasar a "reserva al crear + descuento al
+pagar" es una tarea de Fase 2 todavía sin desglosar (implica una tabla/estado
+de reserva con vencimiento — que además calza con la pregunta 3, la ventana
+de 48hs).
+
+### Hallazgo: el módulo de facturación AFIP/ARCA ya existe
+
+Al investigar la pregunta 1, encontré que el módulo de facturación
+electrónica AFIP/ARCA **ya está construido**, en un commit de la branch
+`integracionarca` (backend: 23 archivos; frontend: 7 archivos), pero nunca
+se mergeó a `fixauditoria` y la branch quedó ~5-6 semanas desactualizada. Te
+propuse un plan de merge seguro (sin usar `git merge` real, para no arrastrar
+historia no deseada) y confirmaste "arranca con eso".
+
+**Estado: Resuelto (merge completo, pendiente tu OK para commitear).**
+
+**Técnica usada:** simulación de merge de solo lectura (`git merge-tree
+--write-tree`) para identificar qué archivos combinan limpio (extraídos con
+`git show <tree>:<path>`) vs. cuáles tienen conflicto real; archivos que
+`fixauditoria` nunca tocó desde la divergencia se adoptaron completos
+(`git checkout integracionarca -- <path>`); los conflictos reales (4 en
+backend, 2 en frontend) se resolvieron a mano. Nunca se hizo un merge real de
+git ni se tocó ninguna rama/working tree existente.
+
+**Backend — archivos nuevos:**
+- `src/services/afip.service.ts` — WSAA (autenticación, firma CMS con
+  `node-forge`) + WSFEv1 (autorización de comprobantes vía SOAP,
+  `FECompUltimoAutorizado`/`FECAESolicitar`), cálculo de IVA, numeración
+  correlativa. Exporta `sendInvoiceToAfip`, `sendCatalogInvoiceToAfip`,
+  `sendStoreOrderToAfip`, `getAfipStats`.
+- `src/controllers/afip.controller.ts` + `src/routes/afip.routes.ts` — 3
+  endpoints de envío (`admin`/`billing`) + `GET /afip/stats`.
+- `src/__tests__/api/afip.test.ts` — 6 casos, mockea `soap` por completo y
+  genera su propio certificado self-signed en runtime (no requiere
+  `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` reales para testear). Cubre firma/
+  parseo real, cálculo de IVA, numeración correlativa, persistencia de CAE,
+  rechazo de AFIP → estado `error`, no reenvío si ya está enviado, 403 para
+  vendedor.
+
+**Backend — migraciones nuevas** (renumeradas de 050-054 a **074-078**,
+fecha `20260804`, para no romper la convención de numeración monótona del
+proyecto — no hay colisión funcional real, `sequelize-cli` ordena por nombre
+completo incluida la fecha, pero mezclar dos series "050" distintas hubiera
+sido confuso de leer). Cada una con guarda `describeTable`/`if (!table.x)`
+que las originales de `integracionarca` no tenían:
+- `20260804-074-add-condicion-iva-to-clients.js`
+- `20260804-075-add-afip-to-invoices.js`
+- `20260804-076-add-afip-to-catalog-invoices.js`
+- `20260804-077-add-afip-to-store-orders.js`
+- `20260804-078-seed-afip-settings.js` (siembra `afip_enabled=false`,
+  `afip_environment=homo`, `afip_punto_venta=''`, `afip_concepto_default=1`
+  con `INSERT IGNORE`, no pisa configuración existente)
+
+**Backend — archivos modificados:**
+- `src/models/StoreOrder.ts`, `src/routes/index.ts`,
+  `src/services/catalog.service.ts` — combinados desde el árbol de merge
+  simulado (conservan intactas las adiciones de Fase 1: `stock_restored_at`,
+  `idempotency_key`, `mp_payment_date`, el refactor del ledger).
+- `src/models/Client.ts`, `src/models/Invoice.ts`,
+  `src/models/CatalogInvoice.ts`, `src/services/invoice.service.ts`,
+  `seeders/create-admin.ts`, `seeders/sellers.ts`, `seeders/index.ts` —
+  adoptados completos de `integracionarca` (confirmado que `fixauditoria`
+  nunca los tocó desde la divergencia).
+- `src/services/settings.service.ts` — agregadas las 4 claves AFIP a
+  `VALID_KEYS`.
+- `src/services/order.service.ts` — **fix bundleado en el mismo commit de
+  origen, no específico de AFIP, portado igual por ser pequeño y de mismo
+  patrón que ya existe:** `generateOrderNumber()` pasó de `COUNT` a
+  `MAX`-de-existentes + reintento (`MAX_ORDER_ATTEMPTS = 5` capturando
+  `UniqueConstraintError`), mismo patrón que ya usaba `store.service.ts`
+  para los números `ECOM-`. Corrige una condición de carrera real en la
+  numeración de pedidos internos (`PED-`).
+- `.env.example` — sección nueva documentando `AFIP_CERT_BASE64`/
+  `AFIP_KEY_BASE64` y qué se configura en Settings en vez de en variables de
+  entorno.
+- `package.json`/`package-lock.json` — nuevas dependencias `soap`,
+  `node-forge`, `@types/node-forge` (vía `npm install`, no a mano).
+
+**Frontend — archivos nuevos:** `src/api/afip.ts`,
+`src/components/afip/AfipButton.tsx`, `src/components/afip/AfipSendModal.tsx`.
+
+**Frontend — archivos modificados:**
+- `src/pages/admin/DashboardPage.tsx`, `src/pages/billing/InvoicesPage.tsx` —
+  combinados desde el árbol de merge simulado (auto-merge limpio).
+- `src/types/index.ts` — conflicto real resuelto a mano (la rama
+  `fixauditoria` había agregado campos propios de costos/marca/settings en
+  las mismas zonas del archivo desde la divergencia): tipos nuevos
+  `AfipStatus`/`AfipFields`/`AfipSendParams`/`AfipStats`; `Client` con
+  `condicion_iva`; `Invoice`/`CatalogInvoice extends AfipFields`;
+  `CompanySettings` con los 4 campos AFIP; el `client` inline de
+  `CatalogInvoice.order` con `cuit`/`condicion_iva`.
+- `src/api/store.ts` — `StoreOrder extends AfipFields` (para que
+  `InvoicesPage.tsx` no necesitara castear `as any` para leer
+  `afip_status`/`afip_cae`/etc. del pedido de tienda).
+- `src/pages/admin/SettingsPage.tsx` — conflicto real resuelto a mano: el
+  form único existente (que ya tenía más campos que la versión base de
+  `integracionarca` — `company_website`, `invoice_point_of_sale`, etc., de
+  la feature de "modelo de factura" de Fase 1/previa) se separó en dos
+  forms independientes con `react-hook-form` namespaced (`company.*` /
+  `afip.*`, cada uno con su propio submit y mutation), preservando todos los
+  campos de empresa existentes y agregando la tarjeta nueva "Facturación
+  electrónica AFIP / ARCA" (habilitada, ambiente homo/prod, punto de venta,
+  concepto por defecto) tal como la tenía `integracionarca`.
+- Se corrigieron `any` implícitos que trajo el port (`AfipSendModal.tsx`,
+  `InvoicesPage.tsx`) tipando correctamente en vez de castear — los `any`
+  preexistentes de `DashboardPage.tsx` (imports sin usar, tooltips de
+  Recharts) no se tocaron por ser deuda previa no relacionada.
+
+**Verificación:**
+- Backend: `npm run typecheck` limpio. Suite completa **31/31 suites,
+  169/169 tests**, incluyendo los 6 nuevos de `afip.test.ts`. Columnas AFIP
+  confirmadas presentes en `store_orders`/`invoices`/`catalog_invoices`/
+  `clients` de la DB de dev (sync automático al levantar el server una vez).
+- Frontend: `npx tsc --noEmit` limpio. `npx eslint` sobre todos los archivos
+  tocados por este merge: 0 errores (excepto `DashboardPage.tsx`, con deuda
+  preexistente no introducida por este cambio, confirmada comparando contra
+  `HEAD`).
+- **Verificación manual en navegador** (Playwright, admin logueado): página
+  de Configuración muestra la tarjeta AFIP nueva debajo de Datos de la
+  empresa, con todos los campos previos intactos. Dashboard muestra la
+  tarjeta "Facturación electrónica AFIP" con totales agregados. Facturas
+  muestra el botón AFIP por fila reflejando el estado real (pendiente/
+  reintentar/enviado con nro. de comprobante) y el modal "Enviar a AFIP" abre
+  correctamente prellenado con CUIT/condición IVA del cliente. Cero errores
+  de consola en las 3 pantallas.
+
+**Pendiente:** nada de este trabajo está commiteado todavía (backend ni
+frontend) — falta tu OK explícito para commitear, como es la norma en este
+proyecto. Además, el módulo solo queda **disponible**, no habilitado
+(`afip_enabled=false` por default) — activarlo en producción requiere además
+configurar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` (certificado real de ARCA) y
+`company_cuit`, que son acciones tuyas.
+
+### Fase 2 — desglose de tareas pendiente
+
+Con las 7 decisiones ya tomadas y el módulo AFIP mergeado, falta producir el
+desglose de tareas de Fase 2 (formato 2.1, 2.2, ... como Fase 1) para:
+reserva de stock con vencimiento de 48hs (preguntas 2+3), flujo de
+devoluciones con revisión (pregunta 4, más allá de lo que ya cubre 1.3),
+reflejar reintegros ejecutados manualmente desde MercadoPago (pregunta 5),
+integración de envíos con Andreani (pregunta 6), y habilitar/activar el
+módulo AFIP en el flujo real de facturación de pedidos de tienda (pregunta
+1). Queda para la próxima conversación de planificación.

@@ -10,6 +10,28 @@ import { GarmentType } from '../src/models/GarmentType';
 import { FabricType } from '../src/models/FabricType';
 import { SizeChart } from '../src/models/SizeChart';
 import bcrypt from 'bcryptjs';
+import type { UserRole } from '../src/types';
+
+// findOrCreate no actualiza un registro existente: si el usuario ya estaba en la
+// DB con otro hash/rol, el seed quedaba desfasado (login fallaba). Este helper
+// refresca credenciales y datos cuando el usuario ya existe → seed idempotente.
+async function upsertUser(
+  email: string,
+  defaults: { name: string; password_hash: string; role: UserRole; active?: boolean }
+): Promise<User> {
+  const [user, created] = await User.findOrCreate({
+    where: { email },
+    defaults: { email, active: true, ...defaults },
+  });
+  if (!created) {
+    user.name = defaults.name;
+    user.password_hash = defaults.password_hash;
+    user.role = defaults.role;
+    user.active = defaults.active ?? true;
+    await user.save();
+  }
+  return user;
+}
 
 async function seed() {
   console.log('🌱 Iniciando seeders de desarrollo...');
@@ -20,48 +42,20 @@ async function seed() {
   const adminHash = await bcrypt.hash('Admin123!', 12);
   const sellerHash = await bcrypt.hash('Vendedor123!', 12);
 
-  const [admin] = await User.findOrCreate({
-    where: { email: 'admin@textil.com' },
-    defaults: {
-      name: 'Administrador',
-      email: 'admin@textil.com',
-      password_hash: adminHash,
-      role: 'admin',
-      active: true,
-    },
+  const admin = await upsertUser('admin@textil.com', {
+    name: 'Administrador', password_hash: adminHash, role: 'admin',
   });
 
-  const [billing] = await User.findOrCreate({
-    where: { email: 'facturacion@textil.com' },
-    defaults: {
-      name: 'María Facturación',
-      email: 'facturacion@textil.com',
-      password_hash: adminHash,
-      role: 'billing',
-      active: true,
-    },
+  const billing = await upsertUser('facturacion@textil.com', {
+    name: 'María Facturación', password_hash: adminHash, role: 'billing',
   });
 
-  const [workshop] = await User.findOrCreate({
-    where: { email: 'taller@textil.com' },
-    defaults: {
-      name: 'Juan Taller',
-      email: 'taller@textil.com',
-      password_hash: adminHash,
-      role: 'workshop',
-      active: true,
-    },
+  const workshop = await upsertUser('taller@textil.com', {
+    name: 'Juan Taller', password_hash: adminHash, role: 'workshop',
   });
 
-  const [seller] = await User.findOrCreate({
-    where: { email: 'vendedor@textil.com' },
-    defaults: {
-      name: 'Carlos Vendedor',
-      email: 'vendedor@textil.com',
-      password_hash: sellerHash,
-      role: 'seller',
-      active: true,
-    },
+  const seller = await upsertUser('vendedor@textil.com', {
+    name: 'Carlos Vendedor', password_hash: sellerHash, role: 'seller',
   });
 
   console.log(

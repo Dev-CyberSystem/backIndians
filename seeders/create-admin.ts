@@ -23,7 +23,14 @@ async function createAdmin() {
   if (created) {
     console.log(`✅ Admin creado: ${email} / ${password}`);
   } else {
-    console.log(`ℹ️  El usuario ${email} ya existe (no se modificó)`);
+    // findOrCreate no actualiza: refrescamos hash/rol/estado para que la
+    // contraseña indicada siempre quede vigente (seed idempotente).
+    user.name = name;
+    user.password_hash = hash;
+    user.role = 'admin';
+    user.active = true;
+    await user.save();
+    console.log(`♻️  El usuario ${email} ya existía: credenciales actualizadas a ${password}`);
   }
 
   process.exit(0);

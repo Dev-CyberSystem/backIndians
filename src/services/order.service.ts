@@ -1,4 +1,4 @@
-import { Op, QueryTypes, WhereOptions, Transaction } from 'sequelize';
+import { Op, QueryTypes, WhereOptions, Transaction, UniqueConstraintError } from 'sequelize';
 import { autoCreateInvoiceForOrder } from './invoice.service';
 import { buildOrderCostSnapshot } from './cost.service';
 import { sequelize } from '../config/db';
@@ -115,22 +115,33 @@ interface ListOrdersOptions {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Genera el número de pedido diario (PED-YYYYMMDD-0001, reinicia cada día)
-async function generateOrderNumber(): Promise<string> {
+// Genera el número de pedido diario (PED-YYYYMMDD-0001, reinicia cada día).
+// El MAX corre dentro de la transacción que después inserta el pedido; si dos
+// pedidos se crean concurrentemente pueden obtener el mismo número y la unique
+// constraint rechaza al segundo → createOrder reintenta y recalcula (ve el commit
+// del primero). Por eso este número NO es garantía de unicidad por sí solo.
+// MAX (no COUNT): inmune a huecos por pedidos borrados, que harían que
+// COUNT+1 reuse un número ya existente y choque con la unique constraint.
+async function generateOrderNumber(transaction?: Transaction): Promise<string> {
   const now = new Date();
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   const dateStr = `${y}${m}${d}`;
-  const dayStart = new Date(y, now.getMonth(), now.getDate());
-  const dayEnd   = new Date(y, now.getMonth(), now.getDate() + 1);
+  const prefix = `PED-${dateStr}-`;
 
-  const rows = await sequelize.query<{ cnt: string }>(
-    `SELECT COUNT(*) AS cnt FROM orders WHERE createdAt >= :dayStart AND createdAt < :dayEnd`,
-    { replacements: { dayStart, dayEnd }, type: QueryTypes.SELECT }
+  const rows = await sequelize.query<{ mx: number | null }>(
+    `SELECT MAX(CAST(SUBSTRING(order_number, :from) AS UNSIGNED)) AS mx
+       FROM orders
+      WHERE order_number LIKE :like`,
+    {
+      replacements: { from: prefix.length + 1, like: `${prefix}%` },
+      type: QueryTypes.SELECT,
+      transaction,
+    }
   );
-  const count = Number(rows[0]?.cnt ?? 0);
-  return `PED-${dateStr}-${String(count + 1).padStart(4, '0')}`;
+  const next = Number(rows[0]?.mx ?? 0) + 1;
+  return `${prefix}${String(next).padStart(4, '0')}`;
 }
 
 // Relaciones completas — usadas en detalle de pedido
@@ -439,34 +450,54 @@ export async function createOrder(
   const total_amount = calcTotal(items);
   const seller_id =
     currentUser.role === 'seller' ? currentUser.id : (sellerIdOverride ?? null);
-  const order_number = await generateOrderNumber();
 
-  // Transacción atómica: si cualquier paso falla, revierte todo
-  const order = await sequelize.transaction(async (t) => {
-    const o = await Order.create({
-      order_number,
-      client_id,
-      created_by: currentUser.id,
-      seller_id,
-      status: 'pending',
-      delivery_date: delivery_date ? new Date(delivery_date) : null,
-      notes: notes || null,
-      total_amount,
-    }, { transaction: t });
+  // Transacción atómica con reintento ante colisión del número correlativo:
+  // el número de pedido se calcula por MAX del día, que no es atómico. Si dos
+  // pedidos concurrentes obtienen el mismo número, la unique constraint
+  // rechaza al segundo; reintentamos con una transacción nueva, cuyo MAX ya ve
+  // el commit del primero y da el siguiente número.
+  const MAX_ORDER_ATTEMPTS = 5;
+  let order: Order | undefined;
 
-    await OrderItem.bulkCreate(buildItemsPayload(o.id, items), { transaction: t });
+  for (let attempt = 1; attempt <= MAX_ORDER_ATTEMPTS; attempt++) {
+    try {
+      order = await sequelize.transaction(async (t) => {
+        const order_number = await generateOrderNumber(t);
 
-    // Congela el detalle de costos con los costos vigentes de las prendas del cliente
-    const createdItems = await OrderItem.findAll({
-      where: { order_id: o.id }, order: [['id', 'ASC']], transaction: t,
-    });
-    await buildOrderCostSnapshot(o.id, client_id, createdItems, t);
+        const o = await Order.create({
+          order_number,
+          client_id,
+          created_by: currentUser.id,
+          seller_id,
+          status: 'pending',
+          delivery_date: delivery_date ? new Date(delivery_date) : null,
+          notes: notes || null,
+          total_amount,
+        }, { transaction: t });
 
-    await recordStatusChange(o.id, null, 'pending', currentUser.id, 'Pedido creado', t);
-    await autoCreateInvoiceForOrder(o, t);
+        await OrderItem.bulkCreate(buildItemsPayload(o.id, items), { transaction: t });
 
-    return o;
-  });
+        // Congela el detalle de costos con los costos vigentes de las prendas del cliente
+        const createdItems = await OrderItem.findAll({
+          where: { order_id: o.id }, order: [['id', 'ASC']], transaction: t,
+        });
+        await buildOrderCostSnapshot(o.id, client_id, createdItems, t);
+
+        await recordStatusChange(o.id, null, 'pending', currentUser.id, 'Pedido creado', t);
+        await autoCreateInvoiceForOrder(o, t);
+
+        return o;
+      });
+      break; // éxito
+    } catch (err) {
+      if (err instanceof UniqueConstraintError && attempt < MAX_ORDER_ATTEMPTS) {
+        continue; // colisión de order_number → regenerar y reintentar
+      }
+      throw err;
+    }
+  }
+
+  if (!order) throw new AppError('No se pudo generar el pedido. Intentá nuevamente.', 500);
 
   const fullOrder = await getOrderById(order.id);
 
