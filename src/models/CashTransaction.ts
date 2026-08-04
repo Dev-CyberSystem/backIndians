@@ -12,7 +12,7 @@ export class CashTransaction extends Model<
   declare amount: number;
   declare description: string;
   declare date: string;
-  declare reference_type: CreationOptional<'invoice' | 'order' | null>;
+  declare reference_type: CreationOptional<'invoice' | 'order' | 'store_order' | null>;
   declare reference_id: CreationOptional<number | null>;
   declare transfer_account_id: CreationOptional<number | null>;
   declare created_by: number;
@@ -30,7 +30,7 @@ CashTransaction.init(
     amount:              { type: DataTypes.DECIMAL(12, 2), allowNull: false },
     description:         { type: DataTypes.STRING(255), allowNull: false },
     date:                { type: DataTypes.DATEONLY, allowNull: false },
-    reference_type:      { type: DataTypes.ENUM('invoice', 'order'), allowNull: true },
+    reference_type:      { type: DataTypes.ENUM('invoice', 'order', 'store_order'), allowNull: true },
     reference_id:        { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
     transfer_account_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
     created_by:          { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },

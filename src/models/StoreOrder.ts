@@ -62,6 +62,8 @@ export class StoreOrder extends Model<
   declare stock_reserved_at: CreationOptional<Date | null>;
   /** Se setea al confirmarse el pago: la reserva pasó a descuento definitivo de stock_quantity (2.1). */
   declare stock_confirmed_at: CreationOptional<Date | null>;
+  /** Se setea cuando se registró el ingreso en caja (2.3). Independiente de stock_confirmed_at. */
+  declare cash_recorded_at: CreationOptional<Date | null>;
   declare idempotency_key: CreationOptional<string | null>;
   declare payment_method: CreationOptional<StorePaymentMethod>;
   declare payment_proof_url: CreationOptional<string | null>;
@@ -129,6 +131,7 @@ StoreOrder.init(
     stock_restored_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     stock_reserved_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     stock_confirmed_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    cash_recorded_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     idempotency_key: { type: DataTypes.STRING(64), allowNull: true, unique: true },
     payment_method: {
       type: DataTypes.ENUM('mercadopago', 'cash', 'bank_transfer'),

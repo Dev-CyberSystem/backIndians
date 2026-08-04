@@ -742,7 +742,7 @@ configurar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` (certificado real de ARCA) y
 |---|---|---|
 | 2.1 | 1.2 | **Resuelto** — ver detalle abajo. |
 | 2.2 | 2.1 | **Resuelto** — ver detalle abajo. |
-| 2.3 | — | Pendiente. |
+| 2.3 | — | **Resuelto** — ver detalle abajo. |
 | 2.4 | 2.1 | Pendiente. |
 | 2.5 | Merge AFIP (resuelto) | Pendiente. |
 | 2.6 | — | Pendiente (necesita research spike). |
@@ -898,3 +898,73 @@ un pedido reciente (dentro de la ventana) no se toca. Suite completa:
 (`npm run dev`) para confirmar que el scheduler arranca sin romper nada —
 apareció el log `jobs.scheduler.started` mencionando los 3 jobs (10 min /
 1 hora / diario 03:00).
+
+---
+
+### 2.3 — Conectar la tienda a caja
+
+**Estado: Resuelto.**
+
+Cierra la parte de cobros de C-7 ("La tienda online está desconectada de
+caja, facturación y reportes administrativos"): al confirmarse el pago de un
+pedido de tienda (mismo disparador de 2.1 — salir de `pending_payment` hacia
+cualquier estado no cancelado), se registra automáticamente el ingreso en
+`cash_transactions`.
+
+**Dos puntos de diseño reales que aparecieron al implementar, resueltos con
+el usuario antes de escribir código** (pregunta explícita vía opción
+múltiple, eligió la recomendada):
+1. **`cash_transactions.created_by` es NOT NULL**, pero no hay ningún admin
+   humano detrás de una confirmación automática (webhook de MP, job de
+   reconciliación/expiración). Se resolvió creando un usuario **"Sistema"**
+   seedeado (migración 084, `active:false`, password inutilizable — nunca
+   puede loguearse, solo existe como ancla de FK). Si un admin confirmó el
+   pago a mano, se le atribuye a él/ella; si fue automático, al usuario
+   Sistema.
+2. **No existía ninguna cuenta de caja marcada como "la de la tienda
+   online".** Se resolvió con un setting nuevo `store_cash_account_id`
+   (Configuración → Tienda online → sección "Caja") — UNA sola cuenta para
+   MercadoPago, efectivo y transferencia juntos (no una por método de pago,
+   para no pedirle al usuario configurar de más sin que lo haya pedido).
+
+**Backend:**
+- **Migraciones**: `084` (usuario Sistema), `085` (categoría del sistema
+  "Ventas tienda online", `is_system:true`, income), `086` (agrega
+  `'store_order'` al ENUM `cash_transactions.reference_type`), `087`
+  (`store_orders.cash_recorded_at`, idempotencia — separada de
+  `stock_confirmed_at` a propósito: si falla por falta de cuenta configurada,
+  un reintento futuro no depende de que el stock, que sí se confirmó bien,
+  se vuelva a tocar).
+- **`cash.service.ts`**: se extrajo `createTransactionCore()` (validación +
+  efecto en saldo + insert) de `createTransaction()`, y se agregó
+  `createSystemTransaction()` — misma lógica, pero requiere una transacción
+  externa en vez de abrir la propia (mismo patrón que `stockLedger.
+  adjustStock`), para que la carga en caja sea atómica con la confirmación
+  del pago, no un efecto secundario best-effort tipo mail.
+- **`store.service.ts`**: `recordStoreOrderCashIncome()` (privada, misma
+  forma que `confirmStoreOrderStock`/`restoreStoreOrderStock`) — si
+  `store_cash_account_id` no está configurado, **no bloquea la confirmación
+  del pago** (la plata ya se cobró; el asiento es una consecuencia
+  administrativa), solo loguea un warning. Enganchada en
+  `recordStoreOrderStatusChange` junto a `confirmStoreOrderStock`.
+- **`settings.service.ts`**: `store_cash_account_id` agregado a
+  `VALID_KEYS`.
+
+**Frontend**: nueva sección "Caja" en `EcommerceSettingsPage.tsx` (Select
+poblado con `GET /cash/accounts`), placeholder "Sin configurar — no se
+registran ingresos automáticos" cuando no hay nada seteado.
+
+**Tests:** nuevo `src/__tests__/api/store-cash-income.test.ts` (3 casos):
+admin marca un pedido en efectivo como pagado a mano → ingreso creado,
+atribuido a él; pago confirmado automáticamente (mock de
+`searchPaymentsByReference`, mismo patrón que `reconcile-payments.test.ts`)
+→ atribuido al usuario Sistema; sin cuenta configurada → el pago se confirma
+igual, sin crear ningún asiento. Suite completa: **34/34 suites,
+181/181 tests.**
+
+**Verificación:** `npm run typecheck` (backend) y `npx tsc --noEmit` +
+`eslint` (frontend, archivo tocado) limpios — el único warning de eslint en
+`EcommerceSettingsPage.tsx` es preexistente (confirmado con `git stash`).
+Verificación manual en navegador (Playwright): la sección "Caja" aparece en
+Configuración → Tienda online con el Select y el placeholder correctos, cero
+errores de consola.

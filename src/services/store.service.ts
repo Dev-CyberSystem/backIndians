@@ -30,6 +30,8 @@ import { enqueueEmail } from '../utils/emailQueue';
 import { generateInvoicePdf } from '../utils/store.pdf';
 import { getAllSettings } from './settings.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
+import { CashTransactionCategory } from '../models/CashTransactionCategory';
+import { createSystemTransaction } from './cash.service';
 import {
   STORE_STATUS_LABELS,
   isValidStoreTransition,
@@ -1222,6 +1224,102 @@ export async function confirmStoreOrderStock(
   await locked.update({ stock_confirmed_at: new Date() }, { transaction });
 }
 
+const SYSTEM_USER_EMAIL = 'sistema@indians.internal';
+let cachedSystemUserId: number | null = null;
+
+/**
+ * Id del usuario "Sistema" (migración 084), responsable de las transacciones
+ * de caja que crea el sistema sin que haya un admin humano detrás (2.3) —
+ * p. ej. el webhook de MercadoPago confirmando un pago. Cacheado en memoria:
+ * es una fila seedeada que no cambia en la vida del proceso.
+ */
+async function getSystemUserId(transaction: Transaction): Promise<number> {
+  if (cachedSystemUserId !== null) return cachedSystemUserId;
+  const user = await User.findOne({ where: { email: SYSTEM_USER_EMAIL }, transaction });
+  if (!user) {
+    throw new AppError(
+      'Falta el usuario "Sistema" (migración 084) — no se puede registrar el ingreso en caja',
+      500
+    );
+  }
+  cachedSystemUserId = user.id;
+  return user.id;
+}
+
+const STORE_CASH_CATEGORY_NAME = 'Ventas tienda online';
+
+/**
+ * Registra el ingreso en caja al confirmarse el pago de un pedido de tienda
+ * (2.3 — cierra C-7 para el circuito de cobros). Requiere que el admin haya
+ * configurado `store_cash_account_id` en Configuración — si no está
+ * configurado, NO bloquea la confirmación del pago (la plata ya se cobró,
+ * el asiento de caja es una consecuencia administrativa, no al revés):
+ * solo loguea un warning y queda pendiente hasta que se configure la
+ * cuenta (el reporte de conciliación de 2.7 puede detectar estos casos).
+ *
+ * `createdBy`: si un admin confirmó el pago a mano, se le atribuye a él/ella;
+ * si fue automático (webhook de MP, job de reconciliación/expiración), se
+ * atribuye al usuario "Sistema".
+ *
+ * Idempotente por `cash_recorded_at`, columna separada de
+ * `stock_confirmed_at` a propósito: si falta configurar la cuenta, un
+ * reintento futuro puede completar el asiento de caja sin depender de que
+ * el stock (que sí se confirmó bien) se vuelva a tocar.
+ */
+async function recordStoreOrderCashIncome(
+  order: StoreOrder,
+  changedBy: number | null,
+  transaction: Transaction
+): Promise<void> {
+  const locked = await StoreOrder.findByPk(order.id, {
+    lock: Transaction.LOCK.UPDATE,
+    transaction,
+  });
+  if (!locked || locked.cash_recorded_at) return;
+
+  const settings = await getAllSettings();
+  const accountId = Number(settings.store_cash_account_id);
+  if (!accountId) {
+    logger.warn('store.cashIncome.accountNotConfigured', {
+      meta: { orderId: order.id, orderNumber: order.order_number },
+    });
+    return;
+  }
+
+  const category = await CashTransactionCategory.findOne({
+    where: { name: STORE_CASH_CATEGORY_NAME, is_system: true },
+    transaction,
+  });
+  if (!category) {
+    logger.error(
+      'store.cashIncome.missingCategory',
+      new Error(`Falta la categoría "${STORE_CASH_CATEGORY_NAME}" (migración 085)`),
+      { meta: { orderId: order.id, orderNumber: order.order_number } }
+    );
+    return;
+  }
+
+  const createdBy = changedBy ?? (await getSystemUserId(transaction));
+  const today = new Date().toISOString().slice(0, 10);
+
+  await createSystemTransaction(
+    {
+      account_id: accountId,
+      category_id: category.id,
+      type: 'income',
+      amount: Number(locked.total_amount),
+      description: `Pedido tienda online ${locked.order_number}`,
+      date: today,
+      reference_type: 'store_order',
+      reference_id: locked.id,
+    },
+    createdBy,
+    transaction
+  );
+
+  await locked.update({ cash_recorded_at: new Date() }, { transaction });
+}
+
 export async function restoreStoreOrderStock(
   order: StoreOrder,
   reason: string,
@@ -1420,6 +1518,10 @@ export async function recordStoreOrderStatusChange(
           options.changedBy ?? null,
           t
         );
+        // Ingreso en caja (2.3), mismo disparador que la confirmación de
+        // stock — ver recordStoreOrderCashIncome para el detalle de por qué
+        // no bloquea el pago si falta configurar la cuenta.
+        await recordStoreOrderCashIncome(order, options.changedBy ?? null, t);
       }
 
       // Restituir stock y liberar cupón al entrar en cancelled (C-1/A-9).
