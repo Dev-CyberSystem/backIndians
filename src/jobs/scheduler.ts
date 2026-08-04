@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { logger } from '../utils/logger';
 import { reconcilePendingPayments } from './reconcilePayments';
 import { reportDailyInconsistencies } from './reportInconsistencies';
+import { expireStaleOrders } from './expireStaleOrders';
 
 /**
  * Scheduler de jobs en proceso (1.8 / C-8). `node-cron` corre dentro del
@@ -36,7 +37,17 @@ export function startScheduledJobs(): void {
     }
   });
 
+  // Cada hora: pedidos pending_payment de más de 48hs (2.2) — la ventana es
+  // amplia, no hace falta más frecuencia que reconcilePendingPayments.
+  cron.schedule('0 * * * *', async () => {
+    try {
+      await expireStaleOrders();
+    } catch (err) {
+      logger.error('jobs.scheduler.expireStaleOrdersFailed', err);
+    }
+  });
+
   logger.info('jobs.scheduler.started', {
-    message: 'Jobs de reconciliación programados (cada 10 min) y de inconsistencias (diario 03:00)',
+    message: 'Jobs de reconciliación (10 min), expiración de pedidos (1 hora) e inconsistencias (diario 03:00) programados',
   });
 }

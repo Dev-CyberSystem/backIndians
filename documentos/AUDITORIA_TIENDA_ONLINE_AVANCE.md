@@ -741,7 +741,7 @@ configurar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` (certificado real de ARCA) y
 | Tarea | Depende de | Estado |
 |---|---|---|
 | 2.1 | 1.2 | **Resuelto** — ver detalle abajo. |
-| 2.2 | 2.1 | Pendiente. |
+| 2.2 | 2.1 | **Resuelto** — ver detalle abajo. |
 | 2.3 | — | Pendiente. |
 | 2.4 | 2.1 | Pendiente. |
 | 2.5 | Merge AFIP (resuelto) | Pendiente. |
@@ -847,3 +847,54 @@ positivo. Suite completa: **32/32 suites, 173/173 tests.**
 
 **Verificación:** `npm run typecheck` limpio. Columnas y ENUM nuevo
 confirmados en la DB de dev (`npm run dev` una vez + `describeTable`).
+
+---
+
+### 2.2 — Expiración automática de pedidos impagos a 48hs
+
+**Estado: Resuelto.**
+
+Implementa la decisión de negocio #3 ("48hs, mismo tiempo para MercadoPago y
+transferencia"), sobre la reserva de stock de 2.1.
+
+- **`src/jobs/expireStaleOrders.ts`** (nuevo, mismo patrón que
+  `reconcilePayments.ts`/`reportInconsistencies.ts` de 1.8): busca pedidos
+  `pending_payment` con `createdAt` de más de `ORDER_EXPIRY_HOURS` (default
+  48) y los cancela vía `recordStoreOrderStatusChange(..., 'cancelled')` —
+  no reimplementa nada: hereda gratis la liberación de la reserva de stock
+  (2.1, `restoreStoreOrderStock`), la liberación del cupón y el mail
+  "cancelado" al comprador (la plantilla ya existía). Un error en un pedido
+  no frena el resto del lote.
+- **Enganchado en `src/jobs/scheduler.ts`**: corre cada hora (`0 * * * *`) —
+  con una ventana de 48hs no hace falta más frecuencia que los 10 min de
+  `reconcilePendingPayments`.
+- **`ORDER_EXPIRY_HOURS`** nueva env var en `.env.example` (default 48).
+
+**Dos exclusiones de diseño, no pedidas explícitamente pero necesarias para
+no cancelar pedidos que en los hechos están bien** (mismo criterio que las
+decisiones no obvias de 1.5/1.6 — documentadas, no asumidas en silencio):
+
+1. **Efectivo queda afuera.** La pregunta original de la auditoría
+   (sección 12, #3) comparaba MercadoPago vs. transferencia — efectivo
+   implica pago/retiro en persona, un perfil de riesgo distinto a "pago
+   online abandonado". No tiene sentido cancelarlo solo por tiempo.
+2. **Transferencia con comprobante ya subido (`payment_proof_url`) queda
+   afuera.** El comprador ya hizo su parte (subió el comprobante); lo único
+   que falta es que un admin lo revise y confirme. Cancelarlo automáticamente
+   cancelaría un pedido que en los hechos puede estar pagado. Sin
+   comprobante subido, expira igual que MercadoPago (nunca llegó a intentar
+   pagar). Un pedido de transferencia "colgado" esperando revisión por mucho
+   tiempo es candidato para el reporte de conciliación de 2.7, no para
+   cancelación automática.
+
+**Tests:** nuevo `src/__tests__/api/expire-stale-orders.test.ts` (5 casos):
+MercadoPago vencido se cancela y libera la reserva; transferencia vencida
+sin comprobante se cancela igual; transferencia vencida CON comprobante NO
+se cancela (reserva sigue en pie); efectivo no expira nunca automáticamente;
+un pedido reciente (dentro de la ventana) no se toca. Suite completa:
+**33/33 suites, 178/178 tests.**
+
+**Verificación:** `npm run typecheck` limpio. Levanté el server real
+(`npm run dev`) para confirmar que el scheduler arranca sin romper nada —
+apareció el log `jobs.scheduler.started` mencionando los 3 jobs (10 min /
+1 hora / diario 03:00).
