@@ -27,7 +27,7 @@ Convención: pendiente / en curso / resuelto / descartado.
 | 1.4 | A-1 | **Resuelto** | Ver detalle abajo. |
 | 1.5 | A-7 | **Resuelto** | Ver detalle abajo. Casos 13/14/15 de prueba pasan. |
 | 1.6 | C-6, A-3, A-4 | **Resuelto** | Ver detalle abajo. Casos 4/5/6 de prueba pasan. |
-| 1.8 | C-8 (parcial) | Pendiente (depende de 1.1) | — |
+| 1.8 | C-8 (parcial) | **Resuelto** | Ver detalle abajo. **Fase 1 completa.** |
 
 ---
 
@@ -492,14 +492,96 @@ en `StoreCheckoutPage.tsx` son preexistentes (confirmado con `git diff`).
 
 ---
 
+### 1.8 — Job de reconciliación de pagos
+
+**Estado: Resuelto. Cierra la Fase 1 completa.**
+
+- **Mecanismo elegido (confirmado por vos):** `node-cron` dentro del mismo
+  proceso del backend — no agrega infraestructura nueva, Railway ya lo
+  mantiene vivo 24/7.
+- **`src/jobs/reconcilePayments.ts`** — cada 10 minutos: busca
+  `StoreOrder` en `pending_payment` con `payment_method='mercadopago'`
+  creados hace más de `RECONCILE_STALE_MINUTES` (default 5), y para cada
+  uno llama a `confirmStorePayment({ orderNumber })` — la MISMA función que
+  ya usa el retorno del cliente desde MP, así que no reimplementa nada:
+  hereda gratis la idempotencia, la validación de monto/moneda y el
+  descarte de eventos desordenados de 1.5. 5 min de gracia + 10 min de
+  intervalo = un pago acreditado sin webhook se detecta en ≤15 min (cumple
+  la aceptación tal cual). Un error en un pedido no frena el resto del lote.
+- **`src/jobs/reportInconsistencies.ts`** — job diario (03:00): detecta
+  pedidos `cancelled` sin `stock_restored_at` (nunca debería pasar dado el
+  diseño de 1.3 — es red de seguridad) y pedidos con `mp_status='approved'`
+  que se quedaron en `pending_payment` (nunca debería pasar dado 1.5). Por
+  ahora solo `logger.error` estructurado — no hay bandeja de alertas de
+  admin persistente todavía (B-7 de la auditoría, queda para Fase 3/4).
+- **`src/jobs/scheduler.ts`** + enganche en `server.ts` (después de que el
+  server empieza a escuchar). Desactivable con `RECONCILE_JOB_ENABLED=0`;
+  siempre desactivado bajo test (`JEST_WORKER_ID`) para no interferir con
+  la DB de los tests ni dejar timers colgados.
+- Nueva dependencia: `node-cron` (instalada con `npm install`, no a mano).
+- Env vars nuevas documentadas en `.env.example`:
+  `RECONCILE_JOB_ENABLED` (default activo), `RECONCILE_STALE_MINUTES`
+  (default 5).
+
+**Hallazgo real durante el testing (no es un bug, es información):** el job
+de inconsistencias, corrido contra la DB de dev, encontró **5 pedidos
+cancelados reales sin stock restituido**: `ECOM-20260619-0001`,
+`ECOM-20260621-0001`, `ECOM-20260621-0002`, `ECOM-20260622-0001`,
+`ECOM-20260622-0002`. Son anteriores a que existiera la restitución
+automática (1.3, implementada hoy), así que es exactamente el desvío
+histórico que la auditoría original ya anticipaba ("el desvío histórico no
+se puede reconstruir sin movimientos" — hallazgo C-1). Te lo dejo marcado
+acá para que decidas si conviene un conteo físico / ajuste manual de esos 5
+pedidos.
+
+**Tests:** nuevo `src/__tests__/api/reconcile-payments.test.ts` (3 casos,
+con `jest.spyOn` sobre `searchPaymentsByReference`, mismo patrón que
+`webhook-robustness.test.ts`): un pedido viejo con pago ya aprobado en MP se
+acredita solo; un pedido recién creado (dentro de la ventana de gracia) no
+se toca ni gasta una llamada a MP; el reporte diario detecta un cancelado
+sin restituir (verificado con los 5 casos reales de arriba + 1 inyectado
+por el test). Suite completa: **30/30 suites, 163/163 tests.**
+
+**Verificación:** `npm run typecheck` limpio. Además levanté el server real
+(`npm run dev`) para confirmar que el scheduler arranca sin romper nada —
+apareció el log `jobs.scheduler.started`. De paso until encontré y limpié
+dos procesos de dev colgados de pruebas manuales anteriores (1.6) que
+habían quedado escuchando en los puertos 3000 y 5173.
+
+---
+
+## Fase 1 — cierre
+
+Los 9 hallazgos críticos con tarea propia en Fase 1 (1.1 a 1.10) están
+resueltos en código. Quedan 2 cosas que dependen de vos, no de mí:
+
+1. **Acción manual en Railway** (de la tarea 1.1): generar
+   `MP_WEBHOOK_SECRET` en el panel de MercadoPago y setear esa variable +
+   `BACKEND_PUBLIC_URL` en Railway **antes** de desplegar — el backend no
+   arranca en producción sin ellas.
+2. **Rotar credenciales** (de la tarea 1.9): las que estaban en `.env.bak`
+   y en `Users.txt` (ver el detalle de cada una más arriba en este
+   documento).
+
+El resto del plan original (Fases 2, 3 y 4 — `store_payments`, estados
+desacoplados, reserva de stock con vencimiento, devoluciones/reintegros,
+`store_invoices`, integración con caja, reporte de conciliación, permisos
+granulares, facturación electrónica) depende de decisiones de negocio que
+todavía no se tomaron — quedan listadas en la sección 12 del documento de
+auditoría original.
+
+---
+
 ## Preguntas / decisiones pendientes de tu parte
 
 1. Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`:
    confirmado que quedan para Fase 4.
-2. Con 1.6 resuelta, solo queda **1.8** (job de reconciliación de pagos)
-   para cerrar toda la Fase 1. Necesito que definas: ¿`node-cron` corriendo
-   dentro del proceso del backend (más simple, pero depende de que el
-   proceso esté vivo — Railway lo mantiene arriba así que no debería ser
-   problema), o un cron job separado de Railway que le pegue a un endpoint
-   propio? Mi recomendación es `node-cron` en el proceso — no agrega
-   infraestructura nueva y este backend ya corre 24/7 en Railway.
+2. Los 5 pedidos cancelados históricos sin stock restituido (ver 1.8 arriba,
+   `ECOM-20260619-0001` y los otros 4): ¿los ajustamos a mano ahora, o los
+   dejamos para cuando hagas el conteo físico?
+3. **Fase 2** (`store_payments`, estados desacoplados, reserva de stock con
+   vencimiento, devoluciones/reintegros, `store_invoices`, integración con
+   caja, reporte de conciliación, permisos granulares, facturación
+   electrónica) depende de las respuestas a la sección 12 del documento de
+   auditoría original — ¿las charlamos ahora o seguimos con otra cosa
+   primero?

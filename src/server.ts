@@ -7,6 +7,7 @@ import { initSocket } from './config/socket';
 import { logger } from './utils/logger';
 import { ensureGarmentCostItems } from './services/cost.service';
 import { ensureSchema } from './config/ensureSchema';
+import { startScheduledJobs } from './jobs/scheduler';
 
 // Importar modelos para que Sequelize los registre y se creen las asociaciones
 import './models/index';
@@ -84,6 +85,9 @@ async function main() {
         message: `Servidor corriendo en http://localhost:${PORT}`,
       });
     });
+
+    // 5. Jobs programados (reconciliación de pagos + inconsistencias diarias)
+    startScheduledJobs();
   } catch (error) {
     logger.error('startup.failed', error);
     process.exit(1);
