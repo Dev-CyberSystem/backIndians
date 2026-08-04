@@ -267,9 +267,22 @@ export async function addProductImage(
     ).end(file.buffer);
   });
 
+  // Medida estándar única para TODO el catálogo: retrato 3:4 a 1200×1600, recortado
+  // con gravedad automática (mantiene el sujeto) y entregado con formato/calidad
+  // automáticos (f_auto/q_auto). Guardamos la URL ya transformada: el original queda
+  // intacto en Cloudinary y la tienda (que renderiza `img.url` con object-cover 3:4)
+  // recibe siempre la misma proporción, sin recortes desparejos entre productos.
+  const url = cloudinary.url(result.public_id, {
+    secure: true,
+    transformation: [
+      { aspect_ratio: '3:4', width: 1200, crop: 'fill', gravity: 'auto' },
+      { fetch_format: 'auto', quality: 'auto' },
+    ],
+  });
+
   return CatalogProductImage.create({
     product_id: productId,
-    url: result.secure_url,
+    url,
     cloudinary_public_id: result.public_id,
     sort_order: images.length,
   });
