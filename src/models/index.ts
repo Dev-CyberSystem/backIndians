@@ -191,6 +191,9 @@ StoreOrderStatusHistory.belongsTo(User, { foreignKey: 'changed_by', as: 'changer
 StoreOrderItem.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
 CatalogProduct.hasMany(StoreOrderItem, { foreignKey: 'catalog_product_id', as: 'store_order_items' });
 
+// StoreOrderItem ↔ CatalogProductSize
+StoreOrderItem.belongsTo(CatalogProductSize, { foreignKey: 'catalog_product_size_id', as: 'size' });
+
 // StoreOrder ↔ StoreCoupon
 StoreCoupon.hasMany(StoreOrder, { foreignKey: 'coupon_id', as: 'orders' });
 StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });

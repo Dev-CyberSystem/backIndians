@@ -23,7 +23,7 @@ Convención: pendiente / en curso / resuelto / descartado.
 | 1.1 | C-2, C-3 | **Resuelto (código) — pendiente acción manual** | Ver detalle abajo. |
 | 1.2 | C-5 | **Resuelto (con 2 exclusiones documentadas)** | Ver detalle abajo. |
 | 1.3 | C-1, A-9 | **Resuelto (talle por `size_name`, sin esperar 1.10)** | Ver detalle abajo. |
-| 1.10 | M-8 | Pendiente | Ya no bloquea a 1.3 (resuelto con fallback). |
+| 1.10 | M-8 | **Resuelto** | Ver detalle abajo. `restoreStoreOrderStock` (1.3) ahora prefiere el FK. |
 | 1.4 | A-1 | **Resuelto** | Ver detalle abajo. |
 | 1.5 | A-7 | Pendiente (depende de 1.1) | — |
 | 1.6 | C-6, A-3, A-4 | Pendiente | — |
@@ -348,14 +348,44 @@ líneas).
 
 ---
 
+### 1.10 — catalog_product_size_id en store_order_items
+
+**Estado: Resuelto.**
+
+- **Migración 070** (`20260804-070-store-order-items-size-id.js`): columna
+  `catalog_product_size_id` nullable + FK `ON DELETE SET NULL` a
+  `catalog_product_sizes`, con índice. Mismo patrón (`addColumn` con
+  `references` inline) que ya usaba `order_items.stock_fabric_id`.
+- **Migración 071** (`20260804-071-backfill-store-order-items-size-id.js`,
+  **separada**, tal como pedía la tarea): backfill por
+  `UPDATE ... JOIN` que resuelve `(catalog_product_id, size_name)` **solo
+  cuando hay coincidencia unívoca** en `catalog_product_sizes` (agrupando por
+  producto+talle con `HAVING COUNT(*) = 1`) — si el talle es ambiguo, ya no
+  existe, o el ítem no tiene `size_name` (producto sin talles), se deja
+  `NULL`. No inventa datos. Idempotente (solo toca filas todavía `NULL`) —
+  lo verifiqué corriéndola dos veces contra la DB de dev: la primera
+  backfillió 75/75 filas candidatas (sin ambigüedades en los datos actuales),
+  la segunda afectó 0.
+- `createStoreOrder` ahora guarda `catalog_product_size_id` en cada
+  `StoreOrderItem` (ya tenía `item.sizeRecord` resuelto).
+- **`restoreStoreOrderStock` (1.3) actualizada**: ahora prefiere
+  `item.catalog_product_size_id` directo; el fallback por `size_name` (con
+  el log de error si no resuelve) queda solo para pedidos históricos sin
+  backfill posible o talles borrados después.
+
+**Tests:** nuevo `src/__tests__/api/store-order-item-size-id.test.ts` —
+checkout con talle guarda el FK correcto en el ítem; cancelar usa ese FK
+directo (verificado con el movimiento de stock linkeado al talle, no
+resuelto por texto). Suite completa: **27/27 suites, 152/152 tests.**
+
+**Verificación:** `npm run typecheck` limpio.
+
+---
+
 ## Preguntas / decisiones pendientes de tu parte
 
-1. ¿Seguimos con **1.10** ahora (agregar `catalog_product_size_id` a
-   `store_order_items`, con backfill), para que `restoreStoreOrderStock` deje
-   de depender del fallback por `size_name`? Ya no bloquea nada — es una
-   mejora de robustez, no una dependencia dura.
-2. Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`:
+1. Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`:
    confirmado que quedan para Fase 4.
-3. ¿Sigo con **1.5** (idempotencia y robustez de webhooks — tabla
+2. ¿Sigo con **1.5** (idempotencia y robustez de webhooks — tabla
    `webhook_events`, lock `FOR UPDATE`, validación de importe/moneda)? Es la
    siguiente en el orden del plan y depende de 1.1 (ya resuelta).

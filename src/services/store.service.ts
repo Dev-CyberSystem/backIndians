@@ -687,6 +687,7 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
             catalog_product_id: item.catalog_product_id,
             product_title: item.product_title,
             size_name: item.size_name,
+            catalog_product_size_id: item.sizeRecord ? item.sizeRecord.id : null,
             quantity: item.quantity,
             unit_price: item.unit_price,
             subtotal: item.subtotal,
@@ -935,7 +936,12 @@ export async function restoreStoreOrderStock(
   for (const item of items) {
     let catalogProductSizeId: number | null = null;
 
-    if (item.size_name) {
+    if (item.catalog_product_size_id) {
+      // Vínculo directo (1.10) — pedidos creados desde que existe la columna.
+      catalogProductSizeId = item.catalog_product_size_id;
+    } else if (item.size_name) {
+      // Fallback por texto (pedidos históricos sin backfill posible por
+      // ambigüedad, o talle borrado desde entonces).
       const size = await CatalogProductSize.findOne({
         where: { product_id: item.catalog_product_id, size_name: item.size_name },
         transaction,

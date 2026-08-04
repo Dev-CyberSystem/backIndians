@@ -16,6 +16,7 @@ export class StoreOrderItem extends Model<
   declare catalog_product_id: number;
   declare product_title: string;
   declare size_name: CreationOptional<string | null>;
+  declare catalog_product_size_id: CreationOptional<number | null>;
   declare quantity: number;
   declare unit_price: number;
   declare subtotal: number;
@@ -30,6 +31,7 @@ StoreOrderItem.init(
     catalog_product_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
     product_title: { type: DataTypes.STRING(200), allowNull: false },
     size_name: { type: DataTypes.STRING(50), allowNull: true },
+    catalog_product_size_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true, defaultValue: null },
     quantity: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false, defaultValue: 1 },
     unit_price: {
       type: DataTypes.DECIMAL(12, 2),
