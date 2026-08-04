@@ -25,7 +25,7 @@ Convención: pendiente / en curso / resuelto / descartado.
 | 1.3 | C-1, A-9 | **Resuelto (talle por `size_name`, sin esperar 1.10)** | Ver detalle abajo. |
 | 1.10 | M-8 | **Resuelto** | Ver detalle abajo. `restoreStoreOrderStock` (1.3) ahora prefiere el FK. |
 | 1.4 | A-1 | **Resuelto** | Ver detalle abajo. |
-| 1.5 | A-7 | Pendiente (depende de 1.1) | — |
+| 1.5 | A-7 | **Resuelto** | Ver detalle abajo. Casos 13/14/15 de prueba pasan. |
 | 1.6 | C-6, A-3, A-4 | Pendiente | — |
 | 1.8 | C-8 (parcial) | Pendiente (depende de 1.1) | — |
 
@@ -382,10 +382,65 @@ resuelto por texto). Suite completa: **27/27 suites, 152/152 tests.**
 
 ---
 
+### 1.5 — Idempotencia y robustez de webhooks
+
+**Estado: Resuelto.**
+
+- **Migración 072** (`create-webhook-events`): tabla `webhook_events`
+  (`provider`, `event_id`, `payload_hash`, `processed_at`, `result`),
+  `UNIQUE(provider, event_id)`.
+- **Migración 073**: `store_orders.mp_payment_date` — fecha del último pago
+  aplicado, para detectar eventos desordenados.
+- **`handleStoreWebhook`**: registra el evento en `webhook_events` **antes**
+  de consultar a MP. Si ya está `processed_at` (completo), no reprocesa ni
+  vuelve a llamar a MP. **Matiz que agregué** (no estaba en el texto
+  original, pero me pareció necesario): si el evento existe pero quedó a
+  medias (`processed_at` sigue `NULL` porque el proceso se cayó a mitad de
+  camino), permite reintentar en vez de descartarlo para siempre — si no, un
+  crash entre registrar y terminar de procesar perdería el pago.
+- **`applyPaymentResult`** reescrita: ahora abre su propia transacción con
+  `SELECT...FOR UPDATE` sobre el pedido (antes eran dos escrituras sueltas
+  sin lock). Para esto, `recordStoreOrderStatusChange` ahora puede recibir
+  una transacción externa (`options.transaction`) en vez de abrir siempre la
+  suya — los demás llamadores (cambio manual del admin) siguen exactamente
+  igual.
+- **Eventos desordenados**: si la fecha del pago que se está aplicando
+  (`date_last_updated` de MP) es más vieja que `mp_payment_date` ya guardado,
+  no toca nada — ni status ni los campos `mp_*`.
+- **Validación de monto/moneda**: antes de pasar a `paid`, compara
+  `transaction_amount`/`currency_id` de MP contra `total_amount` del pedido.
+  La moneda se compara contra `'ARS'` fijo (no hay columna `currency` — toda
+  la tienda cobra en ARS, ya hardcodeado así al crear la preference). Si no
+  coincide: NO acredita, pasa a `review` (salteando la tabla de transiciones,
+  igual que ya hace todo el flujo automático de pago —
+  `enforceTransition:false`), `logger.error`, y emite
+  `notification:store_order_review` por socket (mismo patrón que los dos
+  eventos que ya existían).
+- **`confirmStorePayment`** (retorno del cliente) comparte `applyPaymentResult`,
+  así que queda protegido igual. Tuve que ampliar `searchPaymentsByReference`
+  (su segundo camino, cuando no hay `payment_id`) para que también traiga
+  monto/moneda/fecha, no solo `id`/`status`.
+
+**Tests:** nuevo `src/__tests__/api/webhook-robustness.test.ts` — no existía
+ningún mock del SDK de MercadoPago en el repo, así que agregué el patrón
+(`jest.spyOn` sobre `getPaymentInfo`). 3 casos, los 3 de la sección 9 de la
+auditoría: 13 (webhook repetido — `getPaymentInfo` se llama una sola vez),
+14 (importe incorrecto — queda en `review`, no `paid`, con `logger.error`
+verificado), 15 parcial (evento desordenado no retrocede el estado). Suite
+completa: **27/28 suites, 154/155 tests** — la única falla es el mismo test
+preexistente flaky de siempre (`factory-garment-types.test.ts`), reconfirmado
+en aislado.
+
+**Verificación:** `npm run typecheck` limpio.
+
+---
+
 ## Preguntas / decisiones pendientes de tu parte
 
 1. Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`:
    confirmado que quedan para Fase 4.
-2. ¿Sigo con **1.5** (idempotencia y robustez de webhooks — tabla
-   `webhook_events`, lock `FOR UPDATE`, validación de importe/moneda)? Es la
-   siguiente en el orden del plan y depende de 1.1 (ya resuelta).
+2. Con esto se cierra toda la Fase 1 salvo **1.6** (total con envío visible
+   en el checkout) y **1.8** (job de reconciliación de pagos, que depende de
+   decidir node-cron vs. cron de Railway). ¿Seguimos con 1.6, con 1.8, o
+   preferís que primero te muestre un estado consolidado de toda la Fase 1
+   antes de seguir?

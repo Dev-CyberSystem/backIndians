@@ -9,6 +9,7 @@ import { StoreOrder } from './StoreOrder';
 import { StoreOrderItem } from './StoreOrderItem';
 import { StoreOrderStatusHistory } from './StoreOrderStatusHistory';
 import { StoreCartReminder } from './StoreCartReminder';
+import { WebhookEvent } from './WebhookEvent';
 import { User } from './User';
 import { Client } from './Client';
 import { Product } from './Product';
@@ -271,6 +272,7 @@ export {
   StoreOrderStatusHistory,
   StoreCartReminder,
   StoreWishlist,
+  WebhookEvent,
   User,
   Client,
   Product,

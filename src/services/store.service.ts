@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 import { Op, col, literal, UniqueConstraintError, Transaction } from 'sequelize';
 import { sequelize } from '../config/db';
 import {
@@ -12,13 +12,14 @@ import {
   StoreCustomer,
   Settings,
   User,
+  WebhookEvent,
 } from '../models';
 import { Client } from '../models/Client';
 import { GarmentType } from '../models/GarmentType';
 import { AppError } from '../middlewares/errorHandler';
 import { logger } from '../utils/logger';
 import * as stockLedger from './stockLedger.service';
-import { createPreference, getPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
+import { createPreference, getPreference, getPaymentInfo, searchPaymentsByReference, type PaymentInfo } from './mercadopago.service';
 import {
   sendOrderConfirmationEmail,
   sendOrderInvoiceEmail,
@@ -887,6 +888,20 @@ function emitStorePaymentEvent(order: StoreOrder): void {
   } catch { /* socket puede no estar inicializado en tests */ }
 }
 
+// Pago cuyo monto/moneda no coincide con el pedido (1.5 / caso 14): no se
+// acredita, queda "en revisión" y se avisa al admin para que lo resuelva a mano.
+function emitStoreReviewNeededEvent(order: StoreOrder, reason: string): void {
+  try {
+    getIO().emit('notification:store_order_review', {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      customerName: order.customer_name,
+      reason,
+      total: Number(order.total_amount),
+    });
+  } catch { /* socket puede no estar inicializado en tests */ }
+}
+
 function emitStoreOrderCreatedEvent(order: StoreOrder): void {
   try {
     getIO().emit('notification:store_order_created', {
@@ -1009,6 +1024,12 @@ export interface StatusChangeOptions {
   tracking?: { tracking_number?: string | null; courier_name?: string | null };
   /** false = no valida la transición (flujo de pago automático del webhook). */
   enforceTransition?: boolean;
+  /**
+   * Transacción externa (con el pedido ya lockeado por el caller, p. ej.
+   * applyPaymentResult — 1.5). Si no se da, esta función abre la suya propia
+   * como siempre hizo.
+   */
+  transaction?: Transaction;
 }
 
 /**
@@ -1056,7 +1077,7 @@ export async function recordStoreOrderStatusChange(
 
   const token = order.tracking_token ?? generateTrackingToken();
 
-  await sequelize.transaction(async (t) => {
+  const runInTransaction = async (t: Transaction) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updates: any = {
       courier_name: mergedCourier ?? null,
@@ -1093,7 +1114,13 @@ export async function recordStoreOrderStatusChange(
         );
       }
     }
-  });
+  };
+
+  if (options.transaction) {
+    await runInTransaction(options.transaction);
+  } else {
+    await sequelize.transaction(runInTransaction);
+  }
 
   // Encolar mail (desacoplado del guardado) solo si el estado notifica
   const emailQueued = statusChanged && statusNotifiesCustomer(newStatus);
@@ -1233,46 +1260,169 @@ export async function regenerateTrackingToken(id: number): Promise<StoreOrder> {
   return order;
 }
 
+// Toda la tienda cobra en ARS (hardcodeado también al crear la preference en
+// mercadopago.service.ts) — no hay columna de moneda por pedido porque nunca varía.
+const MP_EXPECTED_CURRENCY = 'ARS';
+
 /**
- * Aplica el resultado de un pago a un pedido. Idempotente: la transición de estado
- * (y su mail/historial) solo ocurre cuando el estado realmente cambia.
+ * Aplica el resultado de un pago a un pedido. Cierra A-7 (1.5):
+ *  - Transacción unificada con `SELECT ... FOR UPDATE` sobre el pedido: dos
+ *    aplicaciones concurrentes (dos webhooks, o webhook + retorno del
+ *    cliente) no pueden pisarse.
+ *  - Descarta eventos desordenados comparando la fecha del pago que se está
+ *    aplicando contra la del último aplicado (`mp_payment_date`) — un
+ *    `pending` que llega después de un `approved` ya aplicado no retrocede
+ *    el pedido.
+ *  - Antes de acreditar (pasar a 'paid'), valida monto y moneda contra
+ *    `total_amount`. Si no coinciden: NO acredita, pasa a 'review', loguea
+ *    ERROR y notifica al admin por socket — nunca acredita a ciegas.
+ * Idempotente: la transición de estado (y su mail/historial) solo ocurre
+ * cuando el estado realmente cambia.
  */
 async function applyPaymentResult(
   order: StoreOrder,
-  mpStatus: string,
+  payment: PaymentInfo,
   paymentId: string | null
 ): Promise<StoreOrder> {
-  const newStatus = mapMpStatusToOrderStatus(mpStatus, order.status);
+  const result = await sequelize.transaction(async (t) => {
+    const locked = await StoreOrder.findByPk(order.id, { lock: Transaction.LOCK.UPDATE, transaction: t });
+    if (!locked) return { order, changed: false, needsReview: false };
 
-  // Actualizar los campos de MercadoPago siempre (aunque el estado no cambie)
-  await order.update({
-    mp_payment_id: paymentId ? String(paymentId) : order.mp_payment_id,
-    mp_status: mpStatus,
+    const paymentDateRaw = payment.date_last_updated ?? payment.date_approved ?? payment.date_created;
+    const paymentDate = paymentDateRaw ? new Date(paymentDateRaw) : null;
+
+    // Evento desordenado: ya se aplicó uno más nuevo para este pedido.
+    if (paymentDate && locked.mp_payment_date && paymentDate < locked.mp_payment_date) {
+      logger.warn('store.webhook.outOfOrder', {
+        meta: {
+          orderId: locked.id, orderNumber: locked.order_number, paymentId,
+          incomingDate: paymentDate.toISOString(), appliedDate: locked.mp_payment_date.toISOString(),
+        },
+      });
+      return { order: locked, changed: false, needsReview: false };
+    }
+
+    const mpStatus = payment.status ?? 'unknown';
+    const newStatus = mapMpStatusToOrderStatus(mpStatus, locked.status);
+
+    if (newStatus === 'paid') {
+      const expectedAmount = Number(locked.total_amount);
+      const amountOk = payment.transaction_amount != null && Math.abs(payment.transaction_amount - expectedAmount) < 1;
+      const currencyOk = !payment.currency_id || payment.currency_id === MP_EXPECTED_CURRENCY;
+
+      if (!amountOk || !currencyOk) {
+        logger.error(
+          'store.webhook.amountMismatch',
+          new Error('El monto o la moneda del pago no coinciden con el pedido'),
+          {
+            meta: {
+              orderId: locked.id, orderNumber: locked.order_number, paymentId,
+              expectedAmount, receivedAmount: payment.transaction_amount,
+              expectedCurrency: MP_EXPECTED_CURRENCY, receivedCurrency: payment.currency_id,
+            },
+          }
+        );
+        await locked.update(
+          {
+            mp_payment_id: paymentId ? String(paymentId) : locked.mp_payment_id,
+            mp_status: mpStatus,
+            mp_payment_date: paymentDate ?? locked.mp_payment_date,
+          },
+          { transaction: t }
+        );
+        const { changed } = await recordStoreOrderStatusChange(locked, 'review', {
+          enforceTransition: false,
+          note: `Pago con monto/moneda no coincidente (recibido: ${payment.transaction_amount ?? '?'} ${payment.currency_id ?? '?'}, esperado: ${expectedAmount} ${MP_EXPECTED_CURRENCY})`,
+          transaction: t,
+        });
+        return { order: locked, changed, needsReview: true };
+      }
+    }
+
+    await locked.update(
+      {
+        mp_payment_id: paymentId ? String(paymentId) : locked.mp_payment_id,
+        mp_status: mpStatus,
+        mp_payment_date: paymentDate ?? locked.mp_payment_date,
+      },
+      { transaction: t }
+    );
+
+    // Transición de estado (sistema): historial + mail por estado, sin validar
+    // transición porque el flujo de pago puede saltar estados.
+    const { changed } = await recordStoreOrderStatusChange(locked, newStatus, {
+      enforceTransition: false,
+      note: `Pago MercadoPago: ${mpStatus}`,
+      transaction: t,
+    });
+
+    return { order: locked, changed, needsReview: false };
   });
 
-  // Transición de estado (sistema): historial + mail por estado, sin validar
-  // transición porque el flujo de pago puede saltar estados.
-  const { changed } = await recordStoreOrderStatusChange(order, newStatus, {
-    enforceTransition: false,
-    note: `Pago MercadoPago: ${mpStatus}`,
-  });
+  if (result.needsReview) {
+    emitStoreReviewNeededEvent(result.order, 'Monto o moneda del pago no coinciden con el pedido');
+  } else if (result.changed) {
+    emitStorePaymentEvent(result.order);
+  }
 
-  if (changed) emitStorePaymentEvent(order);
-
-  return order;
+  return result.order;
 }
 
 // ─── Webhook MercadoPago (server-to-server) ──────────────────────────────────
 
-export async function handleStoreWebhook(paymentId: string) {
-  const info = await getPaymentInfo(paymentId);
-  const ref = info.external_reference;
-  if (!ref || !ref.startsWith('ECOM-')) return;
+/**
+ * Procesa una notificación de webhook de MercadoPago. Cierra A-7 (1.5):
+ * idempotencia real por evento — se registra en `webhook_events` ANTES de
+ * procesar; si ya se completó, no se vuelve a consultar a MP ni a reaplicar
+ * nada. Si el registro existe pero quedó a medias (el proceso se cayó entre
+ * registrar y terminar), se permite reintentar: si no, un crash a mitad de
+ * camino perdería el evento para siempre.
+ */
+export async function handleStoreWebhook(paymentId: string, rawPayload?: unknown): Promise<void> {
+  const provider = 'mercadopago';
+  const payloadHash = rawPayload
+    ? createHash('sha256').update(JSON.stringify(rawPayload)).digest('hex')
+    : null;
 
-  const order = await StoreOrder.findOne({ where: { order_number: ref } });
-  if (!order) return;
+  let event = await WebhookEvent.findOne({ where: { provider, event_id: paymentId } });
+  if (event?.processed_at) return; // ya procesado — sin efecto
 
-  await applyPaymentResult(order, info.status ?? 'unknown', paymentId);
+  if (!event) {
+    try {
+      event = await WebhookEvent.create({ provider, event_id: paymentId, payload_hash: payloadHash });
+    } catch (err) {
+      if (err instanceof UniqueConstraintError) {
+        // Carrera: otro request lo registró primero.
+        event = await WebhookEvent.findOne({ where: { provider, event_id: paymentId } });
+        if (event?.processed_at) return;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  try {
+    const info = await getPaymentInfo(paymentId);
+    const ref = info.external_reference;
+    if (!ref || !ref.startsWith('ECOM-')) {
+      await event?.update({ processed_at: new Date(), result: 'ignored_no_reference' });
+      return;
+    }
+
+    const order = await StoreOrder.findOne({ where: { order_number: ref } });
+    if (!order) {
+      await event?.update({ processed_at: new Date(), result: 'ignored_order_not_found' });
+      return;
+    }
+
+    await applyPaymentResult(order, info, paymentId);
+    await event?.update({ processed_at: new Date(), result: 'applied' });
+  } catch (err) {
+    // No marcamos processed_at: el evento queda disponible para reintento
+    // (MP reenvía el webhook, o el job de reconciliación de 1.8).
+    logger.error('store.webhook.processingFailed', err, { meta: { paymentId } });
+    throw err;
+  }
 }
 
 // ─── Confirmación al volver el cliente desde MercadoPago ──────────────────────
@@ -1283,18 +1433,18 @@ export async function confirmStorePayment(params: {
   orderNumber?: string | null;
 }): Promise<{ order_number: string; status: StoreOrderStatus; mp_status: string | null }> {
   let order: StoreOrder | null = null;
-  let mpStatus: string | null = null;
+  let paymentInfo: PaymentInfo | null = null;
   let paymentId: string | null = params.paymentId ?? null;
 
   if (paymentId) {
     // La consulta a MP puede fallar (id inválido, desfase test/prod, error transitorio).
     try {
       const info = await getPaymentInfo(paymentId);
-      mpStatus = info.status ?? null;
+      paymentInfo = info;
       const ref = info.external_reference;
       if (ref) order = await StoreOrder.findOne({ where: { order_number: ref } });
     } catch {
-      mpStatus = null;
+      paymentInfo = null;
     }
   }
 
@@ -1305,22 +1455,22 @@ export async function confirmStorePayment(params: {
 
   if (!order) throw new AppError('Pedido no encontrado', 404);
 
-  // Si aún no tenemos mpStatus, buscar el pago en MP por external_reference.
+  // Si aún no tenemos el pago, buscarlo en MP por external_reference.
   // Necesario en dev/local donde el webhook no llega y la back_url http no
   // hace auto_return, por lo que el frontend llama con solo el número de pedido.
-  if (!mpStatus) {
+  if (!paymentInfo) {
     try {
       const payments = await searchPaymentsByReference(order.order_number);
       const latest = payments[0];
       if (latest) {
-        mpStatus = latest.status ?? null;
+        paymentInfo = latest;
         if (!paymentId && latest.id) paymentId = String(latest.id);
       }
     } catch { /* no crítico */ }
   }
 
-  if (mpStatus) {
-    await applyPaymentResult(order, mpStatus, paymentId);
+  if (paymentInfo) {
+    await applyPaymentResult(order, paymentInfo, paymentId);
     // Recargar para devolver el estado actualizado
     await order.reload();
   }

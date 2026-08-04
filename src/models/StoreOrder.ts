@@ -51,6 +51,7 @@ export class StoreOrder extends Model<
   declare mp_preference_id: CreationOptional<string | null>;
   declare mp_payment_id: CreationOptional<string | null>;
   declare mp_status: CreationOptional<string | null>;
+  declare mp_payment_date: CreationOptional<Date | null>;
   declare tracking_number: CreationOptional<string | null>;
   declare courier_name: CreationOptional<string | null>;
   declare tracking_token: CreationOptional<string | null>;
@@ -103,6 +104,7 @@ StoreOrder.init(
     mp_preference_id: { type: DataTypes.STRING(255), allowNull: true },
     mp_payment_id: { type: DataTypes.STRING(255), allowNull: true },
     mp_status: { type: DataTypes.STRING(50), allowNull: true },
+    mp_payment_date: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     tracking_number: { type: DataTypes.STRING(200), allowNull: true },
     courier_name: { type: DataTypes.STRING(200), allowNull: true },
     tracking_token: { type: DataTypes.STRING(64), allowNull: true, unique: true },

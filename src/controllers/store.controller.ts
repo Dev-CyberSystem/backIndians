@@ -274,7 +274,7 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
       return;
     }
 
-    if (paymentId) await store.handleStoreWebhook(String(paymentId));
+    if (paymentId) await store.handleStoreWebhook(String(paymentId), { query: req.query, body: req.body });
     res.sendStatus(200);
   } catch (err) {
     next(err);

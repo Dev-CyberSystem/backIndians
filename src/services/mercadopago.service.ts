@@ -150,21 +150,47 @@ export async function getPreference(preferenceId: string): Promise<{ init_point:
   }
 }
 
-export async function getPaymentInfo(paymentId: string) {
+/**
+ * Subconjunto de campos de un pago de MP que necesitamos para aplicar su
+ * resultado a un pedido (1.5): estado, monto/moneda (para validar contra
+ * `total_amount` antes de acreditar) y fechas (para descartar eventos que
+ * llegan desordenados — ver `applyPaymentResult` en store.service.ts).
+ */
+export interface PaymentInfo {
+  id?: number;
+  status?: string;
+  external_reference?: string;
+  transaction_amount?: number;
+  currency_id?: string;
+  date_approved?: string;
+  date_last_updated?: string;
+  date_created?: string;
+}
+
+export async function getPaymentInfo(paymentId: string): Promise<PaymentInfo> {
   const client = getClient();
   const payment = new Payment(client);
   return payment.get({ id: paymentId });
 }
 
 /** Busca pagos asociados a un external_reference (número de orden). Devuelve array vacío si no encuentra o falla. */
-export async function searchPaymentsByReference(externalReference: string): Promise<Array<{ id: number | undefined; status: string | undefined }>> {
+export async function searchPaymentsByReference(externalReference: string): Promise<PaymentInfo[]> {
   const client = getClient();
   const payment = new Payment(client);
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (payment as any).search({ options: { external_reference: externalReference, sort: 'date_created', criteria: 'desc' } });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return ((result?.results ?? []) as any[]).map((p: any) => ({ id: p.id as number | undefined, status: p.status as string | undefined }));
+    return ((result?.results ?? []) as any[]).map((p: any): PaymentInfo => ({
+      id: p.id,
+      status: p.status,
+      external_reference: p.external_reference,
+      transaction_amount: p.transaction_amount,
+      currency_id: p.currency_id,
+      date_approved: p.date_approved,
+      date_last_updated: p.date_last_updated,
+      date_created: p.date_created,
+    }));
   } catch {
     return [];
   }
