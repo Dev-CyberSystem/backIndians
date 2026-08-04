@@ -434,7 +434,7 @@ export async function getMyOrderTracking(req: Request, res: Response, next: Next
 export async function sendInvoice(req: Request, res: Response, next: NextFunction) {
   try {
     await store.sendStoreOrderInvoiceEmail(Number(req.params.id));
-    res.json({ success: true, data: { message: 'Factura enviada por email' } });
+    res.json({ success: true, data: { message: 'Comprobante enviado por email' } });
   } catch (err) {
     next(err);
   }
@@ -444,7 +444,7 @@ export async function downloadInvoiceAdmin(req: Request, res: Response, next: Ne
   try {
     const { buffer, orderNumber } = await store.getStoreOrderInvoicePdfBuffer(Number(req.params.id));
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="factura-${orderNumber}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="comprobante-${orderNumber}.pdf"`);
     res.send(buffer);
   } catch (err) {
     next(err);
@@ -459,12 +459,12 @@ export async function downloadMyInvoice(req: Request, res: Response, next: NextF
     );
     const paidStatuses = ['paid', 'processing', 'review', 'awaiting_courier', 'shipped', 'delivered'];
     if (!paidStatuses.includes(order.status)) {
-      res.status(403).json({ success: false, message: 'La factura solo está disponible para pedidos pagados' });
+      res.status(403).json({ success: false, message: 'El comprobante solo está disponible para pedidos pagados' });
       return;
     }
     const { buffer } = await store.getStoreOrderInvoicePdfBuffer(order.id);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="factura-${order.order_number}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="comprobante-${order.order_number}.pdf"`);
     res.send(buffer);
   } catch (err) {
     next(err);

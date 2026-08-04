@@ -1306,7 +1306,7 @@ export async function updateStoreOrderTracking(
   return order;
 }
 
-// ─── Factura (PDF) ─────────────────────────────────────────────────────────────
+// ─── Comprobante de compra (PDF) ────────────────────────────────────────────────
 
 async function buildInvoiceData(orderId: number) {
   const order = await getStoreOrderById(orderId);

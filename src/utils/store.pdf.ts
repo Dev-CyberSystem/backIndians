@@ -42,9 +42,10 @@ const INVOICE_TYPE_CODES: Record<string, string> = {
 
 const money = (n: number) => `$ ${formatPriceNumber(n)}`;
 
-// Reproduce el modelo de comprobante del negocio (mismo layout que la factura del
-// sistema) para los pedidos de la tienda online. La letra sale "X" por defecto
-// (facturación electrónica AFIP aún no desarrollada). Datos fiscales desde settings.
+// Genera el comprobante de compra (PDF) de los pedidos de la tienda online.
+// No es un documento fiscal: no hay integración con AFIP/ARCA, no tiene CAE
+// ni numeración oficial. El layout imita al de una factura solo como referencia
+// visual interna; el propio PDF aclara que no es válido como factura.
 export function generateInvoicePdf(data: InvoiceData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -95,8 +96,8 @@ export function generateInvoicePdf(data: InvoiceData): Promise<Buffer> {
     doc.fontSize(30).font('Helvetica-Bold').fillColor('#000000')
       .text(invoiceType, boxX, boxY + 8, { width: boxSize, align: 'center' });
 
-    doc.fontSize(28).font('Helvetica-Bold')
-      .text('FACTURA', MID + 12, headerTop + 14, { width: boxX - MID - 16 });
+    doc.fontSize(20).font('Helvetica-Bold')
+      .text('COMPROBANTE', MID + 12, headerTop + 20, { width: boxX - MID - 16 });
     doc.fontSize(8.5).font('Helvetica').fillColor('#333333')
       .text(`Código N° ${invoiceCode}`, MID + 14, headerTop + 46);
 
@@ -233,12 +234,10 @@ export function generateInvoicePdf(data: InvoiceData): Promise<Buffer> {
       .text('QR', qrX, qrY + qrSize / 2 - 4, { width: qrSize, align: 'center' });
 
     const caeX = qrX + qrSize + 16;
-    doc.fillColor('#000000').fontSize(8.5).font('Helvetica');
-    doc.text('CAE N°: ________________________', caeX, qrY + 2);
-    doc.text('VTO. CAE: _____ / _____ / ________', caeX, qrY + 18);
-    doc.fontSize(7).fillColor('#444444').font('Helvetica')
-      .text('Comprobante autorizado por ARCA', caeX, qrY + 38, { width: 250 })
-      .text('Esta Administración Federal de Ingresos Públicos no se responsabiliza por los datos ingresados en el detalle de la operación.', caeX, qrY + 48, { width: 250 });
+    doc.fillColor('#000000').fontSize(9).font('Helvetica-Bold')
+      .text('Documento no válido como factura', caeX, qrY + 2, { width: 250 });
+    doc.fontSize(7.5).fillColor('#444444').font('Helvetica')
+      .text('Comprobante interno de compra. No reemplaza a la factura ni a ningún comprobante fiscal emitido ante ARCA.', caeX, qrY + 18, { width: 250 });
 
     doc.lineWidth(0.5).moveTo(R - 200, qrY + 46).lineTo(R - 6, qrY + 46).stroke('#000000');
     doc.fontSize(8).fillColor('#333333').font('Helvetica')
