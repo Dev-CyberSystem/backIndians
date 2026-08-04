@@ -1,15 +1,17 @@
 import crypto from 'crypto';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { AppError } from '../middlewares/errorHandler';
+import { logger } from '../utils/logger';
 
 /**
  * Valida la firma (`x-signature`) que MercadoPago envía en sus webhooks.
  * Manifiesto según doc de MP: `id:<data.id>;request-id:<x-request-id>;ts:<ts>;`
  * firmado con HMAC-SHA256 y el secreto del webhook (`MP_WEBHOOK_SECRET`).
  *
- * Si `MP_WEBHOOK_SECRET` no está configurado, devuelve `true` (no rompe el flujo
- * existente; el pago igual se verifica luego contra la API de MP). Una vez
- * seteado el secreto en el panel de MP + Railway, rechaza requests falsificadas.
+ * Si `MP_WEBHOOK_SECRET` no está configurado: en producción se rechaza todo
+ * (fail-closed — `server.ts` además impide arrancar sin esta variable en
+ * producción). Fuera de producción se acepta sin validar (fail-open) para no
+ * frenar el desarrollo local, dejando un WARN para que no pase desapercibido.
  */
 export function verifyWebhookSignature(params: {
   dataId: string | undefined;
@@ -17,7 +19,13 @@ export function verifyWebhookSignature(params: {
   xRequestId: string | undefined;
 }): boolean {
   const secret = process.env.MP_WEBHOOK_SECRET;
-  if (!secret) return true;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') return false;
+    logger.warn('mercadopago.webhookSecretMissing', {
+      message: 'MP_WEBHOOK_SECRET no configurado: firma del webhook sin validar (solo permitido fuera de producción)',
+    });
+    return true;
+  }
 
   const { dataId, xSignature, xRequestId } = params;
   if (!xSignature) return false;

@@ -14,6 +14,7 @@ import {
   paymentProofLimiter,
   paymentStatusLimiter,
   trackLimiter,
+  webhookLimiter,
 } from '../middlewares/rateLimit';
 import * as ctrl from '../controllers/store.controller';
 import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
@@ -139,7 +140,7 @@ router.get('/track/:token', paymentStatusLimiter, param('token').isString().notE
 router.post('/orders/:orderNumber/payment-proof', paymentProofLimiter, optionalStoreAuth, upload.single('file'), ctrl.uploadPaymentProof);
 
 // ─── Webhook MercadoPago (sin auth) ─────────────────────────────────────────
-router.post('/webhook/mp', ctrl.webhook);
+router.post('/webhook/mp', webhookLimiter, ctrl.webhook);
 
 // ─── Admin: pedidos de la tienda ─────────────────────────────────────────────
 const STORE_STATUS_VALUES = [

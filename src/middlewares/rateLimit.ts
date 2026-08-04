@@ -62,6 +62,15 @@ export const paymentProofLimiter = createLimiter('paymentProof', 60 * 60_000, 15
 /** Confirmar/consultar estado de pago (polling público): 120 por minuto por IP. */
 export const paymentStatusLimiter = createLimiter('paymentStatus', 60_000, 120, { skip: rateLimitDisabled });
 
+/**
+ * Webhook de MercadoPago: 30 por minuto por IP. Sin este límite, cada request
+ * (con o sin firma válida) dispara una consulta a la API de MP — es la
+ * principal superficie de DoS del endpoint (C-3). Las notificaciones reales de
+ * MP para un mismo pedido son unas pocas por pago, así que 30/min por IP no
+ * afecta tráfico legítimo.
+ */
+export const webhookLimiter = createLimiter('webhook', 60_000, 30, { skip: rateLimitDisabled });
+
 /** Tracking de analítica (fire & forget, dispara en cada interacción): 240/min por IP. */
 export const trackLimiter = createLimiter('track', 60_000, 240, { skip: rateLimitDisabled });
 

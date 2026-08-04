@@ -35,6 +35,26 @@ function validateEnv(): void {
     logger.error('startup.envValidation', new Error(`Variables de entorno requeridas no configuradas: ${missing.join(', ')}`));
     process.exit(1);
   }
+
+  // En producción, el webhook de MercadoPago necesita una URL pública real para
+  // que MP pueda notificar pagos, y un secreto para validar la firma de esas
+  // notificaciones. Sin esto, los pagos no se acreditan solos (C-2) o el webhook
+  // queda abierto a cualquiera (C-3). Fallar acá es más barato que descubrirlo
+  // con pedidos pagados que nunca pasan a "paid".
+  if (process.env.NODE_ENV === 'production') {
+    const backendUrl = process.env.BACKEND_PUBLIC_URL || '';
+    const prodErrors: string[] = [];
+    if (!backendUrl || /localhost|127\.0\.0\.1/.test(backendUrl)) {
+      prodErrors.push('BACKEND_PUBLIC_URL falta o apunta a localhost (requerido para el webhook de MercadoPago)');
+    }
+    if (!process.env.MP_WEBHOOK_SECRET) {
+      prodErrors.push('MP_WEBHOOK_SECRET no está configurado (requerido para validar la firma del webhook de MercadoPago)');
+    }
+    if (prodErrors.length) {
+      logger.error('startup.envValidation', new Error(prodErrors.join(' | ')));
+      process.exit(1);
+    }
+  }
 }
 
 async function main() {
