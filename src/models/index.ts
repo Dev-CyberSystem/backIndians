@@ -8,6 +8,8 @@ import { StoreCoupon } from './StoreCoupon';
 import { StoreOrder } from './StoreOrder';
 import { StoreOrderItem } from './StoreOrderItem';
 import { StoreOrderStatusHistory } from './StoreOrderStatusHistory';
+import { StoreReturn } from './StoreReturn';
+import { StoreReturnItem } from './StoreReturnItem';
 import { StoreCartReminder } from './StoreCartReminder';
 import { WebhookEvent } from './WebhookEvent';
 import { User } from './User';
@@ -199,6 +201,15 @@ StoreOrderItem.belongsTo(CatalogProductSize, { foreignKey: 'catalog_product_size
 StoreCoupon.hasMany(StoreOrder, { foreignKey: 'coupon_id', as: 'orders' });
 StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
 
+// StoreReturn ↔ StoreOrder / StoreReturnItem / User (2.4)
+StoreOrder.hasMany(StoreReturn, { foreignKey: 'store_order_id', as: 'returns' });
+StoreReturn.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'order' });
+StoreReturn.belongsTo(User, { foreignKey: 'requested_by', as: 'requester' });
+StoreReturn.belongsTo(User, { foreignKey: 'reviewed_by', as: 'reviewer' });
+StoreReturn.hasMany(StoreReturnItem, { foreignKey: 'store_return_id', as: 'items', onDelete: 'CASCADE' });
+StoreReturnItem.belongsTo(StoreReturn, { foreignKey: 'store_return_id', as: 'return' });
+StoreReturnItem.belongsTo(StoreOrderItem, { foreignKey: 'store_order_item_id', as: 'orderItem' });
+
 // StoreWishlist ↔ StoreCustomer
 StoreCustomer.hasMany(StoreWishlist, { foreignKey: 'customer_id', as: 'wishlist', onDelete: 'CASCADE' });
 StoreWishlist.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
@@ -270,6 +281,8 @@ export {
   StoreOrder,
   StoreOrderItem,
   StoreOrderStatusHistory,
+  StoreReturn,
+  StoreReturnItem,
   StoreCartReminder,
   StoreWishlist,
   WebhookEvent,

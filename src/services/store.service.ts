@@ -1114,7 +1114,7 @@ function emitStoreOrderCreatedEvent(order: StoreOrder): void {
  * cuando el ítem tenía talle pero no se pudo resolver ninguno de los dos
  * caminos, para que el caller decida cómo registrar la anomalía.
  */
-async function resolveStoreOrderItemSize(
+export async function resolveStoreOrderItemSize(
   item: StoreOrderItem,
   transaction: Transaction
 ): Promise<{ catalogProductSizeId: number | null; unresolved: boolean }> {

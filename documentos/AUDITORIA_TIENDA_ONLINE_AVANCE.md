@@ -743,7 +743,7 @@ configurar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` (certificado real de ARCA) y
 | 2.1 | 1.2 | **Resuelto** — ver detalle abajo. |
 | 2.2 | 2.1 | **Resuelto** — ver detalle abajo. |
 | 2.3 | — | **Resuelto** — ver detalle abajo. |
-| 2.4 | 2.1 | Pendiente. |
+| 2.4 | 2.1 | **Resuelto** — ver detalle abajo. |
 | 2.5 | Merge AFIP (resuelto) | Pendiente. |
 | 2.6 | — | Pendiente (necesita research spike). |
 | 2.7 | 2.1, 2.3 | Pendiente. |
@@ -968,3 +968,100 @@ igual, sin crear ningún asiento. Suite completa: **34/34 suites,
 Verificación manual en navegador (Playwright): la sección "Caja" aparece en
 Configuración → Tienda online con el Select y el placeholder correctos, cero
 errores de consola.
+
+---
+
+### 2.4 — Circuito de devoluciones con revisión
+
+**Estado: Resuelto.**
+
+Implementa la decisión de negocio #4 ("requiere revisión, nunca automático")
+y deja una base informativa para la #5 (reintegros manuales desde MP).
+
+**Tres puntos de diseño confirmados con el usuario antes de implementar**
+(vía pregunta de opción múltiple, eligió las 3 recomendadas):
+1. **Quién inicia la devolución**: solo el admin desde el panel — sin
+   autoservicio para el comprador en esta tarea (no se tocó la tienda
+   pública ni el seguimiento).
+2. **El botón genérico que pasaba un pedido directo a "Devuelto" con un
+   click** (vía `STORE_ORDER_TRANSITIONS`, sin motivo ni detalle de ítems)
+   se **reemplazó** por el flujo nuevo — `delivered`/`shipped` ya no listan
+   `returned` como transición genérica, tanto en el backend
+   (`storeOrderFlow.ts`) como en su espejo del frontend (`api/store.ts` —
+   **hallazgo del testing**: hay una copia duplicada de
+   `STORE_ORDER_TRANSITIONS` en el frontend, deuda ya anotada en la
+   auditoría original como 4.2 "unificar configuración de estados
+   backend/frontend", pendiente).
+3. **La revisión es por ítem**: cada línea devuelta se marca
+   `resellable`/`not_resellable` individualmente, no una decisión única para
+   toda la devolución.
+
+**Backend:**
+- **Migraciones** `088` (`store_returns`: status pending_review/approved/
+  rejected, reason, refund_status none/pending/refunded + monto/fecha,
+  requested_by/reviewed_by/reviewed_at/review_notes) y `089`
+  (`store_return_items`: store_return_id, store_order_item_id, quantity,
+  condition nullable hasta revisar, restocked_at de idempotencia).
+- **`storeReturns.service.ts`** (nuevo, no se agregó a `store.service.ts`
+  para no seguir haciendo crecer ese archivo ya señalado como candidato a
+  split en 4.1): `createStoreReturn` (valida que el pedido esté `delivered`
+  y que los ítems/cantidades sean válidos contra el pedido, transiciona a
+  `returned` reusando `recordStoreOrderStatusChange` con
+  `enforceTransition:false`), `reviewStoreReturn` (por ítem: `resellable` →
+  movimiento `return` del ledger — tipo que existía en el ENUM desde 1.2 sin
+  usar hasta ahora — `not_resellable` → sin efecto en stock; idempotente por
+  lock de fila + chequeo de `status==='pending_review'`),
+  `updateStoreReturnRefund` (solo actualiza el campo informativo, nunca
+  llama a MercadoPago).
+- **`store.service.ts`**: se exportó `resolveStoreOrderItemSize` (ya
+  existía, privada) para reutilizarla en `storeReturns.service.ts` sin
+  duplicar la resolución de talle (FK directo de 1.10 o fallback por
+  `size_name`).
+- **Endpoints** (`admin`/`billing`): `GET /store/admin/returns` (lista,
+  filtra por `status` y `order_id`), `GET /store/admin/returns/:id`,
+  `POST /store/admin/orders/:id/returns`, `PATCH /store/admin/returns/:id/review`,
+  `PATCH /store/admin/returns/:id/refund`.
+
+**Frontend:**
+- **`StoreReturnManager.tsx`** (nuevo componente): reemplaza el botón
+  "Devuelto" en el detalle del pedido — muestra las devoluciones existentes,
+  botón "Registrar devolución" (solo si `status==='delivered'`) con
+  selector de cantidad por ítem, y modal de revisión con toggle
+  Revendible/No revendible por ítem + sección de reintegro (solo
+  informativa, con aviso explícito de que no dispara nada externo).
+- **`api/store.ts`**: tipos `StoreReturn`/`StoreReturnItem` + métodos
+  `storeAdminApi.returns.*`. **Bug encontrado y corregido durante el
+  testing en navegador**: el endpoint de listado devuelve `meta` (paginado)
+  — el interceptor de axios ya transforma esa respuesta a
+  `PaginatedResponse<T>`, pero el tipo declarado era `StoreReturn[]` directo;
+  tipeaba bien pero en runtime `r.data` era `{data, total, page, ...}`, no
+  el array — la lista de devoluciones quedaba silenciosamente vacía. Se
+  corrigió a `PaginatedResponse<StoreReturn>` + `.then(r => r.data.data)`.
+- **`EcommerceOrdersPage.tsx`**: embebe `<StoreReturnManager>` en el detalle
+  del pedido. Como crear una devolución cambia el `status` del pedido pero
+  la respuesta de esa llamada no devuelve el pedido actualizado, se agregó
+  un callback `onOrderUpdated` que refresca el `detail` local con
+  `storeAdminApi.orders.getById` — si no, la sección "Cambiar estado" seguía
+  mostrando las transiciones válidas para el estado viejo hasta cerrar y
+  reabrir el modal.
+
+**Tests:** nuevo `src/__tests__/api/store-returns.test.ts` (7 casos):
+registrar una devolución pasa el pedido a `returned` sin tocar stock;
+aprobar con ítem `resellable` restituye stock real (movimiento `return`);
+aprobar con `not_resellable` no restituye; rechazar no toca stock; no se
+puede devolver un pedido no entregado (409); el endpoint genérico ya no
+permite pasar directo a `returned` (409); actualizar `refund_status` es
+puramente informativo. Se actualizó `store-transitions.test.ts` (esperaba
+`shipped/delivered → returned` válidas, ahora `false`). Suite completa:
+**35/35 suites, 189/189 tests** (más el flaky preexistente de siempre,
+`factory-garment-types.test.ts`, reconfirmado en aislado).
+
+**Verificación:** `npm run typecheck` (backend) y `npx tsc --noEmit` +
+`eslint` (frontend, archivos nuevos/tocados) limpios — los 3 errores de
+`EcommerceOrdersPage.tsx` son preexistentes (confirmado con `git stash`).
+Verificación manual end-to-end en navegador (Playwright): pedido llevado por
+API hasta `delivered`, devolución registrada desde la UI real, revisada y
+aprobada con un ítem marcado revendible — stock, badges de estado, historial
+y reintegro se vieron correctos en cada paso, cero errores de consola. El
+bug del `PaginatedResponse` se encontró y corrigió durante esta verificación
+(la lista de devoluciones aparecía vacía hasta el fix).

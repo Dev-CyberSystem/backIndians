@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as storeAuth from '../services/store.auth.service';
 import * as store from '../services/store.service';
+import * as storeReturns from '../services/storeReturns.service';
 import * as analytics from '../services/storeAnalytics.service';
 import * as wishlistService from '../services/store.wishlist.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
@@ -411,6 +412,67 @@ export async function updateOrderStatus(req: Request, res: Response, next: NextF
   } catch (err) {
     next(err);
   }
+}
+
+// ─── Devoluciones (2.4) ───────────────────────────────────────────────────────
+
+export async function listReturns(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { status, order_id, page, limit } = req.query;
+    const result = await storeReturns.listStoreReturns({
+      status: status as string | undefined,
+      storeOrderId: order_id ? Number(order_id) : undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.json({ success: true, data: result.data, meta: result.meta });
+  } catch (err) { next(err); }
+}
+
+export async function getReturn(req: Request, res: Response, next: NextFunction) {
+  try {
+    const ret = await storeReturns.getStoreReturn(Number(req.params.id));
+    res.json({ success: true, data: ret });
+  } catch (err) { next(err); }
+}
+
+export async function createReturn(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = (req as unknown as AuthRequest).user!.id;
+    const { reason, items } = req.body;
+    const ret = await storeReturns.createStoreReturn({
+      storeOrderId: Number(req.params.id),
+      reason: reason ?? null,
+      items,
+      requestedBy: userId,
+    });
+    res.status(201).json({ success: true, data: ret });
+  } catch (err) { next(err); }
+}
+
+export async function reviewReturn(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = (req as unknown as AuthRequest).user!.id;
+    const { status, review_notes, items } = req.body;
+    const ret = await storeReturns.reviewStoreReturn(Number(req.params.id), {
+      status,
+      reviewNotes: review_notes ?? null,
+      items,
+      reviewedBy: userId,
+    });
+    res.json({ success: true, data: ret });
+  } catch (err) { next(err); }
+}
+
+export async function updateReturnRefund(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { refund_status, refunded_amount } = req.body;
+    const ret = await storeReturns.updateStoreReturnRefund(Number(req.params.id), {
+      refund_status,
+      refunded_amount: refunded_amount ?? null,
+    });
+    res.json({ success: true, data: ret });
+  } catch (err) { next(err); }
 }
 
 // Admin: regenerar el token del link de seguimiento

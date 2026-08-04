@@ -182,6 +182,39 @@ router.post('/admin/orders/:id/regenerate-tracking', authenticate, authorize('ad
 router.post('/admin/orders/:id/send-invoice', authenticate, authorize('admin', 'billing'), ctrl.sendInvoice);
 router.get('/admin/orders/:id/invoice', authenticate, authorize('admin', 'billing'), ctrl.downloadInvoiceAdmin);
 
+// ─── Admin: devoluciones (2.4) ────────────────────────────────────────────────
+const createReturnValidators = [
+  param('id').isInt({ min: 1 }),
+  body('reason').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  body('items').isArray({ min: 1 }).withMessage('La devolución necesita al menos un ítem'),
+  body('items.*.store_order_item_id').isInt({ min: 1 }).withMessage('Ítem inválido'),
+  body('items.*.quantity').isInt({ min: 1, max: 1000 }).withMessage('Cantidad inválida'),
+  validate,
+];
+
+const reviewReturnValidators = [
+  param('id').isInt({ min: 1 }),
+  body('status').isIn(['approved', 'rejected']).withMessage('Estado de revisión inválido'),
+  body('review_notes').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  body('items').optional().isArray(),
+  body('items.*.id').optional().isInt({ min: 1 }),
+  body('items.*.condition').optional().isIn(['resellable', 'not_resellable']),
+  validate,
+];
+
+const updateReturnRefundValidators = [
+  param('id').isInt({ min: 1 }),
+  body('refund_status').isIn(['none', 'pending', 'refunded']).withMessage('Estado de reintegro inválido'),
+  body('refunded_amount').optional({ nullable: true }).isFloat({ min: 0 }),
+  validate,
+];
+
+router.get('/admin/returns', authenticate, authorize('admin', 'billing'), ctrl.listReturns);
+router.get('/admin/returns/:id', authenticate, authorize('admin', 'billing'), param('id').isInt({ min: 1 }), validate, ctrl.getReturn);
+router.post('/admin/orders/:id/returns', authenticate, authorize('admin', 'billing'), createReturnValidators, ctrl.createReturn);
+router.patch('/admin/returns/:id/review', authenticate, authorize('admin', 'billing'), reviewReturnValidators, ctrl.reviewReturn);
+router.patch('/admin/returns/:id/refund', authenticate, authorize('admin', 'billing'), updateReturnRefundValidators, ctrl.updateReturnRefund);
+
 // ─── Admin: cupones ───────────────────────────────────────────────────────────
 router.get('/admin/coupons', authenticate, authorize('admin', 'billing'), ctrl.listCoupons);
 router.post('/admin/coupons', authenticate, authorize('admin', 'billing'), ctrl.createCoupon);
