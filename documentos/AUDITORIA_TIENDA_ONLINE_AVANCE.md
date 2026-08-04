@@ -746,7 +746,7 @@ configurar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` (certificado real de ARCA) y
 | 2.4 | 2.1 | **Resuelto** — ver detalle abajo. |
 | 2.5 | Merge AFIP (resuelto) | **Resuelto (código) — falta certificado real, acción tuya** — ver detalle abajo. |
 | 2.6 | — | Pendiente (necesita research spike). |
-| 2.7 | 2.1, 2.3 | Pendiente. |
+| 2.7 | 2.1, 2.3 | **Resuelto** — ver detalle abajo. |
 | 2.8 | — | Pendiente. |
 
 ---
@@ -1123,6 +1123,58 @@ un toast claro no amerita esa complejidad extra en esta tarea.
 3. Recién ahí activar el toggle `afip_enabled` en Configuración — hasta
    entonces, aunque se active, cualquier envío va a fallar con "company_cuit
    no configurado" o similar (validación que ya existía).
+
+**Verificación:** `npm run typecheck` limpio. Server real levantado
+(`npm run dev`) sin errores.
+
+---
+
+### 2.7 — Reporte de conciliación ampliado
+
+**Estado: Resuelto.**
+
+El documento de auditoría original menciona "las 8 anomalías del punto 15
+del pedido" — esa numeración pertenece al prompt original que generó el
+diagnóstico, no a un archivo al que tengo acceso hoy. En vez de adivinar esa
+lista, diseñé las 4 detecciones nuevas directamente a partir de lo que
+efectivamente se construyó en 2.1-2.5 y que puede desincronizarse en
+producción — cada una verificable contra código real, no contra una
+referencia que no puedo confirmar.
+
+Extiende `src/jobs/reportInconsistencies.ts` (1.8, job diario 03:00) con 4
+chequeos nuevos, mismo criterio que los 2 originales (son estados que NUNCA
+deberían pasar por el flujo normal — señal de un bug o un job caído, no un
+flujo esperado):
+
+1. **Reservas de stock vencidas sin liberar** (2.1/2.2): pedido
+   `pending_payment` con `stock_reserved_at` de más del doble de
+   `ORDER_EXPIRY_HOURS` — indica que `expireStaleOrders` (2.2, corre cada
+   hora) dejó de correr o está fallando en silencio.
+2. **Pedidos pagados sin registro en caja** (2.3): `stock_confirmed_at` no
+   nulo pero `cash_recorded_at` nulo. No es necesariamente un bug de código
+   — la causa más probable es que falte configurar
+   `store_cash_account_id` — pero es plata que hoy no aparece en la
+   conciliación, vale que el admin lo sepa.
+3. **Comprobantes con envío a AFIP en error** (2.5): cuenta
+   `afip_status='error'` en facturas de pedidos, de catálogo y pedidos de
+   tienda juntos — señala qué necesita un "Reintentar AFIP" manual.
+4. **Devoluciones aprobadas hace más de 7 días sin actualizar el
+   reintegro** (2.4): `StoreReturn.status='approved'` +
+   `refund_status='none'` con `reviewed_at` viejo — el reintegro se hace
+   manual desde MercadoPago (decisión #5), esto solo avisa que quedó sin
+   seguimiento, no dispara nada.
+
+**Tests:** nuevo `src/__tests__/api/report-inconsistencies-2-7.test.ts` (5
+casos): detecta una reserva vencida sin expirar; detecta un pedido pagado
+sin caja; detecta una factura con `afip_status='error'` (fixture propio,
+sin mockear `soap` — no hace falta, solo se lee el estado ya persistido);
+detecta una devolución aprobada hace 10 días sin reintegro; una devolución
+aprobada HOY no se marca (verificado contra la misma condición que usa el
+job). **Bug propio encontrado al escribir el fixture**: `orders.order_number`
+es `STRING(20)` — mi primer intento de número de orden (`QA-CONC-<timestamp>`,
+21 caracteres) lo excedía y tiraba un error de MySQL; corregido con el mismo
+patrón compacto (`toString(36)`) que ya usaba `afip.test.ts`. Suite completa:
+**36/36 suites, 195/195 tests.**
 
 **Verificación:** `npm run typecheck` limpio. Server real levantado
 (`npm run dev`) sin errores.
