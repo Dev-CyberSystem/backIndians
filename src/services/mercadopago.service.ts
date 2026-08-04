@@ -128,6 +128,28 @@ export async function createPreference(input: CreatePreferenceInput) {
   };
 }
 
+/**
+ * Reconsulta una preference ya creada (por su id) para recuperar sus links de
+ * pago. Se usa al responder un checkout duplicado (mismo Idempotency-Key):
+ * el pedido ya tiene `mp_preference_id` guardado, pero no el `init_point`
+ * (nunca se persiste), así que hay que volver a pedírselo a MP. Devuelve
+ * `null` si falla (p. ej. preference vencida) en vez de cortar la respuesta:
+ * el pedido ya existe igual, solo no se puede reofrecer el link de pago.
+ */
+export async function getPreference(preferenceId: string): Promise<{ init_point: string | null; sandbox_init_point: string | null } | null> {
+  try {
+    const client = getClient();
+    const preference = new Preference(client);
+    const result = await preference.get({ preferenceId });
+    return {
+      init_point: result.init_point ?? null,
+      sandbox_init_point: result.sandbox_init_point ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getPaymentInfo(paymentId: string) {
   const client = getClient();
   const payment = new Payment(client);

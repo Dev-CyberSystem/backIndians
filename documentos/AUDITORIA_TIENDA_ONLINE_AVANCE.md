@@ -24,7 +24,7 @@ Convención: pendiente / en curso / resuelto / descartado.
 | 1.2 | C-5 | **Resuelto (con 2 exclusiones documentadas)** | Ver detalle abajo. |
 | 1.3 | C-1, A-9 | **Resuelto (talle por `size_name`, sin esperar 1.10)** | Ver detalle abajo. |
 | 1.10 | M-8 | Pendiente | Ya no bloquea a 1.3 (resuelto con fallback). |
-| 1.4 | A-1 | Pendiente | — |
+| 1.4 | A-1 | **Resuelto** | Ver detalle abajo. |
 | 1.5 | A-7 | Pendiente (depende de 1.1) | — |
 | 1.6 | C-6, A-3, A-4 | Pendiente | — |
 | 1.8 | C-8 (parcial) | Pendiente (depende de 1.1) | — |
@@ -298,6 +298,56 @@ en aislado.
 
 ---
 
+### 1.4 — Idempotencia en el checkout
+
+**Estado: Resuelto.**
+
+- **Migración** `20260804-069-store-orders-idempotency-key.js`:
+  `store_orders.idempotency_key STRING(64) nullable` + índice único (mismo
+  patrón que `tracking_token`).
+- **`checkoutValidators`** (`store.routes.ts`): `header('idempotency-key').
+  optional().isUUID()` — **opcional**, no rompe nada que no la mande (tests
+  viejos, futuros clientes).
+- **`createStoreOrder`**: chequeo temprano — si viene la clave y ya existe un
+  pedido con ella, lo devuelve directo (sin revalidar carrito ni re-tocar
+  stock). Cubre el caso común (el segundo request llega después de que el
+  primero ya terminó).
+- **Carrera real** (dos requests exactamente simultáneos, ninguno encuentra
+  nada en el chequeo temprano): el índice único de la DB es la red de
+  seguridad. Se extendió el `catch` que ya manejaba colisión de
+  `order_number` (con reintento) para distinguir, vía `err.fields`, si la
+  colisión es por `idempotency_key` — en ese caso NO reintenta: busca el
+  pedido que sí ganó la carrera y devuelve ESE, sin duplicar el descuento de
+  stock.
+- **Decisión que tomé** (dijiste "lo más robusto para la aplicación"):
+  agregué `getPreference()` en `mercadopago.service.ts` para que, al devolver
+  un pedido repetido de MercadoPago, se reconsulte la preference y se
+  devuelva un `mp_init_point` fresco (nunca se persiste, solo
+  `mp_preference_id`) — si la reconsulta falla, devuelve `null` en vez de
+  cortar la respuesta (el pedido ya existe de todas formas).
+- **Frontend:** `StoreCheckoutPage.tsx` genera un UUID con `useRef` al
+  montar (mismo patrón de fallback que ya usaba `useStoreTracker.ts` para el
+  session id) y lo manda en cada submit. `api/store.ts`: `checkout()` ahora
+  acepta la key como segundo argumento y la manda como header
+  `Idempotency-Key` vía la config de axios de esa llamada puntual (no toca
+  el interceptor global).
+
+**Tests:** nuevo `src/__tests__/api/checkout-idempotency.test.ts` (3 casos):
+dos POST secuenciales con la misma key → mismo pedido, un solo descuento; dos
+POST en **paralelo** (`Promise.all`, carrera real) con la misma key → mismo
+invariante (verificado que efectivamente pasa por el camino del
+`UniqueConstraintError`, no solo por el chequeo temprano); sin key → sigue
+creando dos pedidos (comportamiento sin cambios, regresión cubierta). Suite
+completa: **26/26 suites, 151/151 tests** (el test antes flaky pasó esta
+vez).
+
+**Verificación:** `npm run typecheck` (backend) y `npx tsc --noEmit`
+(frontend) limpios. `npx eslint` sobre los 2 archivos tocados del frontend:
+3 problemas, los 3 preexistentes (confirmado con `git diff`, ninguno en mis
+líneas).
+
+---
+
 ## Preguntas / decisiones pendientes de tu parte
 
 1. ¿Seguimos con **1.10** ahora (agregar `catalog_product_size_id` a
@@ -306,4 +356,6 @@ en aislado.
    mejora de robustez, no una dependencia dura.
 2. Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`:
    confirmado que quedan para Fase 4.
-3. ¿Sigo con **1.4** (idempotencia del checkout con `Idempotency-Key`)?
+3. ¿Sigo con **1.5** (idempotencia y robustez de webhooks — tabla
+   `webhook_events`, lock `FOR UPDATE`, validación de importe/moneda)? Es la
+   siguiente en el orden del plan y depende de 1.1 (ya resuelta).

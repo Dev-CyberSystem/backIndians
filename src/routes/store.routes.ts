@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { body, query, param } from 'express-validator';
+import { body, query, param, header } from 'express-validator';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { requireStoreAuth, optionalStoreAuth } from '../middlewares/storeAuth';
@@ -52,6 +52,7 @@ const checkoutValidators = [
   body('payment_method').optional().isIn(['mercadopago', 'cash', 'bank_transfer']).withMessage('Método de pago inválido'),
   body('coupon_code').optional({ nullable: true }).isString().isLength({ max: 64 }),
   body('notes').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  header('idempotency-key').optional().isUUID().withMessage('Idempotency-Key inválida'),
   validate,
 ];
 

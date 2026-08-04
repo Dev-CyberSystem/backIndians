@@ -247,9 +247,11 @@ export async function deleteCoupon(req: Request, res: Response, next: NextFuncti
 
 export async function checkout(req: Request, res: Response, next: NextFunction) {
   try {
+    const idempotencyKey = req.headers['idempotency-key'];
     const result = await store.createStoreOrder({
       ...req.body,
       customerId: req.storeCustomerId,
+      idempotencyKey: typeof idempotencyKey === 'string' ? idempotencyKey : undefined,
     });
     res.status(201).json({ success: true, data: result });
   } catch (err) {

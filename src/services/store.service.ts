@@ -18,7 +18,7 @@ import { GarmentType } from '../models/GarmentType';
 import { AppError } from '../middlewares/errorHandler';
 import { logger } from '../utils/logger';
 import * as stockLedger from './stockLedger.service';
-import { createPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
+import { createPreference, getPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
 import {
   sendOrderConfirmationEmail,
   sendOrderInvoiceEmail,
@@ -502,11 +502,55 @@ export interface CheckoutInput {
   notes?: string;
   payment_method?: 'mercadopago' | 'cash' | 'bank_transfer';
   back_urls?: { success: string; failure: string; pending: string };
+  /** UUID generado por el frontend por intento de checkout (1.4 / A-1). */
+  idempotencyKey?: string;
 }
 
-export async function createStoreOrder(input: CheckoutInput) {
+export interface CheckoutResult {
+  order: StoreOrder;
+  payment_method: 'mercadopago' | 'cash' | 'bank_transfer';
+  mp_init_point: string | null;
+  mp_sandbox_init_point: string | null;
+}
+
+/**
+ * Arma la respuesta del checkout a partir de un pedido YA EXISTENTE (creado
+ * en un intento anterior con la misma Idempotency-Key). Si es un pedido de
+ * MercadoPago, reconsulta la preference para recuperar `init_point` (nunca
+ * se persiste, solo `mp_preference_id`) — si falla, se devuelve `null` en vez
+ * de cortar la respuesta: el pedido ya existe de cualquier forma.
+ */
+async function buildCheckoutResultFromExisting(order: StoreOrder): Promise<CheckoutResult> {
+  let mpInitPoint: string | null = null;
+  let mpSandboxInitPoint: string | null = null;
+
+  if (order.payment_method === 'mercadopago' && order.mp_preference_id) {
+    const pref = await getPreference(order.mp_preference_id);
+    mpInitPoint = pref?.init_point ?? null;
+    mpSandboxInitPoint = pref?.sandbox_init_point ?? null;
+  }
+
+  return {
+    order,
+    payment_method: order.payment_method,
+    mp_init_point: mpInitPoint,
+    mp_sandbox_init_point: mpSandboxInitPoint,
+  };
+}
+
+export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutResult> {
   const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
   const BACKEND_URL = process.env.BACKEND_PUBLIC_URL || 'http://localhost:3000';
+
+  // Idempotencia (1.4 / A-1): si ya existe un pedido con esta clave, devolverlo
+  // tal cual en vez de reprocesar el checkout. Cubre el caso común (el segundo
+  // POST llega después de que el primero ya terminó). La carrera genuina
+  // (dos requests simultáneos, ninguno encuentra nada acá todavía) la resuelve
+  // el índice único de la DB más abajo, en el catch de UniqueConstraintError.
+  if (input.idempotencyKey) {
+    const existing = await StoreOrder.findOne({ where: { idempotency_key: input.idempotencyKey } });
+    if (existing) return buildCheckoutResultFromExisting(existing);
+  }
 
   if (!input.items || input.items.length === 0) {
     throw new AppError('El carrito está vacío', 400);
@@ -632,6 +676,7 @@ export async function createStoreOrder(input: CheckoutInput) {
             coupon_code: couponCode,
             payment_method: input.payment_method ?? 'mercadopago',
             notes: input.notes ?? null,
+            idempotency_key: input.idempotencyKey ?? null,
           },
           { transaction: t }
         );
@@ -704,8 +749,17 @@ export async function createStoreOrder(input: CheckoutInput) {
       });
       break; // éxito
     } catch (err) {
-      if (err instanceof UniqueConstraintError && attempt < MAX_ORDER_ATTEMPTS) {
-        continue; // colisión de order_number → regenerar y reintentar
+      if (err instanceof UniqueConstraintError) {
+        // Carrera genuina: otro request con la misma Idempotency-Key ganó y
+        // ya commiteó su pedido. No reintentamos — devolvemos ESE pedido en
+        // vez de duplicar el descuento de stock.
+        if (input.idempotencyKey && 'idempotency_key' in err.fields) {
+          const existing = await StoreOrder.findOne({ where: { idempotency_key: input.idempotencyKey } });
+          if (existing) return buildCheckoutResultFromExisting(existing);
+        }
+        if (attempt < MAX_ORDER_ATTEMPTS) {
+          continue; // colisión de order_number → regenerar y reintentar
+        }
       }
       throw err;
     }

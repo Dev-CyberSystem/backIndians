@@ -56,6 +56,7 @@ export class StoreOrder extends Model<
   declare tracking_token: CreationOptional<string | null>;
   declare tracking_token_expires_at: CreationOptional<Date | null>;
   declare stock_restored_at: CreationOptional<Date | null>;
+  declare idempotency_key: CreationOptional<string | null>;
   declare payment_method: CreationOptional<StorePaymentMethod>;
   declare payment_proof_url: CreationOptional<string | null>;
   declare payment_proof_url_2: CreationOptional<string | null>;
@@ -107,6 +108,7 @@ StoreOrder.init(
     tracking_token: { type: DataTypes.STRING(64), allowNull: true, unique: true },
     tracking_token_expires_at: { type: DataTypes.DATE, allowNull: true },
     stock_restored_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    idempotency_key: { type: DataTypes.STRING(64), allowNull: true, unique: true },
     payment_method: {
       type: DataTypes.ENUM('mercadopago', 'cash', 'bank_transfer'),
       allowNull: false,
