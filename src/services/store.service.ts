@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { Op, col, literal, UniqueConstraintError } from 'sequelize';
+import { Op, col, literal, UniqueConstraintError, Transaction } from 'sequelize';
 import { sequelize } from '../config/db';
 import {
   CatalogProduct,
@@ -16,6 +16,7 @@ import {
 import { Client } from '../models/Client';
 import { GarmentType } from '../models/GarmentType';
 import { AppError } from '../middlewares/errorHandler';
+import { logger } from '../utils/logger';
 import * as stockLedger from './stockLedger.service';
 import { createPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
 import {
@@ -843,6 +844,102 @@ function emitStoreOrderCreatedEvent(order: StoreOrder): void {
   } catch { /* socket puede no estar inicializado en tests */ }
 }
 
+// ─── Restitución de stock y liberación de cupón al cancelar ──────────────────
+
+/**
+ * Restituye el stock de todos los ítems de un pedido cancelado y libera el
+ * cupón usado (si tenía). Cierra C-1 / A-9.
+ *
+ * Idempotente: relee el pedido con lock exclusivo dentro de `transaction` y
+ * no hace nada si `stock_restored_at` ya está seteado (protege contra doble
+ * restitución por reintentos o eventos de webhook repetidos).
+ *
+ * Resuelve el talle de cada ítem por `catalog_product_id` + `size_name`
+ * (fallback por texto — `store_order_items` todavía no tiene
+ * `catalog_product_size_id`, ver tarea 1.10). Si un talle no se puede
+ * resolver (renombrado o eliminado), NO aborta la cancelación: loguea un
+ * ERROR y deja un movimiento de stock con `delta:0` a modo de constancia
+ * ("revisión manual pendiente"), en vez de adivinar dónde aplicar el ajuste.
+ */
+export async function restoreStoreOrderStock(
+  order: StoreOrder,
+  reason: string,
+  userId: number | null,
+  transaction: Transaction
+): Promise<void> {
+  const locked = await StoreOrder.findByPk(order.id, {
+    lock: Transaction.LOCK.UPDATE,
+    transaction,
+  });
+  if (!locked || locked.stock_restored_at) return;
+
+  const items = await StoreOrderItem.findAll({
+    where: { store_order_id: order.id },
+    transaction,
+  });
+
+  for (const item of items) {
+    let catalogProductSizeId: number | null = null;
+
+    if (item.size_name) {
+      const size = await CatalogProductSize.findOne({
+        where: { product_id: item.catalog_product_id, size_name: item.size_name },
+        transaction,
+      });
+      if (size) {
+        catalogProductSizeId = size.id;
+      } else {
+        logger.error(
+          'store.restoreStock.unresolvedSize',
+          new Error('No se pudo resolver el talle para restituir stock'),
+          {
+            meta: {
+              storeOrderId: order.id,
+              orderNumber: order.order_number,
+              catalogProductId: item.catalog_product_id,
+              sizeName: item.size_name,
+            },
+          }
+        );
+        await stockLedger.adjustStock({
+          transaction,
+          type: 'cancel',
+          source: 'store',
+          catalogProductId: item.catalog_product_id,
+          catalogProductSizeId: null,
+          delta: 0,
+          storeOrderId: order.id,
+          userId,
+          reason,
+          notes: `Talle "${item.size_name}" no encontrado — restitución pendiente de revisión manual`,
+        });
+        continue;
+      }
+    }
+
+    await stockLedger.adjustStock({
+      transaction,
+      type: 'cancel',
+      source: 'store',
+      catalogProductId: item.catalog_product_id,
+      catalogProductSizeId,
+      delta: item.quantity,
+      storeOrderId: order.id,
+      userId,
+      reason,
+    });
+  }
+
+  if (locked.coupon_id) {
+    await StoreCoupon.update(
+      { used_count: literal('GREATEST(used_count - 1, 0)') },
+      { where: { id: locked.coupon_id, used_count: { [Op.gt]: 0 } }, transaction }
+    );
+  }
+
+  await locked.update({ stock_restored_at: new Date() }, { transaction });
+}
+
 // ─── Cambio de estado (transición + historial + mail) ────────────────────────
 
 export interface StatusChangeOptions {
@@ -923,6 +1020,18 @@ export async function recordStoreOrderStatusChange(
         },
         { transaction: t }
       );
+
+      // Restituir stock y liberar cupón al entrar en cancelled (C-1/A-9).
+      // 'returned' queda afuera a propósito: la restitución ahí es una
+      // decisión explícita del admin (el producto puede volver defectuoso).
+      if (newStatus === 'cancelled') {
+        await restoreStoreOrderStock(
+          order,
+          `Cancelación de pedido ${order.order_number}`,
+          options.changedBy ?? null,
+          t
+        );
+      }
     }
   });
 

@@ -22,8 +22,8 @@ Convención: pendiente / en curso / resuelto / descartado.
 | 1.9 | Higiene de secretos | **Resuelto (parcial — ver riesgo residual)** | Ver detalle abajo. |
 | 1.1 | C-2, C-3 | **Resuelto (código) — pendiente acción manual** | Ver detalle abajo. |
 | 1.2 | C-5 | **Resuelto (con 2 exclusiones documentadas)** | Ver detalle abajo. |
-| 1.3 | C-1, A-9 | Pendiente (depende de 1.2, 1.10) | — |
-| 1.10 | M-8 | Pendiente (habilita 1.3) | — |
+| 1.3 | C-1, A-9 | **Resuelto (talle por `size_name`, sin esperar 1.10)** | Ver detalle abajo. |
+| 1.10 | M-8 | Pendiente | Ya no bloquea a 1.3 (resuelto con fallback). |
 | 1.4 | A-1 | Pendiente | — |
 | 1.5 | A-7 | Pendiente (depende de 1.1) | — |
 | 1.6 | C-6, A-3, A-4 | Pendiente | — |
@@ -242,20 +242,68 @@ limpio.
 
 ---
 
+### 1.3 — Restitución de stock y liberación de cupón
+
+**Estado: Resuelto.**
+
+- **Migración** `20260804-068-store-orders-stock-restored-at.js`:
+  `store_orders.stock_restored_at DATETIME NULL` (guarda `describeTable`,
+  mismo patrón que la 066).
+- **Función nueva** `restoreStoreOrderStock(order, reason, userId, transaction)`
+  en `store.service.ts` (exportada, tal como pedía la tarea). Idempotente de
+  verdad: relee el pedido con `lock: Transaction.LOCK.UPDATE` **dentro** de la
+  transacción del caller y no hace nada si `stock_restored_at` ya está
+  seteado — no depende solo de la comparación de estado.
+- **Único punto de enganche:** dentro de la transacción interna de
+  `recordStoreOrderStatusChange` (que ya es el único lugar por donde pasan
+  los 3 caminos hacia `cancelled`: admin manual, webhook de MP, retorno del
+  cliente), justo después de escribir `StoreOrderStatusHistory`, solo cuando
+  `newStatus === 'cancelled'`. Si algo falla ahí, se revierte también el
+  cambio de estado (no queda "cancelado pero sin restituir").
+- Por cada `StoreOrderItem`: resuelve el talle por `catalog_product_id` +
+  `size_name` (fallback — `store_order_items` todavía no tiene
+  `catalog_product_size_id`, ver 1.10 abajo) y llama a
+  `stockLedger.adjustStock({ type:'cancel', source:'store', delta:+quantity })`.
+  Si el talle no se puede resolver (renombrado/borrado): **no rompe la
+  cancelación** — loguea `logger.error` y deja un movimiento `delta:0` con
+  nota "revisión manual pendiente" en vez de adivinar dónde ajustar.
+- Libera el cupón (`used_count = GREATEST(used_count - 1, 0)` con guarda
+  `used_count > 0`, mismo patrón que el incremento del checkout).
+- **`returned` queda afuera a propósito** (no dispara restitución) — es
+  decisión explícita del admin, tal como pedía la tarea.
+- **Fuera de alcance a propósito** (para no invadir 1.5): no toqué el
+  `order.update()` sin transacción de `applyPaymentResult` para los campos
+  `mp_*`, ni agregué lock/dedupe de eventos de webhook.
+
+**Decisión tomada (confirmada por vos):** no esperé a 1.10 — la resolución
+del talle usa `size_name` como único método (el "fallback" que preveía el
+propio texto de la tarea), ya que hoy es el único método disponible. Cuando
+se haga 1.10, conviene que `restoreStoreOrderStock` prefiera
+`catalog_product_size_id` si existe y caiga a `size_name` solo si no.
+
+**Tests:** nuevo `src/__tests__/api/stock-restoration.test.ts` (2 casos,
+contra la DB real): cancelar un pedido en efectivo con cupón aplicado
+restituye el stock exacto, deja un movimiento `cancel`/`store` con
+`previous`/`new` correctos, marca `stock_restored_at` y decrementa
+`used_count` del cupón; llamar `restoreStoreOrderStock` una segunda vez sobre
+el mismo pedido (directo, no por HTTP — la transición `cancelled→cancelled`
+ya está bloqueada por `STORE_ORDER_TRANSITIONS`, así que se prueba la
+función en sí) no agrega movimientos ni cambia el stock. Suite completa:
+**24/25 suites, 147/148 tests** — la única falla
+(`factory-garment-types.test.ts`) es un test preexistente flaky (colisión de
+nombre por `Date.now() % 1000`, no relacionado con este cambio), pasa solo
+en aislado.
+
+**Verificación:** `npm run typecheck` limpio.
+
+---
+
 ## Preguntas / decisiones pendientes de tu parte
 
-1. Las 2 exclusiones de 1.2 (`createProduct` inicial y `saveProductSizes`):
-   ¿las dejamos así, o querés que arme un follow-up ahora para cerrarlas
-   (implica decidir cómo versionar el "previous_quantity" de un talle que se
-   recrea en cada guardado — probablemente conviene resolverlo junto con
-   1.10, que agrega `catalog_product_size_id` a `store_order_items` por el
-   mismo motivo)?
+1. ¿Seguimos con **1.10** ahora (agregar `catalog_product_size_id` a
+   `store_order_items`, con backfill), para que `restoreStoreOrderStock` deje
+   de depender del fallback por `size_name`? Ya no bloquea nada — es una
+   mejora de robustez, no una dependencia dura.
 2. Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`:
-   ¿los dejamos para una tarea de limpieza aparte (Fase 4, ítem 4.1/4.8) o
-   querés que los mire antes?
-3. ¿Sigo con **1.3 (restitución de stock y liberación de cupón)**? Según el
-   plan depende de 1.2 (ya resuelta) y de 1.10 (`catalog_product_size_id` en
-   `store_order_items`, todavía pendiente) — puedo hacer 1.10 primero, o
-   avanzar 1.3 resolviendo el talle solo por `size_name` como fallback y
-   dejar el uso de `catalog_product_size_id` para cuando esté 1.10 (tal como
-   contempla el propio texto de 1.3).
+   confirmado que quedan para Fase 4.
+3. ¿Sigo con **1.4** (idempotencia del checkout con `Idempotency-Key`)?
