@@ -747,7 +747,7 @@ configurar `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` (certificado real de ARCA) y
 | 2.5 | Merge AFIP (resuelto) | **Resuelto (código) — falta certificado real, acción tuya** — ver detalle abajo. |
 | 2.6 | — | Pendiente (necesita research spike). |
 | 2.7 | 2.1, 2.3 | **Resuelto** — ver detalle abajo. |
-| 2.8 | — | Pendiente. |
+| 2.8 | — | **Resuelto** — ver detalle abajo. |
 
 ---
 
@@ -1178,3 +1178,51 @@ patrón compacto (`toString(36)`) que ya usaba `afip.test.ts`. Suite completa:
 
 **Verificación:** `npm run typecheck` limpio. Server real levantado
 (`npm run dev`) sin errores.
+
+---
+
+### 2.8 — Cupón: 1 uso por cliente
+
+**Estado: Resuelto. Cierra el desglose original de Fase 2 (2.1 a 2.8) —
+queda pendiente 2.6 (Andreani, research spike) sin arrancar.**
+
+Se suma al `max_uses` global que ya existía (límite total de usos del
+cupón, sin importar quién): ahora, además, ningún cliente puede usar el
+mismo cupón dos veces.
+
+- **`hasCustomerUsedCoupon()`** (nueva, en `store.service.ts`): identifica
+  al comprador por `customer_id` si está logueado, si no por
+  `customer_email` (el checkout de invitado siempre lo manda). Un pedido
+  `cancelled` no cuenta como "usado" — mismo criterio que ya usa
+  `restoreStoreOrderStock` (1.3) para liberar el `used_count` global al
+  cancelar.
+- **`validateCoupon()`** gana 2 parámetros opcionales (`customerId`,
+  `customerEmail`) y el chequeo nuevo. Sin ninguno de los dos (quote
+  anónimo) no se puede chequear — se resuelve en el checkout real, que
+  siempre tiene identidad (backend decide, mismo principio de 1.6).
+- **`computeOrderTotals`/`getCheckoutQuote`/`createStoreOrder`**: se hizo
+  pasar la identidad del comprador a través de toda la cadena.
+- **Rutas `/store/coupons/validate` y `/store/checkout/quote`** ganaron
+  `optionalStoreAuth` (mismo middleware que ya usa `/checkout`) para que un
+  comprador logueado vea el rechazo ya en el paso de aplicar el cupón (antes
+  de llegar a confirmar) — sin este cambio, esas dos rutas eran 100%
+  anónimas y no había forma de saber quién es el comprador logueado hasta
+  el checkout real. No hizo falta tocar el frontend: `storeApi` ya manda el
+  JWT del comprador en cada request si existe sesión.
+- **Frontend: no se tocó nada.** Verificado por inspección que el
+  interceptor de error de `storeApi` (`api/store.ts`) ya extrae
+  `err.response.data.message` y arma un `Error` real — el mensaje nuevo
+  ("Ya usaste este cupón antes...") se muestra en el toast existente sin
+  cambios de código.
+
+**Tests:** nuevo `src/__tests__/api/coupon-per-customer.test.ts` (4 casos):
+un invitado usa el cupón una vez, un segundo pedido con el mismo email lo
+rechaza; un email distinto sí puede usarlo; un pedido cancelado no cuenta
+como "usado" (el cliente puede volver a usarlo); un comprador logueado
+(JWT minteado directo con `STORE_JWT_SECRET`, sin pasar por el flujo de
+registro/verificación de email para no complicar el fixture) — el rechazo
+se detecta por `customer_id` incluso en `/coupons/validate` sin mandar el
+email en el body, gracias al `optionalStoreAuth` nuevo. Suite completa:
+**37/37 suites, 199/199 tests.**
+
+**Verificación:** `npm run typecheck` limpio.

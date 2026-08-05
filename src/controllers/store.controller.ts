@@ -194,7 +194,7 @@ export async function getProduct(req: Request, res: Response, next: NextFunction
 export async function validateCoupon(req: Request, res: Response, next: NextFunction) {
   try {
     const { code, subtotal } = req.body;
-    const result = await store.validateCoupon(code, Number(subtotal));
+    const result = await store.validateCoupon(code, Number(subtotal), req.storeCustomerId, req.storeCustomerEmail);
     res.json({ success: true, data: { discount: result.discount, coupon: { code: result.coupon.code, type: result.coupon.type, value: result.coupon.value } } });
   } catch (err) {
     next(err);
@@ -252,6 +252,8 @@ export async function checkoutQuote(req: Request, res: Response, next: NextFunct
       items: req.body.items,
       coupon_code: req.body.coupon_code,
       shipping_type: req.body.shipping_type ?? 'pickup',
+      customerId: req.storeCustomerId,
+      customerEmail: req.storeCustomerEmail,
     });
     res.json({ success: true, data: quote });
   } catch (err) {

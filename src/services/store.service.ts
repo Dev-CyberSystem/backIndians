@@ -351,7 +351,41 @@ export async function getStoreProduct(id: number) {
 
 // ─── Cupones ────────────────────────────────────────────────────────────────
 
-export async function validateCoupon(code: string, subtotal: number) {
+/**
+ * 1 uso por cliente (2.8), además del `max_uses` global que ya existía.
+ * Identifica al comprador por `customer_id` si está logueado, si no por
+ * `customer_email` (checkout de invitado, siempre la manda). Sin ninguno de
+ * los dos (quote anónimo) no se puede chequear — se resuelve en el checkout
+ * real, que siempre tiene identidad (backend decide).
+ *
+ * Un pedido `cancelled` no cuenta como "usado": `restoreStoreOrderStock`
+ * (1.3) ya libera el `used_count` global al cancelar — mismo criterio acá.
+ */
+async function hasCustomerUsedCoupon(
+  couponId: number,
+  customerId?: number | null,
+  customerEmail?: string | null
+): Promise<boolean> {
+  if (!customerId && !customerEmail) return false;
+
+  const count = await StoreOrder.count({
+    where: {
+      coupon_id: couponId,
+      status: { [Op.ne]: 'cancelled' },
+      ...(customerId
+        ? { customer_id: customerId }
+        : { customer_email: customerEmail!.toLowerCase().trim() }),
+    },
+  });
+  return count > 0;
+}
+
+export async function validateCoupon(
+  code: string,
+  subtotal: number,
+  customerId?: number | null,
+  customerEmail?: string | null
+) {
   const coupon = await StoreCoupon.findOne({
     where: {
       code: code.toUpperCase().trim(),
@@ -372,6 +406,9 @@ export async function validateCoupon(code: string, subtotal: number) {
       `El pedido mínimo para este cupón es $${Number(coupon.min_purchase).toFixed(2)}`,
       400
     );
+  }
+  if (await hasCustomerUsedCoupon(coupon.id, customerId, customerEmail)) {
+    throw new AppError('Ya usaste este cupón antes — es válido una sola vez por cliente', 400);
   }
 
   // Descuento sin decimales (misma regla). El fixed ya viene entero, pero lo
@@ -592,6 +629,14 @@ async function computeOrderTotals(input: {
   items: CartItem[];
   coupon_code?: string;
   shipping_type: 'pickup' | 'delivery';
+  /**
+   * Identidad del comprador para el chequeo "1 uso por cliente" (2.8). En el
+   * quote anónimo (sin sesión) suelen venir undefined — el quote no lleva
+   * datos del comprador a propósito (1.6); el checkout real siempre los
+   * manda, que es donde la regla se aplica de verdad (backend decide).
+   */
+  customerId?: number | null;
+  customerEmail?: string | null;
 }): Promise<ComputedOrderTotals> {
   if (!input.items || input.items.length === 0) {
     throw new AppError('El carrito está vacío', 400);
@@ -700,7 +745,7 @@ async function computeOrderTotals(input: {
   let discountAmount = 0;
   let couponRecord: StoreCoupon | null = null;
   if (input.coupon_code) {
-    const { coupon, discount } = await validateCoupon(input.coupon_code, subtotal);
+    const { coupon, discount } = await validateCoupon(input.coupon_code, subtotal, input.customerId, input.customerEmail);
     discountAmount = discount;
     couponRecord = coupon;
   }
@@ -742,6 +787,8 @@ export async function getCheckoutQuote(input: {
   items: CartItem[];
   coupon_code?: string;
   shipping_type: 'pickup' | 'delivery';
+  customerId?: number | null;
+  customerEmail?: string | null;
 }): Promise<OrderQuote> {
   const totals = await computeOrderTotals(input);
   return {
@@ -773,6 +820,8 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
     items: input.items,
     coupon_code: input.coupon_code,
     shipping_type: input.shipping_type,
+    customerId: input.customerId,
+    customerEmail: input.customerEmail,
   });
 
   if (!totals.all_available) {

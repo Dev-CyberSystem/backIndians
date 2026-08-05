@@ -137,12 +137,14 @@ router.get('/products/filters', cache(60), ctrl.getFilterOptions);
 router.get('/products', cache(20), productQueryValidators, ctrl.listProducts);
 router.get('/products/:id', cache(30), param('id').isInt({ min: 1 }), validate, ctrl.getProduct);
 
-// ─── Cupones (validar, público) ──────────────────────────────────────────────
-router.post('/coupons/validate', couponLimiter, couponValidators, ctrl.validateCoupon);
+// ─── Cupones (validar, público — auth opcional para chequear "1 uso por
+// cliente" de 2.8 cuando el comprador está logueado) ──────────────────────────
+router.post('/coupons/validate', couponLimiter, optionalStoreAuth, couponValidators, ctrl.validateCoupon);
 router.get('/promo-popup', cache(30), ctrl.getPromoPopup);
 
-// ─── Presupuesto del checkout (1.6 / C-6) — público, no crea nada ────────────
-router.post('/checkout/quote', quoteLimiter, quoteValidators, ctrl.checkoutQuote);
+// ─── Presupuesto del checkout (1.6 / C-6) — público, no crea nada. Auth
+// opcional por el mismo motivo que /coupons/validate (2.8). ──────────────────
+router.post('/checkout/quote', quoteLimiter, optionalStoreAuth, quoteValidators, ctrl.checkoutQuote);
 
 // ─── Checkout (auth opcional — compradores sin cuenta también pueden comprar) ─
 router.post('/checkout', checkoutLimiter, optionalStoreAuth, checkoutValidators, ctrl.checkout);
