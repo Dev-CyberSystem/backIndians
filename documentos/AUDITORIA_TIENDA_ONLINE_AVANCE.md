@@ -1226,3 +1226,108 @@ email en el body, gracias al `optionalStoreAuth` nuevo. Suite completa:
 **37/37 suites, 199/199 tests.**
 
 **Verificación:** `npm run typecheck` limpio.
+
+---
+
+## Fase 2 — cierre
+
+El desglose completo de Fase 2 (2.1 a 2.8) está resuelto, con la única
+excepción de **2.6 (integración con Andreani)**, que sigue sin arrancar
+porque necesita un research spike de su API (cotización, generación de
+etiqueta, tracking, credenciales) antes de poder desglosarse en tareas
+concretas — sigue pendiente de que decidas cuándo encararlo.
+
+### Qué quedó funcionando
+
+- **Reserva de stock con vencimiento** (2.1): el checkout reserva, no
+  descuenta stock real hasta que se confirma el pago.
+- **Expiración automática a 48hs** (2.2): job por hora, misma ventana para
+  MercadoPago y transferencia; efectivo y transferencias con comprobante ya
+  subido no expiran solas.
+- **Conexión con caja** (2.3): ingreso automático al confirmarse el pago,
+  usuario "Sistema" para confirmaciones sin admin humano detrás.
+- **Devoluciones con revisión por ítem** (2.4): reemplaza el click directo a
+  "Devuelto"; solo lo marcado revendible vuelve al stock.
+- **Facturación AFIP/ARCA mergeada y con gate de seguridad real** (merge +
+  2.5): módulo completo disponible, envío manual, más el fix del toggle
+  `afip_enabled` que no bloqueaba nada.
+- **Reporte de conciliación ampliado** (2.7): detecta reservas vencidas sin
+  liberar, pedidos pagados sin caja, comprobantes AFIP en error y
+  devoluciones sin seguimiento de reintegro.
+- **Cupón 1 uso por cliente** (2.8): además del límite global que ya
+  existía.
+
+### Acciones tuyas todavía pendientes (ninguna es de código)
+
+1. **MercadoPago** (1.1): generar la "Firma secreta" del webhook en el panel
+   de MP y setear `MP_WEBHOOK_SECRET` + `BACKEND_PUBLIC_URL` en Railway
+   *antes* de desplegar — el backend no arranca en producción sin ellas.
+2. **Rotar credenciales** (1.9): las que estaban en `.env.bak` y en
+   `Users.txt` (prioridad: `DB_PASSWORD`, `JWT_SECRET`/
+   `JWT_REFRESH_SECRET`, `MP_ACCESS_TOKEN`, `CLOUDINARY_API_SECRET`,
+   `RESEND_API_KEY`, `SMTP_PASS`).
+3. **Certificado AFIP real** (2.5): completar el trámite en ARCA, cargar
+   `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` en Railway, configurar
+   `company_cuit`/`afip_punto_venta` reales, y recién ahí activar el toggle
+   `afip_enabled` en Configuración.
+4. **Configurar la cuenta de caja de la tienda** (2.3): en Configuración →
+   Tienda online → Caja, elegir qué cuenta recibe los cobros — sin esto, el
+   reporte de conciliación (2.7) va a seguir marcando "pedidos pagados sin
+   registro en caja".
+5. **Decidir cuándo encarar 2.6** (Andreani) — o si preferís dejarlo fuera
+   del alcance por ahora.
+
+### Deuda técnica anotada durante el trabajo (no bloqueante, no resuelta)
+
+- **`STORE_ORDER_TRANSITIONS` duplicado entre backend
+  (`config/storeOrderFlow.ts`) y frontend (`api/store.ts`)** — hallazgo del
+  testing de 2.4: cualquier cambio futuro a las transiciones de estado de
+  pedidos de tienda tiene que tocar los dos archivos o el frontend queda
+  desincronizado en silencio. Coincide con la tarea 4.2 de la auditoría
+  original ("unificar configuración de estados backend/frontend").
+- Los 162 errores/11 warnings preexistentes de ESLint en `frontIndians`
+  (anotados desde 1.7) siguen sin tocar — quedan para Fase 4.
+- El frontend de la tienda pública sigue mostrando `stock_quantity` física
+  en vez de la disponible (`stock_quantity - stock_reserved`, 2.1) — no es
+  un hueco de seguridad (el checkout/quote sí valida bien), es una mejora
+  de UX que quedó anotada como tarea 3.1 de la auditoría original.
+
+### Referencia de commits de esta sesión
+
+**`backIndians`** (rama `fixauditoria`):
+
+| Commit | Tarea |
+|---|---|
+| `35ae47d` | 1.7 — renombrar "factura" a "comprobante de compra" |
+| `c9d585a` | 1.9 — higiene de secretos (`.env.bak`) |
+| `5ea6ef2` | 1.1 — configuración y seguridad del webhook de MercadoPago |
+| `ff7e78f` | 1.2 — ledger de stock |
+| `0e40c6c` | 1.3 — restitución de stock y liberación de cupón |
+| `5a44a12` | 1.4 — idempotencia en el checkout |
+| `2c26b34` | 1.10 — `catalog_product_size_id` en `store_order_items` |
+| `a8b87d9` | 1.5 — idempotencia y robustez de webhooks |
+| `98f0f41` | 1.6 — total correcto en el checkout |
+| `7367251` | 1.8 — jobs de reconciliación e inconsistencias (cierra Fase 1) |
+| `4e7cd68` | Merge del módulo AFIP/ARCA desde `integracionarca` |
+| `02a969c` | 2.1 — reserva de stock con vencimiento |
+| `c140540` | 2.2 — expiración automática a 48hs |
+| `3a15c24` | 2.3 — conectar la tienda a caja |
+| `4d04d70` | 2.4 — devoluciones con revisión por ítem |
+| `d49ff4d` | 2.5 — gate de seguridad `afip_enabled` |
+| `b4ec708` | 2.7 — reporte de conciliación ampliado |
+| `be5124c` | 2.8 — cupón 1 uso por cliente (cierra el desglose de Fase 2) |
+
+**`frontIndians`** (rama `fixauditoria`):
+
+| Commit | Tarea |
+|---|---|
+| `0819968` | 1.7 — renombrar "factura" a "comprobante de compra" |
+| `04fdc6a` | 1.4 — enviar Idempotency-Key en el checkout |
+| `61c5f58` | 1.6 — mostrar total real (con envío) antes de confirmar |
+| `721a8f0` | Merge de la UI del módulo AFIP/ARCA |
+| `9f03cea` | 2.3 — sección Caja en configuración de tienda online |
+| `50b2890` | 2.4 — UI de devoluciones con revisión por ítem |
+
+Las tareas sin fila en `frontIndians` (1.1, 1.2, 1.3, 1.5, 1.8, 1.9, 1.10,
+2.1, 2.2, 2.5, 2.7, 2.8) fueron 100% backend — no necesitaron cambios de
+frontend.
