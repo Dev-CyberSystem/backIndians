@@ -4,7 +4,7 @@ import { StoreOrder, StoreOrderItem, StoreReturn, StoreReturnItem, User } from '
 import { AppError } from '../middlewares/errorHandler';
 import { logger } from '../utils/logger';
 import * as stockLedger from './stockLedger.service';
-import { recordStoreOrderStatusChange, resolveStoreOrderItemSize } from './store.service';
+import { recordStoreOrderStatusChange, resolveStoreOrderItemSize, reverseStoreOrderCashIncome } from './store.service';
 import type { StoreReturnRefundStatus } from '../models/StoreReturn';
 
 /**
@@ -214,17 +214,60 @@ export async function reviewStoreReturn(returnId: number, input: ReviewStoreRetu
 export interface UpdateStoreReturnRefundInput {
   refund_status: StoreReturnRefundStatus;
   refunded_amount?: number | null;
+  /** Admin que confirma el reintegro — atribución del contraasiento de caja (Fase 4). */
+  changedBy: number | null;
 }
 
-/** Solo actualiza el campo informativo — nunca llama a la API de MercadoPago (decisión de negocio #5). */
+/**
+ * Actualiza el campo informativo de reintegro — nunca llama a la API de
+ * MercadoPago (decisión de negocio #5). Desde la Fase 4 del plan de
+ * corrección de caja, pasar a `refund_status: 'refunded'` SÍ tiene un efecto
+ * real: si el pedido tiene un ingreso de caja/banco registrado
+ * (`cash_recorded_at`), revierte ese ingreso por `refunded_amount` (no por
+ * el total del pedido — la devolución puede ser parcial). Por eso
+ * `refunded_amount` pasa a ser obligatorio en este caso: sin un monto no hay
+ * forma de saber cuánto revertir. Idempotente por `cash_reversed_at` propio
+ * de la devolución (no el de `store_orders` — puede haber varias
+ * devoluciones parciales sobre el mismo pedido, cada una con su propia marca).
+ */
 export async function updateStoreReturnRefund(returnId: number, input: UpdateStoreReturnRefundInput) {
-  const ret = await StoreReturn.findByPk(returnId);
-  if (!ret) throw new AppError('Devolución no encontrada', 404);
+  const existing = await StoreReturn.findByPk(returnId);
+  if (!existing) throw new AppError('Devolución no encontrada', 404);
 
-  await ret.update({
-    refund_status: input.refund_status,
-    refunded_amount: input.refund_status === 'refunded' ? (input.refunded_amount ?? ret.refunded_amount) : ret.refunded_amount,
-    refunded_at: input.refund_status === 'refunded' ? new Date() : ret.refunded_at,
+  if (input.refund_status === 'refunded' && (input.refunded_amount === null || input.refunded_amount === undefined)) {
+    throw new AppError('El monto reintegrado es obligatorio para marcar el reintegro como realizado', 400);
+  }
+
+  await sequelize.transaction(async (t) => {
+    const ret = await StoreReturn.findByPk(returnId, { lock: Transaction.LOCK.UPDATE, transaction: t });
+    if (!ret) throw new AppError('Devolución no encontrada', 404);
+
+    const becomesRefunded = input.refund_status === 'refunded';
+
+    await ret.update(
+      {
+        refund_status: input.refund_status,
+        refunded_amount: becomesRefunded ? (input.refunded_amount ?? ret.refunded_amount) : ret.refunded_amount,
+        refunded_at: becomesRefunded ? new Date() : ret.refunded_at,
+      },
+      { transaction: t }
+    );
+
+    if (becomesRefunded && !ret.cash_reversed_at) {
+      const order = await StoreOrder.findByPk(ret.store_order_id, { transaction: t });
+      if (order?.cash_recorded_at) {
+        const reversed = await reverseStoreOrderCashIncome(
+          order.id,
+          `Devolución #${ret.id} de pedido ${order.order_number}`,
+          input.changedBy,
+          t,
+          Number(input.refunded_amount)
+        );
+        if (reversed) {
+          await ret.update({ cash_reversed_at: new Date() }, { transaction: t });
+        }
+      }
+    }
   });
 
   return getStoreReturn(returnId);

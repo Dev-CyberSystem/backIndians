@@ -458,107 +458,131 @@ export interface ReverseTransactionInput {
  * original: la corrección ocurre cuando se detecta, no se reescribe
  * retroactivamente un período ya cerrado (decisión confirmada con el usuario).
  */
+async function reverseTransactionCore(
+  id: number,
+  input: ReverseTransactionInput,
+  ctx: CashAuditContext,
+  t: import('sequelize').Transaction
+): Promise<CashTransaction> {
+  // Lock de fila: si dos reversiones de la misma transacción llegan casi
+  // juntas, la segunda espera a que la primera commitee y ve el `remaining`
+  // ya actualizado — sin esto habría una condición de carrera real (CASH-CONC-001).
+  const original = await CashTransaction.findByPk(id, { lock: Transaction.LOCK.UPDATE, transaction: t });
+  if (!original) throw new AppError('Transacción no encontrada', 404);
+  if (original.reversal_of_id) throw new AppError('Una reversión no se puede volver a revertir', 400);
+  if (original.status === 'reversed') throw new AppError('La transacción ya fue revertida por completo', 400);
+
+  const originalAmount = Number(original.amount);
+  const alreadyReversed = Number(
+    (await CashTransaction.sum('amount', { where: { reversal_of_id: original.id }, transaction: t })) ?? 0
+  );
+  const remaining = originalAmount - alreadyReversed;
+  const amountToReverse = input.amount ?? remaining;
+
+  if (amountToReverse <= 0) throw new AppError('El monto a revertir debe ser mayor a 0', 400);
+  // Margen de un décimo de centavo por acumulación de redondeo en sumas sucesivas.
+  if (amountToReverse > remaining + 0.001) {
+    throw new AppError(
+      `No se puede revertir ${amountToReverse}: solo queda ${remaining.toFixed(2)} sin revertir de esta transacción`,
+      400
+    );
+  }
+
+  // income↔expense; transfer invierte cuenta origen/destino.
+  let reversalType: 'income' | 'expense' | 'transfer';
+  let reversalAccountId: number;
+  let reversalTransferAccountId: number | null;
+  if (original.type === 'income') {
+    reversalType = 'expense';
+    reversalAccountId = original.account_id;
+    reversalTransferAccountId = null;
+  } else if (original.type === 'expense') {
+    reversalType = 'income';
+    reversalAccountId = original.account_id;
+    reversalTransferAccountId = null;
+  } else {
+    reversalType = 'transfer';
+    reversalAccountId = original.transfer_account_id!;
+    reversalTransferAccountId = original.account_id;
+  }
+
+  await applyBalanceEffect(reversalType, amountToReverse, reversalAccountId, reversalTransferAccountId, t);
+
+  const before = snapshotOf(original);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const reversal = await CashTransaction.create(
+    {
+      account_id:          reversalAccountId,
+      category_id:         original.category_id,
+      type:                reversalType,
+      amount:              amountToReverse,
+      description:         `Reversión de #${original.id} — ${original.description}`,
+      date:                today,
+      reference_type:      original.reference_type,
+      reference_id:        original.reference_id,
+      transfer_account_id: reversalTransferAccountId,
+      created_by:          ctx.userId,
+      notes:               input.reason,
+      reversal_of_id:      original.id,
+      reversal_reason:     input.reason,
+    },
+    { transaction: t }
+  );
+
+  const fullyReversed = amountToReverse >= remaining - 0.001;
+  if (fullyReversed) {
+    await original.update(
+      { status: 'reversed', reversed_at: new Date(), reversed_by: ctx.userId },
+      { transaction: t }
+    );
+  }
+
+  await recordCashAudit(
+    {
+      entityType: 'transaction', entityId: original.id, action: 'reverse',
+      before, after: snapshotOf(original), reason: input.reason, context: ctx,
+    },
+    t
+  );
+  await recordCashAudit(
+    {
+      entityType: 'transaction', entityId: reversal.id, action: 'reverse',
+      after: snapshotOf(reversal), reason: input.reason, context: ctx,
+    },
+    t
+  );
+
+  return reversal;
+}
+
 export async function reverseTransaction(
   id: number,
   input: ReverseTransactionInput,
   ctx: CashAuditContext
 ): Promise<CashTransaction> {
   let reversalId: number | null = null;
-
   await sequelize.transaction(async (t) => {
-    // Lock de fila: si dos reversiones de la misma transacción llegan casi
-    // juntas, la segunda espera a que la primera commitee y ve el `remaining`
-    // ya actualizado — sin esto habría una condición de carrera real (CASH-CONC-001).
-    const original = await CashTransaction.findByPk(id, { lock: Transaction.LOCK.UPDATE, transaction: t });
-    if (!original) throw new AppError('Transacción no encontrada', 404);
-    if (original.reversal_of_id) throw new AppError('Una reversión no se puede volver a revertir', 400);
-    if (original.status === 'reversed') throw new AppError('La transacción ya fue revertida por completo', 400);
-
-    const originalAmount = Number(original.amount);
-    const alreadyReversed = Number(
-      (await CashTransaction.sum('amount', { where: { reversal_of_id: original.id }, transaction: t })) ?? 0
-    );
-    const remaining = originalAmount - alreadyReversed;
-    const amountToReverse = input.amount ?? remaining;
-
-    if (amountToReverse <= 0) throw new AppError('El monto a revertir debe ser mayor a 0', 400);
-    // Margen de un décimo de centavo por acumulación de redondeo en sumas sucesivas.
-    if (amountToReverse > remaining + 0.001) {
-      throw new AppError(
-        `No se puede revertir ${amountToReverse}: solo queda ${remaining.toFixed(2)} sin revertir de esta transacción`,
-        400
-      );
-    }
-
-    // income↔expense; transfer invierte cuenta origen/destino.
-    let reversalType: 'income' | 'expense' | 'transfer';
-    let reversalAccountId: number;
-    let reversalTransferAccountId: number | null;
-    if (original.type === 'income') {
-      reversalType = 'expense';
-      reversalAccountId = original.account_id;
-      reversalTransferAccountId = null;
-    } else if (original.type === 'expense') {
-      reversalType = 'income';
-      reversalAccountId = original.account_id;
-      reversalTransferAccountId = null;
-    } else {
-      reversalType = 'transfer';
-      reversalAccountId = original.transfer_account_id!;
-      reversalTransferAccountId = original.account_id;
-    }
-
-    await applyBalanceEffect(reversalType, amountToReverse, reversalAccountId, reversalTransferAccountId, t);
-
-    const before = snapshotOf(original);
-    const today = new Date().toISOString().slice(0, 10);
-
-    const reversal = await CashTransaction.create(
-      {
-        account_id:          reversalAccountId,
-        category_id:         original.category_id,
-        type:                reversalType,
-        amount:              amountToReverse,
-        description:         `Reversión de #${original.id} — ${original.description}`,
-        date:                today,
-        reference_type:      original.reference_type,
-        reference_id:        original.reference_id,
-        transfer_account_id: reversalTransferAccountId,
-        created_by:          ctx.userId,
-        notes:               input.reason,
-        reversal_of_id:      original.id,
-        reversal_reason:     input.reason,
-      },
-      { transaction: t }
-    );
-
-    const fullyReversed = amountToReverse >= remaining - 0.001;
-    if (fullyReversed) {
-      await original.update(
-        { status: 'reversed', reversed_at: new Date(), reversed_by: ctx.userId },
-        { transaction: t }
-      );
-    }
-
-    await recordCashAudit(
-      {
-        entityType: 'transaction', entityId: original.id, action: 'reverse',
-        before, after: snapshotOf(original), reason: input.reason, context: ctx,
-      },
-      t
-    );
-    await recordCashAudit(
-      {
-        entityType: 'transaction', entityId: reversal.id, action: 'reverse',
-        after: snapshotOf(reversal), reason: input.reason, context: ctx,
-      },
-      t
-    );
-
+    const reversal = await reverseTransactionCore(id, input, ctx, t);
     reversalId = reversal.id;
   });
-
   return getTransaction(reversalId!);
+}
+
+/**
+ * Ver `reverseTransactionCore` — requiere una transacción externa (mismo
+ * patrón que `createSystemTransaction`). Usada por la Fase 4 del plan de
+ * corrección de caja para revertir automáticamente el ingreso de un pedido
+ * de tienda al cancelarse o devolverse, dentro de la misma transacción del
+ * cambio de estado.
+ */
+export async function reverseSystemTransaction(
+  id: number,
+  input: ReverseTransactionInput,
+  createdBy: number,
+  transaction: import('sequelize').Transaction
+): Promise<CashTransaction> {
+  return reverseTransactionCore(id, input, { userId: createdBy }, transaction);
 }
 
 // ── Resumen ───────────────────────────────────────────────────────────────────

@@ -31,7 +31,8 @@ import { generateInvoicePdf } from '../utils/store.pdf';
 import { getAllSettings } from './settings.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
-import { createSystemTransaction } from './cash.service';
+import { CashTransaction } from '../models/CashTransaction';
+import { createSystemTransaction, reverseSystemTransaction } from './cash.service';
 import {
   STORE_STATUS_LABELS,
   isValidStoreTransition,
@@ -1385,6 +1386,39 @@ async function recordStoreOrderIncome(
   await locked.update({ cash_recorded_at: new Date() }, { transaction });
 }
 
+/**
+ * Revierte (total o parcialmente) el ingreso de caja/banco ya registrado
+ * para un pedido, si existe (Fase 4 del plan de corrección de caja — cierra
+ * CASH-SALE-002: hoy cancelar un pedido pagado o registrar una devolución no
+ * revertía el asiento). Reutiliza `reverseTransaction` (Fase 2), que soporta
+ * monto parcial por diseño para este caso.
+ *
+ * No es idempotente por sí sola: no toca `cash_reversed_at` de nada — esa
+ * marca vive en la entidad que dispara la reversión (`store_orders` para una
+ * cancelación total, `store_returns` para cada devolución, que puede ser
+ * parcial y repetirse sobre el mismo pedido) y es el llamador quien decide
+ * si corresponde invocar esta función. Devuelve `false` sin hacer nada si no
+ * hay ingreso registrado o si ya está completamente revertido — no es un
+ * error, es el caso normal de un pedido que nunca se cobró.
+ */
+export async function reverseStoreOrderCashIncome(
+  orderId: number,
+  reason: string,
+  changedBy: number | null,
+  transaction: Transaction,
+  amount?: number
+): Promise<boolean> {
+  const original = await CashTransaction.findOne({
+    where: { reference_type: 'store_order', reference_id: orderId, reversal_of_id: null },
+    transaction,
+  });
+  if (!original || original.status === 'reversed') return false;
+
+  const createdBy = changedBy ?? (await getSystemUserId(transaction));
+  await reverseSystemTransaction(original.id, { reason, amount }, createdBy, transaction);
+  return true;
+}
+
 export async function restoreStoreOrderStock(
   order: StoreOrder,
   reason: string,
@@ -1600,6 +1634,25 @@ export async function recordStoreOrderStatusChange(
           options.changedBy ?? null,
           t
         );
+
+        // Revertir el ingreso de caja/banco ya registrado (Fase 4). Lockea
+        // el pedido para leer cash_recorded_at/cash_reversed_at de forma
+        // consistente — mismo criterio que recordStoreOrderIncome arriba.
+        const lockedForCash = await StoreOrder.findByPk(order.id, {
+          lock: Transaction.LOCK.UPDATE,
+          transaction: t,
+        });
+        if (lockedForCash?.cash_recorded_at && !lockedForCash.cash_reversed_at) {
+          const reversed = await reverseStoreOrderCashIncome(
+            lockedForCash.id,
+            `Cancelación de pedido ${lockedForCash.order_number}`,
+            options.changedBy ?? null,
+            t
+          );
+          if (reversed) {
+            await lockedForCash.update({ cash_reversed_at: new Date() }, { transaction: t });
+          }
+        }
       }
     }
   };

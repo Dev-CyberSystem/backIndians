@@ -202,4 +202,29 @@ export async function ensureSchema(): Promise<void> {
   } catch (err) {
     logger.error('ensureSchema.cashReversal', err, { meta: { fatal: false } });
   }
+
+  // ─── Reversión automática de caja en cancelaciones/devoluciones (migración 092) ──
+  try {
+    const storeOrders = await qi.describeTable('store_orders');
+    if (!storeOrders.cash_reversed_at) {
+      await qi.addColumn('store_orders', 'cash_reversed_at', {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_orders', column: 'cash_reversed_at' } });
+    }
+
+    const storeReturns = await qi.describeTable('store_returns');
+    if (!storeReturns.cash_reversed_at) {
+      await qi.addColumn('store_returns', 'cash_reversed_at', {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_returns', column: 'cash_reversed_at' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.cashReversalMarks', err, { meta: { fatal: false } });
+  }
 }
