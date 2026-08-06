@@ -75,9 +75,14 @@ export function asProductList(body: any): any[] {
 }
 
 /**
- * Recorre el catálogo y devuelve el primer producto con stock real (resolviendo
- * un talle disponible), o null. Itera todos los productos —no solo el primero—
- * para no fallar cuando algún producto se quedó sin stock por pedidos de prueba.
+ * Recorre el catálogo y devuelve el primer producto con stock DISPONIBLE
+ * (resolviendo un talle disponible), o null. Disponible = stock_quantity -
+ * stock_reserved (2.1: el checkout reserva, no descuenta stock_quantity real
+ * hasta que se confirma el pago — otros tests de la misma corrida pueden
+ * dejar reservas sin confirmar/liberar, así que hay que descontarlas acá
+ * para no elegir un producto que en realidad ya no tiene nada disponible).
+ * Itera todos los productos —no solo el primero— para no fallar cuando algún
+ * producto se quedó sin stock disponible por pedidos de prueba previos.
  */
 export async function findPurchasable(): Promise<{ id: number; size: string | null } | null> {
   const list = await api().get(`${API}/store/products?limit=50`);
@@ -85,11 +90,11 @@ export async function findPurchasable(): Promise<{ id: number; size: string | nu
     const detail = await api().get(`${API}/store/products/${prod.id}`);
     const p = detail.body?.data;
     if (!p) continue;
-    const sizes = (p.sizes ?? []) as Array<{ size_name: string; stock_quantity: number }>;
+    const sizes = (p.sizes ?? []) as Array<{ size_name: string; stock_quantity: number; stock_reserved?: number }>;
     if (sizes.length > 0) {
-      const withStock = sizes.find((s) => s.stock_quantity > 0);
+      const withStock = sizes.find((s) => s.stock_quantity - (s.stock_reserved ?? 0) > 0);
       if (withStock) return { id: p.id, size: withStock.size_name };
-    } else if ((p.stock_quantity ?? 0) > 0) {
+    } else if ((p.stock_quantity ?? 0) - (p.stock_reserved ?? 0) > 0) {
       return { id: p.id, size: null };
     }
   }

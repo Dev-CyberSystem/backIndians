@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as storeAuth from '../services/store.auth.service';
 import * as store from '../services/store.service';
+import * as storeReturns from '../services/storeReturns.service';
 import * as analytics from '../services/storeAnalytics.service';
 import * as wishlistService from '../services/store.wishlist.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
@@ -193,7 +194,7 @@ export async function getProduct(req: Request, res: Response, next: NextFunction
 export async function validateCoupon(req: Request, res: Response, next: NextFunction) {
   try {
     const { code, subtotal } = req.body;
-    const result = await store.validateCoupon(code, Number(subtotal));
+    const result = await store.validateCoupon(code, Number(subtotal), req.storeCustomerId, req.storeCustomerEmail);
     res.json({ success: true, data: { discount: result.discount, coupon: { code: result.coupon.code, type: result.coupon.type, value: result.coupon.value } } });
   } catch (err) {
     next(err);
@@ -245,11 +246,28 @@ export async function deleteCoupon(req: Request, res: Response, next: NextFuncti
 
 // ─── Checkout / Pedidos ──────────────────────────────────────────────────────
 
+export async function checkoutQuote(req: Request, res: Response, next: NextFunction) {
+  try {
+    const quote = await store.getCheckoutQuote({
+      items: req.body.items,
+      coupon_code: req.body.coupon_code,
+      shipping_type: req.body.shipping_type ?? 'pickup',
+      customerId: req.storeCustomerId,
+      customerEmail: req.storeCustomerEmail,
+    });
+    res.json({ success: true, data: quote });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function checkout(req: Request, res: Response, next: NextFunction) {
   try {
+    const idempotencyKey = req.headers['idempotency-key'];
     const result = await store.createStoreOrder({
       ...req.body,
       customerId: req.storeCustomerId,
+      idempotencyKey: typeof idempotencyKey === 'string' ? idempotencyKey : undefined,
     });
     res.status(201).json({ success: true, data: result });
   } catch (err) {
@@ -272,7 +290,7 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
       return;
     }
 
-    if (paymentId) await store.handleStoreWebhook(String(paymentId));
+    if (paymentId) await store.handleStoreWebhook(String(paymentId), { query: req.query, body: req.body });
     res.sendStatus(200);
   } catch (err) {
     next(err);
@@ -398,6 +416,67 @@ export async function updateOrderStatus(req: Request, res: Response, next: NextF
   }
 }
 
+// ─── Devoluciones (2.4) ───────────────────────────────────────────────────────
+
+export async function listReturns(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { status, order_id, page, limit } = req.query;
+    const result = await storeReturns.listStoreReturns({
+      status: status as string | undefined,
+      storeOrderId: order_id ? Number(order_id) : undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.json({ success: true, data: result.data, meta: result.meta });
+  } catch (err) { next(err); }
+}
+
+export async function getReturn(req: Request, res: Response, next: NextFunction) {
+  try {
+    const ret = await storeReturns.getStoreReturn(Number(req.params.id));
+    res.json({ success: true, data: ret });
+  } catch (err) { next(err); }
+}
+
+export async function createReturn(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = (req as unknown as AuthRequest).user!.id;
+    const { reason, items } = req.body;
+    const ret = await storeReturns.createStoreReturn({
+      storeOrderId: Number(req.params.id),
+      reason: reason ?? null,
+      items,
+      requestedBy: userId,
+    });
+    res.status(201).json({ success: true, data: ret });
+  } catch (err) { next(err); }
+}
+
+export async function reviewReturn(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = (req as unknown as AuthRequest).user!.id;
+    const { status, review_notes, items } = req.body;
+    const ret = await storeReturns.reviewStoreReturn(Number(req.params.id), {
+      status,
+      reviewNotes: review_notes ?? null,
+      items,
+      reviewedBy: userId,
+    });
+    res.json({ success: true, data: ret });
+  } catch (err) { next(err); }
+}
+
+export async function updateReturnRefund(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { refund_status, refunded_amount } = req.body;
+    const ret = await storeReturns.updateStoreReturnRefund(Number(req.params.id), {
+      refund_status,
+      refunded_amount: refunded_amount ?? null,
+    });
+    res.json({ success: true, data: ret });
+  } catch (err) { next(err); }
+}
+
 // Admin: regenerar el token del link de seguimiento
 export async function regenerateOrderTracking(req: Request, res: Response, next: NextFunction) {
   try {
@@ -434,7 +513,7 @@ export async function getMyOrderTracking(req: Request, res: Response, next: Next
 export async function sendInvoice(req: Request, res: Response, next: NextFunction) {
   try {
     await store.sendStoreOrderInvoiceEmail(Number(req.params.id));
-    res.json({ success: true, data: { message: 'Factura enviada por email' } });
+    res.json({ success: true, data: { message: 'Comprobante enviado por email' } });
   } catch (err) {
     next(err);
   }
@@ -444,7 +523,7 @@ export async function downloadInvoiceAdmin(req: Request, res: Response, next: Ne
   try {
     const { buffer, orderNumber } = await store.getStoreOrderInvoicePdfBuffer(Number(req.params.id));
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="factura-${orderNumber}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="comprobante-${orderNumber}.pdf"`);
     res.send(buffer);
   } catch (err) {
     next(err);
@@ -459,12 +538,12 @@ export async function downloadMyInvoice(req: Request, res: Response, next: NextF
     );
     const paidStatuses = ['paid', 'processing', 'review', 'awaiting_courier', 'shipped', 'delivered'];
     if (!paidStatuses.includes(order.status)) {
-      res.status(403).json({ success: false, message: 'La factura solo está disponible para pedidos pagados' });
+      res.status(403).json({ success: false, message: 'El comprobante solo está disponible para pedidos pagados' });
       return;
     }
     const { buffer } = await store.getStoreOrderInvoicePdfBuffer(order.id);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="factura-${order.order_number}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="comprobante-${order.order_number}.pdf"`);
     res.send(buffer);
   } catch (err) {
     next(err);

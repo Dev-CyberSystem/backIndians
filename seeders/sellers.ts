@@ -158,8 +158,16 @@ async function seed() {
         active: true,
       },
     });
+    if (!created) {
+      // findOrCreate no actualiza: refrescamos el hash para mantener la
+      // contraseña vigente aunque el vendedor ya existiera (seed idempotente).
+      seller.password_hash = passwordHash;
+      seller.role = 'seller';
+      seller.active = true;
+      await seller.save();
+    }
     sellers.push(seller);
-    console.log(`  ${created ? '✅' : '↩️ '} ${data.name} <${data.email}>`);
+    console.log(`  ${created ? '✅' : '♻️ '} ${data.name} <${data.email}>`);
   }
 
   console.log('\n📦 Creando pedidos...\n');

@@ -58,6 +58,10 @@ const VALID_KEYS: string[] = [
   'store_chatbot_enabled', 'store_chatbot_greeting',
   // Tienda — seguimiento de pedidos (días de vigencia del link tras "Entregado")
   'tracking_link_expiry_days',
+  // AFIP / ARCA — Facturación electrónica
+  'afip_enabled', 'afip_environment', 'afip_punto_venta', 'afip_concepto_default',
+  // Tienda — conexión con caja (2.3)
+  'store_cash_account_id',
 ];
 
 export async function getAllSettings(): Promise<Record<string, string>> {

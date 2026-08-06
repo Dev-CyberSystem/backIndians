@@ -1,5 +1,5 @@
-import { randomBytes } from 'crypto';
-import { Op, col, literal, UniqueConstraintError } from 'sequelize';
+import { randomBytes, createHash } from 'crypto';
+import { Op, col, literal, UniqueConstraintError, Transaction } from 'sequelize';
 import { sequelize } from '../config/db';
 import {
   CatalogProduct,
@@ -12,11 +12,14 @@ import {
   StoreCustomer,
   Settings,
   User,
+  WebhookEvent,
 } from '../models';
 import { Client } from '../models/Client';
 import { GarmentType } from '../models/GarmentType';
 import { AppError } from '../middlewares/errorHandler';
-import { createPreference, getPaymentInfo, searchPaymentsByReference } from './mercadopago.service';
+import { logger } from '../utils/logger';
+import * as stockLedger from './stockLedger.service';
+import { createPreference, getPreference, getPaymentInfo, searchPaymentsByReference, type PaymentInfo } from './mercadopago.service';
 import {
   sendOrderConfirmationEmail,
   sendOrderInvoiceEmail,
@@ -27,6 +30,8 @@ import { enqueueEmail } from '../utils/emailQueue';
 import { generateInvoicePdf } from '../utils/store.pdf';
 import { getAllSettings } from './settings.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
+import { CashTransactionCategory } from '../models/CashTransactionCategory';
+import { createSystemTransaction } from './cash.service';
 import {
   STORE_STATUS_LABELS,
   isValidStoreTransition,
@@ -230,7 +235,7 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
     where,
     include: [
       { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
-      { model: CatalogProductSize,  as: 'sizes',  attributes: ['id', 'size_name', 'stock_quantity', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
+      { model: CatalogProductSize,  as: 'sizes',  attributes: ['id', 'size_name', 'stock_quantity', 'stock_reserved', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
       { model: Client,              as: 'client', attributes: ['id', 'name'] },
     ],
     order,
@@ -263,7 +268,7 @@ async function computeStoreFilterOptions() {
     SELECT cps.size_name, MIN(cps.sort_order) AS min_order
     FROM catalog_product_sizes cps
     JOIN catalog_products cp ON cp.id = cps.product_id
-    WHERE cp.show_in_store = 1 AND cp.active = 1 AND cps.stock_quantity > 0
+    WHERE cp.show_in_store = 1 AND cp.active = 1 AND (cps.stock_quantity - cps.stock_reserved) > 0
     GROUP BY cps.size_name
     ORDER BY min_order, cps.size_name
   `);
@@ -337,7 +342,7 @@ export async function getStoreProduct(id: number) {
     where: { id, show_in_store: true, active: true },
     include: [
       { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'] },
-      { model: CatalogProductSize, as: 'sizes', attributes: ['id', 'size_name', 'stock_quantity', 'sort_order'] },
+      { model: CatalogProductSize, as: 'sizes', attributes: ['id', 'size_name', 'stock_quantity', 'stock_reserved', 'sort_order'] },
     ],
   });
   if (!product) throw new AppError('Producto no encontrado', 404);
@@ -346,7 +351,41 @@ export async function getStoreProduct(id: number) {
 
 // ─── Cupones ────────────────────────────────────────────────────────────────
 
-export async function validateCoupon(code: string, subtotal: number) {
+/**
+ * 1 uso por cliente (2.8), además del `max_uses` global que ya existía.
+ * Identifica al comprador por `customer_id` si está logueado, si no por
+ * `customer_email` (checkout de invitado, siempre la manda). Sin ninguno de
+ * los dos (quote anónimo) no se puede chequear — se resuelve en el checkout
+ * real, que siempre tiene identidad (backend decide).
+ *
+ * Un pedido `cancelled` no cuenta como "usado": `restoreStoreOrderStock`
+ * (1.3) ya libera el `used_count` global al cancelar — mismo criterio acá.
+ */
+async function hasCustomerUsedCoupon(
+  couponId: number,
+  customerId?: number | null,
+  customerEmail?: string | null
+): Promise<boolean> {
+  if (!customerId && !customerEmail) return false;
+
+  const count = await StoreOrder.count({
+    where: {
+      coupon_id: couponId,
+      status: { [Op.ne]: 'cancelled' },
+      ...(customerId
+        ? { customer_id: customerId }
+        : { customer_email: customerEmail!.toLowerCase().trim() }),
+    },
+  });
+  return count > 0;
+}
+
+export async function validateCoupon(
+  code: string,
+  subtotal: number,
+  customerId?: number | null,
+  customerEmail?: string | null
+) {
   const coupon = await StoreCoupon.findOne({
     where: {
       code: code.toUpperCase().trim(),
@@ -367,6 +406,9 @@ export async function validateCoupon(code: string, subtotal: number) {
       `El pedido mínimo para este cupón es $${Number(coupon.min_purchase).toFixed(2)}`,
       400
     );
+  }
+  if (await hasCustomerUsedCoupon(coupon.id, customerId, customerEmail)) {
+    throw new AppError('Ya usaste este cupón antes — es válido una sola vez por cliente', 400);
   }
 
   // Descuento sin decimales (misma regla). El fixed ya viene entero, pero lo
@@ -500,62 +542,184 @@ export interface CheckoutInput {
   notes?: string;
   payment_method?: 'mercadopago' | 'cash' | 'bank_transfer';
   back_urls?: { success: string; failure: string; pending: string };
+  /** UUID generado por el frontend por intento de checkout (1.4 / A-1). */
+  idempotencyKey?: string;
+  /** Total que el cliente vio en el quote antes de confirmar (1.6 / C-6). */
+  expected_total?: number;
 }
 
-export async function createStoreOrder(input: CheckoutInput) {
-  const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
-  const BACKEND_URL = process.env.BACKEND_PUBLIC_URL || 'http://localhost:3000';
+export interface CheckoutResult {
+  order: StoreOrder;
+  payment_method: 'mercadopago' | 'cash' | 'bank_transfer';
+  mp_init_point: string | null;
+  mp_sandbox_init_point: string | null;
+}
 
+/**
+ * Arma la respuesta del checkout a partir de un pedido YA EXISTENTE (creado
+ * en un intento anterior con la misma Idempotency-Key). Si es un pedido de
+ * MercadoPago, reconsulta la preference para recuperar `init_point` (nunca
+ * se persiste, solo `mp_preference_id`) — si falla, se devuelve `null` en vez
+ * de cortar la respuesta: el pedido ya existe de cualquier forma.
+ */
+async function buildCheckoutResultFromExisting(order: StoreOrder): Promise<CheckoutResult> {
+  let mpInitPoint: string | null = null;
+  let mpSandboxInitPoint: string | null = null;
+
+  if (order.payment_method === 'mercadopago' && order.mp_preference_id) {
+    const pref = await getPreference(order.mp_preference_id);
+    mpInitPoint = pref?.init_point ?? null;
+    mpSandboxInitPoint = pref?.sandbox_init_point ?? null;
+  }
+
+  return {
+    order,
+    payment_method: order.payment_method,
+    mp_init_point: mpInitPoint,
+    mp_sandbox_init_point: mpSandboxInitPoint,
+  };
+}
+
+// ─── Cálculo del total del pedido (compartido por el quote y el checkout) ────
+
+export interface QuoteItem {
+  catalog_product_id: number;
+  size_name: string | null;
+  product_title: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+  disponible: boolean;
+  motivo?: string;
+}
+
+export interface OrderQuote {
+  items: QuoteItem[];
+  subtotal: number;
+  discount_amount: number;
+  coupon_code: string | null;
+  shipping_cost: number;
+  total: number;
+  all_available: boolean;
+}
+
+interface ResolvedQuoteItem extends QuoteItem {
+  productRecord?: CatalogProduct;
+  sizeRecord?: CatalogProductSize;
+}
+
+interface ComputedOrderTotals extends OrderQuote {
+  items: QuoteItem[];
+  resolvedItems: ResolvedQuoteItem[];
+  couponRecord: StoreCoupon | null;
+}
+
+/**
+ * Calcula el desglose completo de un pedido (precios, cupón, envío, total) a
+ * partir del carrito — SIN escribir nada en la base. Único punto de cálculo:
+ * lo usan tanto el quote público (1.6 / C-6) como `createStoreOrder`, para
+ * que el total que ve el cliente antes de confirmar sea EXACTAMENTE el que
+ * se cobra. A diferencia de la versión anterior (que abortaba entero en el
+ * primer producto con problema), cada ítem queda marcado
+ * `disponible`/`motivo` — el llamador decide si eso es aceptable (el quote,
+ * que es solo informativo) o bloqueante (el checkout, que no puede comprar
+ * algo no disponible).
+ */
+async function computeOrderTotals(input: {
+  items: CartItem[];
+  coupon_code?: string;
+  shipping_type: 'pickup' | 'delivery';
+  /**
+   * Identidad del comprador para el chequeo "1 uso por cliente" (2.8). En el
+   * quote anónimo (sin sesión) suelen venir undefined — el quote no lleva
+   * datos del comprador a propósito (1.6); el checkout real siempre los
+   * manda, que es donde la regla se aplica de verdad (backend decide).
+   */
+  customerId?: number | null;
+  customerEmail?: string | null;
+}): Promise<ComputedOrderTotals> {
   if (!input.items || input.items.length === 0) {
     throw new AppError('El carrito está vacío', 400);
   }
 
-  // 1. Resolver productos y verificar stock
+  // 1. Resolver productos
   const productIds = [...new Set(input.items.map((i) => i.catalog_product_id))];
   const products = await CatalogProduct.findAll({
     where: { id: productIds, show_in_store: true, active: true },
     include: [{ model: CatalogProductSize, as: 'sizes' }],
   });
-
   const productMap = new Map(products.map((p) => [p.id, p]));
 
-  // Validar y construir items del pedido
-  interface ResolvedItem {
-    catalog_product_id: number;
-    product_title: string;
-    size_name: string | null;
-    quantity: number;
-    unit_price: number;
-    subtotal: number;
-    sizeRecord?: CatalogProductSize;
-    productRecord: CatalogProduct;
-  }
-
-  const resolvedItems: ResolvedItem[] = [];
+  const resolvedItems: ResolvedQuoteItem[] = [];
   let subtotal = 0;
 
   for (const cartItem of input.items) {
     const product = productMap.get(cartItem.catalog_product_id);
-    if (!product) throw new AppError(`Producto ${cartItem.catalog_product_id} no disponible`, 400);
+    if (!product) {
+      resolvedItems.push({
+        catalog_product_id: cartItem.catalog_product_id,
+        size_name: cartItem.size_name ?? null,
+        product_title: `Producto ${cartItem.catalog_product_id}`,
+        quantity: cartItem.quantity,
+        unit_price: 0,
+        subtotal: 0,
+        disponible: false,
+        motivo: 'Este producto ya no está disponible',
+      });
+      continue;
+    }
 
     const basePrice = Number(product.public_price ?? product.price);
-    const disc = Number((product as any).discount_percentage ?? 0);
+    const disc = Number(product.discount_percentage ?? 0);
     // Precio a cobrar SIN decimales (regla ≤0,50 abajo / ≥0,51 arriba). Debe
     // coincidir con effectivePrice del frontend.
     const price = roundPrice(disc > 0 ? (basePrice * (100 - disc)) / 100 : basePrice);
-    const sizes = (product as any).sizes as CatalogProductSize[];
+    const sizes = (product as unknown as { sizes?: CatalogProductSize[] }).sizes ?? [];
     let sizeRecord: CatalogProductSize | undefined;
 
-    if (sizes && sizes.length > 0) {
-      if (!cartItem.size_name) throw new AppError(`Seleccioná un talle para ${product.title}`, 400);
+    if (sizes.length > 0) {
+      if (!cartItem.size_name) {
+        resolvedItems.push({
+          catalog_product_id: cartItem.catalog_product_id, size_name: null,
+          product_title: product.title, quantity: cartItem.quantity,
+          unit_price: price, subtotal: 0,
+          disponible: false, motivo: `Seleccioná un talle para ${product.title}`,
+        });
+        continue;
+      }
       sizeRecord = sizes.find((s) => s.size_name === cartItem.size_name);
-      if (!sizeRecord) throw new AppError(`Talle ${cartItem.size_name} no encontrado en ${product.title}`, 400);
-      if (sizeRecord.stock_quantity < cartItem.quantity) {
-        throw new AppError(`Stock insuficiente para ${product.title} — talle ${cartItem.size_name}`, 400);
+      if (!sizeRecord) {
+        resolvedItems.push({
+          catalog_product_id: cartItem.catalog_product_id, size_name: cartItem.size_name,
+          product_title: product.title, quantity: cartItem.quantity,
+          unit_price: price, subtotal: 0,
+          disponible: false, motivo: `El talle ${cartItem.size_name} ya no existe para ${product.title}`,
+        });
+        continue;
+      }
+      // Disponible = stock físico - lo ya reservado por otros pedidos pending_payment (2.1).
+      const sizeAvailable = sizeRecord.stock_quantity - sizeRecord.stock_reserved;
+      if (sizeAvailable < cartItem.quantity) {
+        resolvedItems.push({
+          catalog_product_id: cartItem.catalog_product_id, size_name: cartItem.size_name,
+          product_title: product.title, quantity: cartItem.quantity,
+          unit_price: price, subtotal: 0,
+          disponible: false,
+          motivo: `Stock insuficiente para ${product.title} — talle ${cartItem.size_name} (disponible: ${Math.max(sizeAvailable, 0)})`,
+        });
+        continue;
       }
     } else {
-      if (product.stock_quantity < cartItem.quantity) {
-        throw new AppError(`Stock insuficiente para ${product.title}`, 400);
+      const productAvailable = product.stock_quantity - product.stock_reserved;
+      if (productAvailable < cartItem.quantity) {
+        resolvedItems.push({
+          catalog_product_id: cartItem.catalog_product_id, size_name: null,
+          product_title: product.title, quantity: cartItem.quantity,
+          unit_price: price, subtotal: 0,
+          disponible: false,
+          motivo: `Stock insuficiente para ${product.title} (disponible: ${Math.max(productAvailable, 0)})`,
+        });
+        continue;
       }
     }
 
@@ -564,27 +728,25 @@ export async function createStoreOrder(input: CheckoutInput) {
 
     resolvedItems.push({
       catalog_product_id: cartItem.catalog_product_id,
-      product_title: product.title,
       size_name: cartItem.size_name ?? null,
+      product_title: product.title,
       quantity: cartItem.quantity,
       unit_price: price,
       subtotal: itemSubtotal,
-      sizeRecord,
+      disponible: true,
       productRecord: product,
+      sizeRecord,
     });
   }
 
+  const allAvailable = resolvedItems.every((i) => i.disponible);
+
   // 2. Cupón
   let discountAmount = 0;
-  let couponId: number | null = null;
-  let couponCode: string | null = null;
   let couponRecord: StoreCoupon | null = null;
-
   if (input.coupon_code) {
-    const { coupon, discount } = await validateCoupon(input.coupon_code, subtotal);
+    const { coupon, discount } = await validateCoupon(input.coupon_code, subtotal, input.customerId, input.customerEmail);
     discountAmount = discount;
-    couponId = coupon.id;
-    couponCode = coupon.code;
     couponRecord = coupon;
   }
 
@@ -596,7 +758,110 @@ export async function createStoreOrder(input: CheckoutInput) {
     shippingCost = subtotal - discountAmount >= freeMin && freeMin > 0 ? 0 : cost;
   }
 
-  const totalAmount = roundPrice(subtotal - discountAmount + shippingCost);
+  const total = roundPrice(subtotal - discountAmount + shippingCost);
+
+  const publicItems: QuoteItem[] = resolvedItems.map(
+    ({ productRecord: _productRecord, sizeRecord: _sizeRecord, ...rest }) => rest
+  );
+
+  return {
+    items: publicItems,
+    resolvedItems,
+    subtotal,
+    discount_amount: discountAmount,
+    coupon_code: couponRecord?.code ?? null,
+    shipping_cost: shippingCost,
+    total,
+    all_available: allAvailable,
+    couponRecord,
+  };
+}
+
+/**
+ * Presupuesto de compra (1.6 / C-6): mismo cálculo que `createStoreOrder`,
+ * sin crear nada. El frontend lo consume para mostrar el desglose real
+ * (incluido el envío) antes de confirmar, y el propio checkout lo vuelve a
+ * calcular al confirmar para verificar que no haya cambiado nada.
+ */
+export async function getCheckoutQuote(input: {
+  items: CartItem[];
+  coupon_code?: string;
+  shipping_type: 'pickup' | 'delivery';
+  customerId?: number | null;
+  customerEmail?: string | null;
+}): Promise<OrderQuote> {
+  const totals = await computeOrderTotals(input);
+  return {
+    items: totals.items,
+    subtotal: totals.subtotal,
+    discount_amount: totals.discount_amount,
+    coupon_code: totals.coupon_code,
+    shipping_cost: totals.shipping_cost,
+    total: totals.total,
+    all_available: totals.all_available,
+  };
+}
+
+export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutResult> {
+  const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
+  const BACKEND_URL = process.env.BACKEND_PUBLIC_URL || 'http://localhost:3000';
+
+  // Idempotencia (1.4 / A-1): si ya existe un pedido con esta clave, devolverlo
+  // tal cual en vez de reprocesar el checkout. Cubre el caso común (el segundo
+  // POST llega después de que el primero ya terminó). La carrera genuina
+  // (dos requests simultáneos, ninguno encuentra nada acá todavía) la resuelve
+  // el índice único de la DB más abajo, en el catch de UniqueConstraintError.
+  if (input.idempotencyKey) {
+    const existing = await StoreOrder.findOne({ where: { idempotency_key: input.idempotencyKey } });
+    if (existing) return buildCheckoutResultFromExisting(existing);
+  }
+
+  const totals = await computeOrderTotals({
+    items: input.items,
+    coupon_code: input.coupon_code,
+    shipping_type: input.shipping_type,
+    customerId: input.customerId,
+    customerEmail: input.customerEmail,
+  });
+
+  if (!totals.all_available) {
+    const firstProblem = totals.items.find((i) => !i.disponible);
+    throw new AppError(firstProblem?.motivo ?? 'Hay productos no disponibles en tu pedido', 400);
+  }
+
+  // El total que el cliente vio (el quote) tiene que coincidir con el
+  // recalculado ahora mismo (1.6 / C-6). Si cambió un precio o el costo de
+  // envío entre que se mostró el quote y se confirmó, no cobramos "a
+  // ciegas": 409 con el desglose nuevo para que el cliente lo revise y
+  // reconfirme.
+  if (input.expected_total != null && Math.abs(input.expected_total - totals.total) >= 1) {
+    throw new AppError(
+      'El total cambió desde que armaste el pedido. Revisá el nuevo desglose y confirmá de nuevo.',
+      409,
+      [{
+        quote: {
+          items: totals.items,
+          subtotal: totals.subtotal,
+          discount_amount: totals.discount_amount,
+          coupon_code: totals.coupon_code,
+          shipping_cost: totals.shipping_cost,
+          total: totals.total,
+          all_available: totals.all_available,
+        },
+      }]
+    );
+  }
+
+  const {
+    subtotal,
+    discount_amount: discountAmount,
+    shipping_cost: shippingCost,
+    total: totalAmount,
+    resolvedItems,
+    couponRecord,
+  } = totals;
+  const couponId = couponRecord?.id ?? null;
+  const couponCode = couponRecord?.code ?? null;
 
   // 4. Crear pedido en transacción.
   // Reintentamos si el número de pedido colisiona (dos checkouts simultáneos
@@ -620,6 +885,7 @@ export async function createStoreOrder(input: CheckoutInput) {
             customer_phone: input.customerPhone ?? null,
             status: 'pending_payment',
             tracking_token: generateTrackingToken(),
+            stock_reserved_at: new Date(),
             subtotal,
             discount_amount: discountAmount,
             shipping_cost: shippingCost,
@@ -630,6 +896,7 @@ export async function createStoreOrder(input: CheckoutInput) {
             coupon_code: couponCode,
             payment_method: input.payment_method ?? 'mercadopago',
             notes: input.notes ?? null,
+            idempotency_key: input.idempotencyKey ?? null,
           },
           { transaction: t }
         );
@@ -640,6 +907,7 @@ export async function createStoreOrder(input: CheckoutInput) {
             catalog_product_id: item.catalog_product_id,
             product_title: item.product_title,
             size_name: item.size_name,
+            catalog_product_size_id: item.sizeRecord ? item.sizeRecord.id : null,
             quantity: item.quantity,
             unit_price: item.unit_price,
             subtotal: item.subtotal,
@@ -647,29 +915,39 @@ export async function createStoreOrder(input: CheckoutInput) {
           { transaction: t }
         );
 
-        // Descontar stock de forma ATÓMICA para evitar sobreventa: el UPDATE
-        // condicional (stock_quantity >= qty) solo afecta filas con stock
-        // suficiente. Si afecta 0 filas, otro pedido concurrente ya lo agotó y
-        // abortamos la transacción. Secuencial (no Promise.all) para no mezclar
-        // sentencias en la misma conexión de la transacción.
+        // Reservar stock a través del ledger centralizado (stockLedger.service.ts),
+        // único punto autorizado a tocar stock_quantity/stock_reserved. No se
+        // descuenta stock_quantity todavía (2.1) — solo se reserva; el descuento
+        // definitivo ocurre recién al confirmarse el pago (ver
+        // confirmStoreOrderStock, enganchado en recordStoreOrderStatusChange).
+        // Deja movimiento auditable y valida disponibilidad de forma atómica
+        // (lock de fila + chequeo dentro de esta misma transacción). Secuencial
+        // (no Promise.all) para no mezclar sentencias en la misma conexión.
         for (const item of resolvedItems) {
           const qty = Math.trunc(Number(item.quantity));
           const label = item.size_name
             ? `${item.product_title} — talle ${item.size_name}`
             : item.product_title;
 
-          if (item.sizeRecord) {
-            const [affected] = await CatalogProductSize.update(
-              { stock_quantity: literal(`stock_quantity - ${qty}`) },
-              { where: { id: item.sizeRecord.id, stock_quantity: { [Op.gte]: qty } }, transaction: t }
-            );
-            if (affected === 0) throw new AppError(`Stock insuficiente para ${label}`, 409);
-          } else {
-            const [affected] = await CatalogProduct.update(
-              { stock_quantity: literal(`stock_quantity - ${qty}`) },
-              { where: { id: item.productRecord.id, stock_quantity: { [Op.gte]: qty } }, transaction: t }
-            );
-            if (affected === 0) throw new AppError(`Stock insuficiente para ${label}`, 409);
+          try {
+            await stockLedger.adjustStock({
+              transaction: t,
+              type: 'reserve',
+              source: 'store',
+              // Ya se validó totals.all_available más arriba: acá siempre hay productRecord.
+              catalogProductId: item.productRecord!.id,
+              catalogProductSizeId: item.sizeRecord ? item.sizeRecord.id : null,
+              field: 'stock_reserved',
+              delta: qty,
+              requireAvailable: true,
+              storeOrderId: storeOrder.id,
+              reason: `Checkout tienda online ${storeOrder.order_number}`,
+            });
+          } catch (err) {
+            if (err instanceof AppError && err.statusCode === 409) {
+              throw new AppError(`Stock insuficiente para ${label}`, 409);
+            }
+            throw err;
           }
         }
 
@@ -697,8 +975,17 @@ export async function createStoreOrder(input: CheckoutInput) {
       });
       break; // éxito
     } catch (err) {
-      if (err instanceof UniqueConstraintError && attempt < MAX_ORDER_ATTEMPTS) {
-        continue; // colisión de order_number → regenerar y reintentar
+      if (err instanceof UniqueConstraintError) {
+        // Carrera genuina: otro request con la misma Idempotency-Key ganó y
+        // ya commiteó su pedido. No reintentamos — devolvemos ESE pedido en
+        // vez de duplicar el descuento de stock.
+        if (input.idempotencyKey && 'idempotency_key' in err.fields) {
+          const existing = await StoreOrder.findOne({ where: { idempotency_key: input.idempotencyKey } });
+          if (existing) return buildCheckoutResultFromExisting(existing);
+        }
+        if (attempt < MAX_ORDER_ATTEMPTS) {
+          continue; // colisión de order_number → regenerar y reintentar
+        }
       }
       throw err;
     }
@@ -825,6 +1112,20 @@ function emitStorePaymentEvent(order: StoreOrder): void {
   } catch { /* socket puede no estar inicializado en tests */ }
 }
 
+// Pago cuyo monto/moneda no coincide con el pedido (1.5 / caso 14): no se
+// acredita, queda "en revisión" y se avisa al admin para que lo resuelva a mano.
+function emitStoreReviewNeededEvent(order: StoreOrder, reason: string): void {
+  try {
+    getIO().emit('notification:store_order_review', {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      customerName: order.customer_name,
+      reason,
+      total: Number(order.total_amount),
+    });
+  } catch { /* socket puede no estar inicializado en tests */ }
+}
+
 function emitStoreOrderCreatedEvent(order: StoreOrder): void {
   try {
     getIO().emit('notification:store_order_created', {
@@ -837,6 +1138,335 @@ function emitStoreOrderCreatedEvent(order: StoreOrder): void {
   } catch { /* socket puede no estar inicializado en tests */ }
 }
 
+// ─── Restitución de stock y liberación de cupón al cancelar ──────────────────
+
+/**
+ * Restituye el stock de todos los ítems de un pedido cancelado y libera el
+ * cupón usado (si tenía). Cierra C-1 / A-9.
+ *
+ * Idempotente: relee el pedido con lock exclusivo dentro de `transaction` y
+ * no hace nada si `stock_restored_at` ya está seteado (protege contra doble
+ * restitución por reintentos o eventos de webhook repetidos).
+ *
+ * Resuelve el talle de cada ítem por `catalog_product_id` + `size_name`
+ * (fallback por texto — `store_order_items` todavía no tiene
+ * `catalog_product_size_id`, ver tarea 1.10). Si un talle no se puede
+ * resolver (renombrado o eliminado), NO aborta la cancelación: loguea un
+ * ERROR y deja un movimiento de stock con `delta:0` a modo de constancia
+ * ("revisión manual pendiente"), en vez de adivinar dónde aplicar el ajuste.
+ */
+/**
+ * Resuelve el talle de un ítem de pedido por `catalog_product_size_id`
+ * directo (1.10) o, si no lo tiene, por `catalog_product_id` + `size_name`
+ * (fallback por texto — pedidos históricos sin backfill posible por
+ * ambigüedad, o talle borrado desde entonces). Devuelve `unresolved: true`
+ * cuando el ítem tenía talle pero no se pudo resolver ninguno de los dos
+ * caminos, para que el caller decida cómo registrar la anomalía.
+ */
+export async function resolveStoreOrderItemSize(
+  item: StoreOrderItem,
+  transaction: Transaction
+): Promise<{ catalogProductSizeId: number | null; unresolved: boolean }> {
+  if (item.catalog_product_size_id) {
+    return { catalogProductSizeId: item.catalog_product_size_id, unresolved: false };
+  }
+  if (item.size_name) {
+    const size = await CatalogProductSize.findOne({
+      where: { product_id: item.catalog_product_id, size_name: item.size_name },
+      transaction,
+    });
+    if (size) return { catalogProductSizeId: size.id, unresolved: false };
+    return { catalogProductSizeId: null, unresolved: true };
+  }
+  return { catalogProductSizeId: null, unresolved: false };
+}
+
+/**
+ * Convierte la reserva de stock de un pedido (2.1) en descuento definitivo:
+ * libera `stock_reserved` y descuenta `stock_quantity` real, atómico dentro
+ * de `transaction`. Se llama al confirmarse el pago (recordStoreOrderStatusChange,
+ * al entrar en 'paid').
+ *
+ * Idempotente: no hace nada si `stock_confirmed_at` ya está seteado.
+ */
+export async function confirmStoreOrderStock(
+  order: StoreOrder,
+  reason: string,
+  userId: number | null,
+  transaction: Transaction
+): Promise<void> {
+  const locked = await StoreOrder.findByPk(order.id, {
+    lock: Transaction.LOCK.UPDATE,
+    transaction,
+  });
+  if (!locked || locked.stock_confirmed_at) return;
+
+  const items = await StoreOrderItem.findAll({
+    where: { store_order_id: order.id },
+    transaction,
+  });
+
+  for (const item of items) {
+    const { catalogProductSizeId, unresolved } = await resolveStoreOrderItemSize(item, transaction);
+
+    if (unresolved) {
+      logger.error(
+        'store.confirmStock.unresolvedSize',
+        new Error('No se pudo resolver el talle para confirmar stock'),
+        {
+          meta: {
+            storeOrderId: order.id,
+            orderNumber: order.order_number,
+            catalogProductId: item.catalog_product_id,
+            sizeName: item.size_name,
+          },
+        }
+      );
+      await stockLedger.adjustStock({
+        transaction,
+        type: 'release',
+        source: 'store',
+        catalogProductId: item.catalog_product_id,
+        catalogProductSizeId: null,
+        field: 'stock_reserved',
+        delta: 0,
+        storeOrderId: order.id,
+        userId,
+        reason,
+        notes: `Talle "${item.size_name}" no encontrado — confirmación de stock pendiente de revisión manual`,
+      });
+      continue;
+    }
+
+    // Libera la reserva y descuenta el stock real como una sola operación
+    // lógica (dos movimientos del ledger, uno por campo). requireAvailable
+    // en falso: el ítem ya estaba reservado, no se vuelve a validar
+    // disponibilidad contra un stock físico que pudo cambiar mientras tanto
+    // (un ajuste manual del admin no debería poder bloquear un pago ya
+    // confirmado — la posible inconsistencia queda para el reporte de 2.7).
+    await stockLedger.adjustStock({
+      transaction,
+      type: 'release',
+      source: 'store',
+      catalogProductId: item.catalog_product_id,
+      catalogProductSizeId,
+      field: 'stock_reserved',
+      delta: -item.quantity,
+      storeOrderId: order.id,
+      userId,
+      reason,
+    });
+    await stockLedger.adjustStock({
+      transaction,
+      type: 'sale',
+      source: 'store',
+      catalogProductId: item.catalog_product_id,
+      catalogProductSizeId,
+      field: 'stock_quantity',
+      delta: -item.quantity,
+      storeOrderId: order.id,
+      userId,
+      reason,
+    });
+  }
+
+  await locked.update({ stock_confirmed_at: new Date() }, { transaction });
+}
+
+const SYSTEM_USER_EMAIL = 'sistema@indians.internal';
+let cachedSystemUserId: number | null = null;
+
+/**
+ * Id del usuario "Sistema" (migración 084), responsable de las transacciones
+ * de caja que crea el sistema sin que haya un admin humano detrás (2.3) —
+ * p. ej. el webhook de MercadoPago confirmando un pago. Cacheado en memoria:
+ * es una fila seedeada que no cambia en la vida del proceso.
+ */
+async function getSystemUserId(transaction: Transaction): Promise<number> {
+  if (cachedSystemUserId !== null) return cachedSystemUserId;
+  const user = await User.findOne({ where: { email: SYSTEM_USER_EMAIL }, transaction });
+  if (!user) {
+    throw new AppError(
+      'Falta el usuario "Sistema" (migración 084) — no se puede registrar el ingreso en caja',
+      500
+    );
+  }
+  cachedSystemUserId = user.id;
+  return user.id;
+}
+
+const STORE_CASH_CATEGORY_NAME = 'Ventas tienda online';
+
+/**
+ * Registra el ingreso en caja al confirmarse el pago de un pedido de tienda
+ * (2.3 — cierra C-7 para el circuito de cobros). Requiere que el admin haya
+ * configurado `store_cash_account_id` en Configuración — si no está
+ * configurado, NO bloquea la confirmación del pago (la plata ya se cobró,
+ * el asiento de caja es una consecuencia administrativa, no al revés):
+ * solo loguea un warning y queda pendiente hasta que se configure la
+ * cuenta (el reporte de conciliación de 2.7 puede detectar estos casos).
+ *
+ * `createdBy`: si un admin confirmó el pago a mano, se le atribuye a él/ella;
+ * si fue automático (webhook de MP, job de reconciliación/expiración), se
+ * atribuye al usuario "Sistema".
+ *
+ * Idempotente por `cash_recorded_at`, columna separada de
+ * `stock_confirmed_at` a propósito: si falta configurar la cuenta, un
+ * reintento futuro puede completar el asiento de caja sin depender de que
+ * el stock (que sí se confirmó bien) se vuelva a tocar.
+ */
+async function recordStoreOrderCashIncome(
+  order: StoreOrder,
+  changedBy: number | null,
+  transaction: Transaction
+): Promise<void> {
+  const locked = await StoreOrder.findByPk(order.id, {
+    lock: Transaction.LOCK.UPDATE,
+    transaction,
+  });
+  if (!locked || locked.cash_recorded_at) return;
+
+  const settings = await getAllSettings();
+  const accountId = Number(settings.store_cash_account_id);
+  if (!accountId) {
+    logger.warn('store.cashIncome.accountNotConfigured', {
+      meta: { orderId: order.id, orderNumber: order.order_number },
+    });
+    return;
+  }
+
+  const category = await CashTransactionCategory.findOne({
+    where: { name: STORE_CASH_CATEGORY_NAME, is_system: true },
+    transaction,
+  });
+  if (!category) {
+    logger.error(
+      'store.cashIncome.missingCategory',
+      new Error(`Falta la categoría "${STORE_CASH_CATEGORY_NAME}" (migración 085)`),
+      { meta: { orderId: order.id, orderNumber: order.order_number } }
+    );
+    return;
+  }
+
+  const createdBy = changedBy ?? (await getSystemUserId(transaction));
+  const today = new Date().toISOString().slice(0, 10);
+
+  await createSystemTransaction(
+    {
+      account_id: accountId,
+      category_id: category.id,
+      type: 'income',
+      amount: Number(locked.total_amount),
+      description: `Pedido tienda online ${locked.order_number}`,
+      date: today,
+      reference_type: 'store_order',
+      reference_id: locked.id,
+    },
+    createdBy,
+    transaction
+  );
+
+  await locked.update({ cash_recorded_at: new Date() }, { transaction });
+}
+
+export async function restoreStoreOrderStock(
+  order: StoreOrder,
+  reason: string,
+  userId: number | null,
+  transaction: Transaction
+): Promise<void> {
+  const locked = await StoreOrder.findByPk(order.id, {
+    lock: Transaction.LOCK.UPDATE,
+    transaction,
+  });
+  if (!locked || locked.stock_restored_at) return;
+
+  // Si el pago nunca se confirmó, no hubo descuento real de stock_quantity
+  // (2.1) — solo se había reservado. Liberar la reserva alcanza, no hay nada
+  // que "restituir" físicamente.
+  const wasConfirmed = Boolean(locked.stock_confirmed_at);
+
+  const items = await StoreOrderItem.findAll({
+    where: { store_order_id: order.id },
+    transaction,
+  });
+
+  for (const item of items) {
+    const { catalogProductSizeId, unresolved } = await resolveStoreOrderItemSize(item, transaction);
+
+    if (unresolved) {
+      logger.error(
+        'store.restoreStock.unresolvedSize',
+        new Error('No se pudo resolver el talle para restituir stock'),
+        {
+          meta: {
+            storeOrderId: order.id,
+            orderNumber: order.order_number,
+            catalogProductId: item.catalog_product_id,
+            sizeName: item.size_name,
+          },
+        }
+      );
+      await stockLedger.adjustStock({
+        transaction,
+        type: 'cancel',
+        source: 'store',
+        catalogProductId: item.catalog_product_id,
+        catalogProductSizeId: null,
+        field: wasConfirmed ? 'stock_quantity' : 'stock_reserved',
+        delta: 0,
+        storeOrderId: order.id,
+        userId,
+        reason,
+        notes: `Talle "${item.size_name}" no encontrado — restitución pendiente de revisión manual`,
+      });
+      continue;
+    }
+
+    if (wasConfirmed) {
+      // El pago ya se había confirmado: stock_quantity real fue descontado
+      // (confirmStoreOrderStock), hay que devolverlo (comportamiento de 1.3
+      // sin cambios).
+      await stockLedger.adjustStock({
+        transaction,
+        type: 'cancel',
+        source: 'store',
+        catalogProductId: item.catalog_product_id,
+        catalogProductSizeId,
+        field: 'stock_quantity',
+        delta: item.quantity,
+        storeOrderId: order.id,
+        userId,
+        reason,
+      });
+    } else {
+      // Nunca se confirmó el pago: solo había una reserva, se libera sin
+      // tocar stock_quantity.
+      await stockLedger.adjustStock({
+        transaction,
+        type: 'release',
+        source: 'store',
+        catalogProductId: item.catalog_product_id,
+        catalogProductSizeId,
+        field: 'stock_reserved',
+        delta: -item.quantity,
+        storeOrderId: order.id,
+        userId,
+        reason,
+      });
+    }
+  }
+
+  if (locked.coupon_id) {
+    await StoreCoupon.update(
+      { used_count: literal('GREATEST(used_count - 1, 0)') },
+      { where: { id: locked.coupon_id, used_count: { [Op.gt]: 0 } }, transaction }
+    );
+  }
+
+  await locked.update({ stock_restored_at: new Date() }, { transaction });
+}
+
 // ─── Cambio de estado (transición + historial + mail) ────────────────────────
 
 export interface StatusChangeOptions {
@@ -846,6 +1476,12 @@ export interface StatusChangeOptions {
   tracking?: { tracking_number?: string | null; courier_name?: string | null };
   /** false = no valida la transición (flujo de pago automático del webhook). */
   enforceTransition?: boolean;
+  /**
+   * Transacción externa (con el pedido ya lockeado por el caller, p. ej.
+   * applyPaymentResult — 1.5). Si no se da, esta función abre la suya propia
+   * como siempre hizo.
+   */
+  transaction?: Transaction;
 }
 
 /**
@@ -893,7 +1529,7 @@ export async function recordStoreOrderStatusChange(
 
   const token = order.tracking_token ?? generateTrackingToken();
 
-  await sequelize.transaction(async (t) => {
+  const runInTransaction = async (t: Transaction) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updates: any = {
       courier_name: mergedCourier ?? null,
@@ -917,8 +1553,45 @@ export async function recordStoreOrderStatusChange(
         },
         { transaction: t }
       );
+
+      // Confirmar la reserva de stock (2.1) al salir de pending_payment hacia
+      // cualquier estado "vivo" (no cancelado): la reserva pasa a descuento
+      // definitivo. No se restringe a newStatus === 'paid' a propósito —
+      // cubre también que el admin salte directo a 'processing' (p. ej. pago
+      // en efectivo/transferencia confirmado a mano). 'cancelled' tiene su
+      // propia rama abajo (libera la reserva en vez de confirmarla).
+      if (prevStatus === 'pending_payment' && newStatus !== 'cancelled') {
+        await confirmStoreOrderStock(
+          order,
+          `Pago confirmado para pedido ${order.order_number}`,
+          options.changedBy ?? null,
+          t
+        );
+        // Ingreso en caja (2.3), mismo disparador que la confirmación de
+        // stock — ver recordStoreOrderCashIncome para el detalle de por qué
+        // no bloquea el pago si falta configurar la cuenta.
+        await recordStoreOrderCashIncome(order, options.changedBy ?? null, t);
+      }
+
+      // Restituir stock y liberar cupón al entrar en cancelled (C-1/A-9).
+      // 'returned' queda afuera a propósito: la restitución ahí es una
+      // decisión explícita del admin (el producto puede volver defectuoso).
+      if (newStatus === 'cancelled') {
+        await restoreStoreOrderStock(
+          order,
+          `Cancelación de pedido ${order.order_number}`,
+          options.changedBy ?? null,
+          t
+        );
+      }
     }
-  });
+  };
+
+  if (options.transaction) {
+    await runInTransaction(options.transaction);
+  } else {
+    await sequelize.transaction(runInTransaction);
+  }
 
   // Encolar mail (desacoplado del guardado) solo si el estado notifica
   const emailQueued = statusChanged && statusNotifiesCustomer(newStatus);
@@ -1058,46 +1731,169 @@ export async function regenerateTrackingToken(id: number): Promise<StoreOrder> {
   return order;
 }
 
+// Toda la tienda cobra en ARS (hardcodeado también al crear la preference en
+// mercadopago.service.ts) — no hay columna de moneda por pedido porque nunca varía.
+const MP_EXPECTED_CURRENCY = 'ARS';
+
 /**
- * Aplica el resultado de un pago a un pedido. Idempotente: la transición de estado
- * (y su mail/historial) solo ocurre cuando el estado realmente cambia.
+ * Aplica el resultado de un pago a un pedido. Cierra A-7 (1.5):
+ *  - Transacción unificada con `SELECT ... FOR UPDATE` sobre el pedido: dos
+ *    aplicaciones concurrentes (dos webhooks, o webhook + retorno del
+ *    cliente) no pueden pisarse.
+ *  - Descarta eventos desordenados comparando la fecha del pago que se está
+ *    aplicando contra la del último aplicado (`mp_payment_date`) — un
+ *    `pending` que llega después de un `approved` ya aplicado no retrocede
+ *    el pedido.
+ *  - Antes de acreditar (pasar a 'paid'), valida monto y moneda contra
+ *    `total_amount`. Si no coinciden: NO acredita, pasa a 'review', loguea
+ *    ERROR y notifica al admin por socket — nunca acredita a ciegas.
+ * Idempotente: la transición de estado (y su mail/historial) solo ocurre
+ * cuando el estado realmente cambia.
  */
 async function applyPaymentResult(
   order: StoreOrder,
-  mpStatus: string,
+  payment: PaymentInfo,
   paymentId: string | null
 ): Promise<StoreOrder> {
-  const newStatus = mapMpStatusToOrderStatus(mpStatus, order.status);
+  const result = await sequelize.transaction(async (t) => {
+    const locked = await StoreOrder.findByPk(order.id, { lock: Transaction.LOCK.UPDATE, transaction: t });
+    if (!locked) return { order, changed: false, needsReview: false };
 
-  // Actualizar los campos de MercadoPago siempre (aunque el estado no cambie)
-  await order.update({
-    mp_payment_id: paymentId ? String(paymentId) : order.mp_payment_id,
-    mp_status: mpStatus,
+    const paymentDateRaw = payment.date_last_updated ?? payment.date_approved ?? payment.date_created;
+    const paymentDate = paymentDateRaw ? new Date(paymentDateRaw) : null;
+
+    // Evento desordenado: ya se aplicó uno más nuevo para este pedido.
+    if (paymentDate && locked.mp_payment_date && paymentDate < locked.mp_payment_date) {
+      logger.warn('store.webhook.outOfOrder', {
+        meta: {
+          orderId: locked.id, orderNumber: locked.order_number, paymentId,
+          incomingDate: paymentDate.toISOString(), appliedDate: locked.mp_payment_date.toISOString(),
+        },
+      });
+      return { order: locked, changed: false, needsReview: false };
+    }
+
+    const mpStatus = payment.status ?? 'unknown';
+    const newStatus = mapMpStatusToOrderStatus(mpStatus, locked.status);
+
+    if (newStatus === 'paid') {
+      const expectedAmount = Number(locked.total_amount);
+      const amountOk = payment.transaction_amount != null && Math.abs(payment.transaction_amount - expectedAmount) < 1;
+      const currencyOk = !payment.currency_id || payment.currency_id === MP_EXPECTED_CURRENCY;
+
+      if (!amountOk || !currencyOk) {
+        logger.error(
+          'store.webhook.amountMismatch',
+          new Error('El monto o la moneda del pago no coinciden con el pedido'),
+          {
+            meta: {
+              orderId: locked.id, orderNumber: locked.order_number, paymentId,
+              expectedAmount, receivedAmount: payment.transaction_amount,
+              expectedCurrency: MP_EXPECTED_CURRENCY, receivedCurrency: payment.currency_id,
+            },
+          }
+        );
+        await locked.update(
+          {
+            mp_payment_id: paymentId ? String(paymentId) : locked.mp_payment_id,
+            mp_status: mpStatus,
+            mp_payment_date: paymentDate ?? locked.mp_payment_date,
+          },
+          { transaction: t }
+        );
+        const { changed } = await recordStoreOrderStatusChange(locked, 'review', {
+          enforceTransition: false,
+          note: `Pago con monto/moneda no coincidente (recibido: ${payment.transaction_amount ?? '?'} ${payment.currency_id ?? '?'}, esperado: ${expectedAmount} ${MP_EXPECTED_CURRENCY})`,
+          transaction: t,
+        });
+        return { order: locked, changed, needsReview: true };
+      }
+    }
+
+    await locked.update(
+      {
+        mp_payment_id: paymentId ? String(paymentId) : locked.mp_payment_id,
+        mp_status: mpStatus,
+        mp_payment_date: paymentDate ?? locked.mp_payment_date,
+      },
+      { transaction: t }
+    );
+
+    // Transición de estado (sistema): historial + mail por estado, sin validar
+    // transición porque el flujo de pago puede saltar estados.
+    const { changed } = await recordStoreOrderStatusChange(locked, newStatus, {
+      enforceTransition: false,
+      note: `Pago MercadoPago: ${mpStatus}`,
+      transaction: t,
+    });
+
+    return { order: locked, changed, needsReview: false };
   });
 
-  // Transición de estado (sistema): historial + mail por estado, sin validar
-  // transición porque el flujo de pago puede saltar estados.
-  const { changed } = await recordStoreOrderStatusChange(order, newStatus, {
-    enforceTransition: false,
-    note: `Pago MercadoPago: ${mpStatus}`,
-  });
+  if (result.needsReview) {
+    emitStoreReviewNeededEvent(result.order, 'Monto o moneda del pago no coinciden con el pedido');
+  } else if (result.changed) {
+    emitStorePaymentEvent(result.order);
+  }
 
-  if (changed) emitStorePaymentEvent(order);
-
-  return order;
+  return result.order;
 }
 
 // ─── Webhook MercadoPago (server-to-server) ──────────────────────────────────
 
-export async function handleStoreWebhook(paymentId: string) {
-  const info = await getPaymentInfo(paymentId);
-  const ref = info.external_reference;
-  if (!ref || !ref.startsWith('ECOM-')) return;
+/**
+ * Procesa una notificación de webhook de MercadoPago. Cierra A-7 (1.5):
+ * idempotencia real por evento — se registra en `webhook_events` ANTES de
+ * procesar; si ya se completó, no se vuelve a consultar a MP ni a reaplicar
+ * nada. Si el registro existe pero quedó a medias (el proceso se cayó entre
+ * registrar y terminar), se permite reintentar: si no, un crash a mitad de
+ * camino perdería el evento para siempre.
+ */
+export async function handleStoreWebhook(paymentId: string, rawPayload?: unknown): Promise<void> {
+  const provider = 'mercadopago';
+  const payloadHash = rawPayload
+    ? createHash('sha256').update(JSON.stringify(rawPayload)).digest('hex')
+    : null;
 
-  const order = await StoreOrder.findOne({ where: { order_number: ref } });
-  if (!order) return;
+  let event = await WebhookEvent.findOne({ where: { provider, event_id: paymentId } });
+  if (event?.processed_at) return; // ya procesado — sin efecto
 
-  await applyPaymentResult(order, info.status ?? 'unknown', paymentId);
+  if (!event) {
+    try {
+      event = await WebhookEvent.create({ provider, event_id: paymentId, payload_hash: payloadHash });
+    } catch (err) {
+      if (err instanceof UniqueConstraintError) {
+        // Carrera: otro request lo registró primero.
+        event = await WebhookEvent.findOne({ where: { provider, event_id: paymentId } });
+        if (event?.processed_at) return;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  try {
+    const info = await getPaymentInfo(paymentId);
+    const ref = info.external_reference;
+    if (!ref || !ref.startsWith('ECOM-')) {
+      await event?.update({ processed_at: new Date(), result: 'ignored_no_reference' });
+      return;
+    }
+
+    const order = await StoreOrder.findOne({ where: { order_number: ref } });
+    if (!order) {
+      await event?.update({ processed_at: new Date(), result: 'ignored_order_not_found' });
+      return;
+    }
+
+    await applyPaymentResult(order, info, paymentId);
+    await event?.update({ processed_at: new Date(), result: 'applied' });
+  } catch (err) {
+    // No marcamos processed_at: el evento queda disponible para reintento
+    // (MP reenvía el webhook, o el job de reconciliación de 1.8).
+    logger.error('store.webhook.processingFailed', err, { meta: { paymentId } });
+    throw err;
+  }
 }
 
 // ─── Confirmación al volver el cliente desde MercadoPago ──────────────────────
@@ -1108,18 +1904,18 @@ export async function confirmStorePayment(params: {
   orderNumber?: string | null;
 }): Promise<{ order_number: string; status: StoreOrderStatus; mp_status: string | null }> {
   let order: StoreOrder | null = null;
-  let mpStatus: string | null = null;
+  let paymentInfo: PaymentInfo | null = null;
   let paymentId: string | null = params.paymentId ?? null;
 
   if (paymentId) {
     // La consulta a MP puede fallar (id inválido, desfase test/prod, error transitorio).
     try {
       const info = await getPaymentInfo(paymentId);
-      mpStatus = info.status ?? null;
+      paymentInfo = info;
       const ref = info.external_reference;
       if (ref) order = await StoreOrder.findOne({ where: { order_number: ref } });
     } catch {
-      mpStatus = null;
+      paymentInfo = null;
     }
   }
 
@@ -1130,22 +1926,22 @@ export async function confirmStorePayment(params: {
 
   if (!order) throw new AppError('Pedido no encontrado', 404);
 
-  // Si aún no tenemos mpStatus, buscar el pago en MP por external_reference.
+  // Si aún no tenemos el pago, buscarlo en MP por external_reference.
   // Necesario en dev/local donde el webhook no llega y la back_url http no
   // hace auto_return, por lo que el frontend llama con solo el número de pedido.
-  if (!mpStatus) {
+  if (!paymentInfo) {
     try {
       const payments = await searchPaymentsByReference(order.order_number);
       const latest = payments[0];
       if (latest) {
-        mpStatus = latest.status ?? null;
+        paymentInfo = latest;
         if (!paymentId && latest.id) paymentId = String(latest.id);
       }
     } catch { /* no crítico */ }
   }
 
-  if (mpStatus) {
-    await applyPaymentResult(order, mpStatus, paymentId);
+  if (paymentInfo) {
+    await applyPaymentResult(order, paymentInfo, paymentId);
     // Recargar para devolver el estado actualizado
     await order.reload();
   }
@@ -1306,7 +2102,7 @@ export async function updateStoreOrderTracking(
   return order;
 }
 
-// ─── Factura (PDF) ─────────────────────────────────────────────────────────────
+// ─── Comprobante de compra (PDF) ────────────────────────────────────────────────
 
 async function buildInvoiceData(orderId: number) {
   const order = await getStoreOrderById(orderId);

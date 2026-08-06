@@ -244,45 +244,70 @@ export interface CreateTransactionInput {
   amount: number;
   description: string;
   date: string;
-  reference_type?: 'invoice' | 'order';
+  reference_type?: 'invoice' | 'order' | 'store_order';
   reference_id?: number;
   transfer_account_id?: number;
   notes?: string;
 }
 
-export async function createTransaction(input: CreateTransactionInput, currentUser: JwtPayload) {
+/**
+ * Núcleo compartido de creación (validación + efecto en saldo + insert),
+ * siempre dentro de la transacción del caller. `createTransaction` (endpoint
+ * del panel) abre la suya propia; `createSystemTransaction` (2.3 — llamada
+ * desde otros servicios, p. ej. al confirmarse un pago de la tienda online)
+ * participa de una transacción externa para que la carga en caja sea
+ * atómica con el evento de negocio que la origina.
+ */
+async function createTransactionCore(
+  input: CreateTransactionInput,
+  createdBy: number,
+  t: import('sequelize').Transaction
+): Promise<CashTransaction> {
   if (input.type === 'transfer') {
     if (!input.transfer_account_id) throw new AppError('Cuenta destino requerida para transferencias', 400);
     if (input.transfer_account_id === input.account_id) throw new AppError('La cuenta destino debe ser distinta a la cuenta origen', 400);
   }
 
-  const accountExists = await CashAccount.count({ where: { id: input.account_id } });
+  const accountExists = await CashAccount.count({ where: { id: input.account_id }, transaction: t });
   if (!accountExists) throw new AppError('Cuenta no encontrada', 404);
 
+  await applyBalanceEffect(input.type, input.amount, input.account_id, input.transfer_account_id, t);
+
+  return CashTransaction.create(
+    {
+      account_id:          input.account_id,
+      category_id:         input.category_id,
+      type:                input.type,
+      amount:              input.amount,
+      description:         input.description,
+      date:                input.date,
+      reference_type:      input.reference_type || null,
+      reference_id:        input.reference_id || null,
+      transfer_account_id: input.transfer_account_id || null,
+      created_by:          createdBy,
+      notes:               input.notes || null,
+    },
+    { transaction: t }
+  );
+}
+
+export async function createTransaction(input: CreateTransactionInput, currentUser: JwtPayload) {
   let created: CashTransaction | null = null;
 
   await sequelize.transaction(async (t) => {
-    await applyBalanceEffect(input.type, input.amount, input.account_id, input.transfer_account_id, t);
-
-    created = await CashTransaction.create(
-      {
-        account_id:          input.account_id,
-        category_id:         input.category_id,
-        type:                input.type,
-        amount:              input.amount,
-        description:         input.description,
-        date:                input.date,
-        reference_type:      input.reference_type || null,
-        reference_id:        input.reference_id || null,
-        transfer_account_id: input.transfer_account_id || null,
-        created_by:          currentUser.id,
-        notes:               input.notes || null,
-      },
-      { transaction: t }
-    );
+    created = await createTransactionCore(input, currentUser.id, t);
   });
 
   return getTransaction(created!.id);
+}
+
+/** Ver `createTransactionCore` — requiere una transacción externa, nunca abre la propia. */
+export async function createSystemTransaction(
+  input: CreateTransactionInput,
+  createdBy: number,
+  transaction: import('sequelize').Transaction
+): Promise<CashTransaction> {
+  return createTransactionCore(input, createdBy, transaction);
 }
 
 export interface UpdateTransactionInput extends Partial<CreateTransactionInput> {}

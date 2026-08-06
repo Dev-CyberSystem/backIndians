@@ -24,10 +24,13 @@ describe('transiciones de estado — tienda', () => {
     expect(isValidStoreTransition('paid', 'delivered')).toBe(false);
   });
 
-  it('permite marcar demorado/devuelto en las etapas correspondientes', () => {
+  it('permite marcar demorado en la etapa correspondiente', () => {
     expect(isValidStoreTransition('processing', 'delayed')).toBe(true);
-    expect(isValidStoreTransition('shipped', 'returned')).toBe(true);
-    expect(isValidStoreTransition('delivered', 'returned')).toBe(true);
+  });
+
+  it('"returned" ya no es una transición genérica de un click (2.4) — solo se llega vía POST /returns', () => {
+    expect(isValidStoreTransition('shipped', 'returned')).toBe(false);
+    expect(isValidStoreTransition('delivered', 'returned')).toBe(false);
   });
 
   it('un pedido cancelado no tiene transiciones salientes', () => {

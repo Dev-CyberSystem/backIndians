@@ -1,15 +1,17 @@
 import crypto from 'crypto';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { AppError } from '../middlewares/errorHandler';
+import { logger } from '../utils/logger';
 
 /**
  * Valida la firma (`x-signature`) que MercadoPago envía en sus webhooks.
  * Manifiesto según doc de MP: `id:<data.id>;request-id:<x-request-id>;ts:<ts>;`
  * firmado con HMAC-SHA256 y el secreto del webhook (`MP_WEBHOOK_SECRET`).
  *
- * Si `MP_WEBHOOK_SECRET` no está configurado, devuelve `true` (no rompe el flujo
- * existente; el pago igual se verifica luego contra la API de MP). Una vez
- * seteado el secreto en el panel de MP + Railway, rechaza requests falsificadas.
+ * Si `MP_WEBHOOK_SECRET` no está configurado: en producción se rechaza todo
+ * (fail-closed — `server.ts` además impide arrancar sin esta variable en
+ * producción). Fuera de producción se acepta sin validar (fail-open) para no
+ * frenar el desarrollo local, dejando un WARN para que no pase desapercibido.
  */
 export function verifyWebhookSignature(params: {
   dataId: string | undefined;
@@ -17,7 +19,13 @@ export function verifyWebhookSignature(params: {
   xRequestId: string | undefined;
 }): boolean {
   const secret = process.env.MP_WEBHOOK_SECRET;
-  if (!secret) return true;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') return false;
+    logger.warn('mercadopago.webhookSecretMissing', {
+      message: 'MP_WEBHOOK_SECRET no configurado: firma del webhook sin validar (solo permitido fuera de producción)',
+    });
+    return true;
+  }
 
   const { dataId, xSignature, xRequestId } = params;
   if (!xSignature) return false;
@@ -120,21 +128,69 @@ export async function createPreference(input: CreatePreferenceInput) {
   };
 }
 
-export async function getPaymentInfo(paymentId: string) {
+/**
+ * Reconsulta una preference ya creada (por su id) para recuperar sus links de
+ * pago. Se usa al responder un checkout duplicado (mismo Idempotency-Key):
+ * el pedido ya tiene `mp_preference_id` guardado, pero no el `init_point`
+ * (nunca se persiste), así que hay que volver a pedírselo a MP. Devuelve
+ * `null` si falla (p. ej. preference vencida) en vez de cortar la respuesta:
+ * el pedido ya existe igual, solo no se puede reofrecer el link de pago.
+ */
+export async function getPreference(preferenceId: string): Promise<{ init_point: string | null; sandbox_init_point: string | null } | null> {
+  try {
+    const client = getClient();
+    const preference = new Preference(client);
+    const result = await preference.get({ preferenceId });
+    return {
+      init_point: result.init_point ?? null,
+      sandbox_init_point: result.sandbox_init_point ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Subconjunto de campos de un pago de MP que necesitamos para aplicar su
+ * resultado a un pedido (1.5): estado, monto/moneda (para validar contra
+ * `total_amount` antes de acreditar) y fechas (para descartar eventos que
+ * llegan desordenados — ver `applyPaymentResult` en store.service.ts).
+ */
+export interface PaymentInfo {
+  id?: number;
+  status?: string;
+  external_reference?: string;
+  transaction_amount?: number;
+  currency_id?: string;
+  date_approved?: string;
+  date_last_updated?: string;
+  date_created?: string;
+}
+
+export async function getPaymentInfo(paymentId: string): Promise<PaymentInfo> {
   const client = getClient();
   const payment = new Payment(client);
   return payment.get({ id: paymentId });
 }
 
 /** Busca pagos asociados a un external_reference (número de orden). Devuelve array vacío si no encuentra o falla. */
-export async function searchPaymentsByReference(externalReference: string): Promise<Array<{ id: number | undefined; status: string | undefined }>> {
+export async function searchPaymentsByReference(externalReference: string): Promise<PaymentInfo[]> {
   const client = getClient();
   const payment = new Payment(client);
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (payment as any).search({ options: { external_reference: externalReference, sort: 'date_created', criteria: 'desc' } });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return ((result?.results ?? []) as any[]).map((p: any) => ({ id: p.id as number | undefined, status: p.status as string | undefined }));
+    return ((result?.results ?? []) as any[]).map((p: any): PaymentInfo => ({
+      id: p.id,
+      status: p.status,
+      external_reference: p.external_reference,
+      transaction_amount: p.transaction_amount,
+      currency_id: p.currency_id,
+      date_approved: p.date_approved,
+      date_last_updated: p.date_last_updated,
+      date_created: p.date_created,
+    }));
   } catch {
     return [];
   }

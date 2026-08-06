@@ -18,6 +18,7 @@ import {
 } from '../models';
 import { sequelize } from '../config/db';
 import * as mpService from './mercadopago.service';
+import * as stockLedger from './stockLedger.service';
 
 // ─── Include estándar de un producto ─────────────────────────────────────────
 
@@ -207,12 +208,24 @@ export async function saveProductSizes(productId: number, sizes: SizeInput[]): P
   }
 }
 
-export async function adjustProductStock(id: number, quantity: number): Promise<CatalogProduct> {
-  const product = await CatalogProduct.findByPk(id);
-  if (!product) throw new AppError('Producto no encontrado', 404);
+export async function adjustProductStock(id: number, quantity: number, userId: number | null): Promise<CatalogProduct> {
+  const exists = await CatalogProduct.count({ where: { id } });
+  if (!exists) throw new AppError('Producto no encontrado', 404);
   if (quantity < 0) throw new AppError('El stock no puede ser negativo', 400);
-  await product.update({ stock_quantity: quantity });
-  return product;
+
+  await sequelize.transaction(async (t) => {
+    await stockLedger.adjustStock({
+      transaction: t,
+      type: 'adjustment',
+      source: 'manual',
+      catalogProductId: id,
+      setTo: quantity,
+      userId,
+      reason: 'Ajuste manual de stock (admin)',
+    });
+  });
+
+  return (await CatalogProduct.findByPk(id))!;
 }
 
 export async function deleteProduct(id: number): Promise<{ soft: boolean }> {
@@ -404,16 +417,41 @@ export async function createCatalogOrder(input: CreateCatalogOrderInput) {
       { transaction: t }
     );
 
-    // Decrementar stock (paralelo — una query por ítem en lugar de secuencial)
-    await Promise.all(resolvedItems.map((item) => {
+    // Descontar stock a través del ledger centralizado (stockLedger.service.ts),
+    // único punto autorizado a tocar stock_quantity. Secuencial (no Promise.all):
+    // el lock de fila que usa el ledger para leer/actualizar de forma segura no
+    // debe mezclarse con otras sentencias concurrentes en la misma conexión de
+    // la transacción. De paso cierra la ventana de sobreventa que tenía el
+    // decrement() en paralelo anterior (sin guarda atómica de stock disponible).
+    for (const item of resolvedItems) {
       const product = productMap.get(item.product_id)!;
       const sizes = (product as CatalogProduct & { sizes?: CatalogProductSize[] }).sizes ?? [];
-      if (sizes.length > 0 && item.size_name) {
-        const sizeRecord = sizes.find((s) => s.size_name === item.size_name)!;
-        return sizeRecord.decrement('stock_quantity', { by: item.quantity, transaction: t });
+      const sizeRecord = sizes.length > 0 && item.size_name
+        ? sizes.find((s) => s.size_name === item.size_name)
+        : undefined;
+      const label = item.size_name ? `${product.title} — talle ${item.size_name}` : product.title;
+      const qty = Math.trunc(Number(item.quantity));
+
+      try {
+        await stockLedger.adjustStock({
+          transaction: t,
+          type: 'sale',
+          source: 'catalog',
+          catalogProductId: product.id,
+          catalogProductSizeId: sizeRecord ? sizeRecord.id : null,
+          delta: -qty,
+          requireAvailable: true,
+          catalogOrderId: order.id,
+          userId: input.seller_id,
+          reason: `Pedido mayorista ${orderNumber}`,
+        });
+      } catch (err) {
+        if (err instanceof AppError && err.statusCode === 409) {
+          throw new AppError(`Stock insuficiente para ${label}`, 409);
+        }
+        throw err;
       }
-      return product.decrement('stock_quantity', { by: item.quantity, transaction: t });
-    }));
+    }
 
     // Auto-crear factura del catálogo
     const invoiceNumber = await generateInvoiceNumber();
@@ -527,7 +565,7 @@ export async function listCatalogInvoices(
         model: CatalogOrder, as: 'order',
         ...(hasOrderFilter ? { where: orderWhere, required: true } : {}),
         include: [
-          { model: Client, as: 'client', attributes: ['id', 'name'] },
+          { model: Client, as: 'client', attributes: ['id', 'name', 'cuit', 'condicion_iva'] },
           { model: User, as: 'seller', attributes: ['id', 'name'] },
         ],
       },

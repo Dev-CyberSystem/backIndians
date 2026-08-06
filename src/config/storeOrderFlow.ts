@@ -54,9 +54,13 @@ export const STORE_ORDER_TRANSITIONS: Partial<Record<StoreOrderStatus, StoreOrde
   review:           ['processing', 'awaiting_courier', 'cancelled', 'delayed'],
   processing:       ['awaiting_courier', 'shipped', 'cancelled', 'delayed'],
   awaiting_courier: ['shipped', 'processing', 'cancelled', 'delayed'],
-  shipped:          ['delivered', 'delayed', 'returned', 'cancelled'],
+  // 'returned' ya no es una transición genérica de un click: se llega ahí
+  // solo a través de POST /store/admin/orders/:id/returns (2.4), que registra
+  // motivo + ítems + revisión en vez de un cambio de estado ciego (decisión
+  // de negocio #4 — "requiere revisión"). Por eso no aparece como destino acá.
+  shipped:          ['delivered', 'delayed', 'cancelled'],
   delayed:          ['processing', 'awaiting_courier', 'shipped', 'cancelled'],
-  delivered:        ['returned'],
+  delivered:        [],
   returned:         ['processing', 'cancelled'],
   cancelled:        [],
 };

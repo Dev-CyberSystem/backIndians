@@ -147,10 +147,10 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
   await resend.emails.send({
     from: FROM,
     to: data.customerEmail,
-    subject: `Factura ${data.orderNumber} — Indians Textil`,
+    subject: `Comprobante de compra ${data.orderNumber} — Indians Textil`,
     html: emailWrapper(`
       <h2 style="color:#1d4ed8;margin:0 0 8px;">Comprobante de compra</h2>
-      <p style="margin:0 0 12px;">Hola <strong>${escapeHtml(data.customerName)}</strong>, te enviamos la factura de tu pedido <strong>${data.orderNumber}</strong>.</p>
+      <p style="margin:0 0 12px;">Hola <strong>${escapeHtml(data.customerName)}</strong>, te enviamos el comprobante de tu pedido <strong>${data.orderNumber}</strong>.</p>
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
         <thead>
           <tr style="color:#6b7280;font-size:11px;text-transform:uppercase;">
@@ -169,11 +169,11 @@ export async function sendOrderInvoiceEmail(data: InvoiceData) {
           </tr>
         </tfoot>
       </table>
-      <p style="color:#6b7280;font-size:12px;margin-top:24px;">El comprobante en PDF está adjunto a este email.</p>
+      <p style="color:#6b7280;font-size:12px;margin-top:24px;">El comprobante en PDF está adjunto a este email. No es válido como factura.</p>
     `, 580),
     attachments: [
       {
-        filename: `factura-${data.orderNumber}.pdf`,
+        filename: `comprobante-${data.orderNumber}.pdf`,
         content: pdfBuffer.toString('base64'),
       },
     ],

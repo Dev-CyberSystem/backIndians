@@ -17,6 +17,8 @@ export class CatalogProduct extends Model<
   declare description: CreationOptional<string | null>;
   declare price: number;
   declare stock_quantity: CreationOptional<number>;
+  /** Reservado por pedidos en pending_payment todavía no confirmados (2.1). Disponible = stock_quantity - stock_reserved. */
+  declare stock_reserved: CreationOptional<number>;
   declare active: CreationOptional<boolean>;
   declare public_price: CreationOptional<number | null>;
   declare discount_percentage: CreationOptional<number>;
@@ -58,6 +60,11 @@ CatalogProduct.init(
       },
     },
     stock_quantity: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    stock_reserved: {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       defaultValue: 0,

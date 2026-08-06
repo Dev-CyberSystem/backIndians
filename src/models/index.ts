@@ -8,7 +8,10 @@ import { StoreCoupon } from './StoreCoupon';
 import { StoreOrder } from './StoreOrder';
 import { StoreOrderItem } from './StoreOrderItem';
 import { StoreOrderStatusHistory } from './StoreOrderStatusHistory';
+import { StoreReturn } from './StoreReturn';
+import { StoreReturnItem } from './StoreReturnItem';
 import { StoreCartReminder } from './StoreCartReminder';
+import { WebhookEvent } from './WebhookEvent';
 import { User } from './User';
 import { Client } from './Client';
 import { Product } from './Product';
@@ -17,6 +20,7 @@ import { CatalogProductImage } from './CatalogProductImage';
 import { CatalogProductSize } from './CatalogProductSize';
 import { CatalogOrder } from './CatalogOrder';
 import { CatalogOrderItem } from './CatalogOrderItem';
+import { CatalogStockMovement } from './CatalogStockMovement';
 import { CatalogInvoice } from './CatalogInvoice';
 import { CatalogInvoiceImage } from './CatalogInvoiceImage';
 import { InvoicePayment } from './InvoicePayment';
@@ -113,6 +117,15 @@ StockItem.hasMany(StockMovement, { foreignKey: 'stock_item_id', as: 'movements' 
 StockMovement.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 User.hasMany(StockMovement, { foreignKey: 'user_id', as: 'stock_movements' });
 
+// CatalogStockMovement ↔ CatalogProduct / CatalogProductSize / StoreOrder / CatalogOrder / User
+CatalogStockMovement.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
+CatalogProduct.hasMany(CatalogStockMovement, { foreignKey: 'catalog_product_id', as: 'stock_movements' });
+CatalogStockMovement.belongsTo(CatalogProductSize, { foreignKey: 'catalog_product_size_id', as: 'size' });
+CatalogProductSize.hasMany(CatalogStockMovement, { foreignKey: 'catalog_product_size_id', as: 'stock_movements' });
+CatalogStockMovement.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'store_order' });
+CatalogStockMovement.belongsTo(CatalogOrder, { foreignKey: 'catalog_order_id', as: 'catalog_order' });
+CatalogStockMovement.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 // CashTransaction ↔ CashAccount (cuenta origen)
 CashTransaction.belongsTo(CashAccount, { foreignKey: 'account_id', as: 'account' });
 CashAccount.hasMany(CashTransaction, { foreignKey: 'account_id', as: 'transactions' });
@@ -181,9 +194,21 @@ StoreOrderStatusHistory.belongsTo(User, { foreignKey: 'changed_by', as: 'changer
 StoreOrderItem.belongsTo(CatalogProduct, { foreignKey: 'catalog_product_id', as: 'product' });
 CatalogProduct.hasMany(StoreOrderItem, { foreignKey: 'catalog_product_id', as: 'store_order_items' });
 
+// StoreOrderItem ↔ CatalogProductSize
+StoreOrderItem.belongsTo(CatalogProductSize, { foreignKey: 'catalog_product_size_id', as: 'size' });
+
 // StoreOrder ↔ StoreCoupon
 StoreCoupon.hasMany(StoreOrder, { foreignKey: 'coupon_id', as: 'orders' });
 StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
+
+// StoreReturn ↔ StoreOrder / StoreReturnItem / User (2.4)
+StoreOrder.hasMany(StoreReturn, { foreignKey: 'store_order_id', as: 'returns' });
+StoreReturn.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'order' });
+StoreReturn.belongsTo(User, { foreignKey: 'requested_by', as: 'requester' });
+StoreReturn.belongsTo(User, { foreignKey: 'reviewed_by', as: 'reviewer' });
+StoreReturn.hasMany(StoreReturnItem, { foreignKey: 'store_return_id', as: 'items', onDelete: 'CASCADE' });
+StoreReturnItem.belongsTo(StoreReturn, { foreignKey: 'store_return_id', as: 'return' });
+StoreReturnItem.belongsTo(StoreOrderItem, { foreignKey: 'store_order_item_id', as: 'orderItem' });
 
 // StoreWishlist ↔ StoreCustomer
 StoreCustomer.hasMany(StoreWishlist, { foreignKey: 'customer_id', as: 'wishlist', onDelete: 'CASCADE' });
@@ -256,8 +281,11 @@ export {
   StoreOrder,
   StoreOrderItem,
   StoreOrderStatusHistory,
+  StoreReturn,
+  StoreReturnItem,
   StoreCartReminder,
   StoreWishlist,
+  WebhookEvent,
   User,
   Client,
   Product,

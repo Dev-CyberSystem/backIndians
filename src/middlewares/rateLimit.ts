@@ -56,11 +56,27 @@ export const checkoutLimiter = createLimiter('checkout', 15 * 60_000, 25, { skip
 /** Validar cupón: 40 cada 10 min por IP (evita adivinar códigos por fuerza bruta). */
 export const couponLimiter = createLimiter('coupon', 10 * 60_000, 40, { skip: rateLimitDisabled });
 
+/**
+ * Presupuesto de checkout (1.6 / C-6): no crea nada, pero el frontend lo llama
+ * cada vez que cambian ítems/cupón/envío en la página de checkout — más
+ * generoso que checkoutLimiter (que sí crea pedidos). 60 cada 10 min por IP.
+ */
+export const quoteLimiter = createLimiter('quote', 10 * 60_000, 60, { skip: rateLimitDisabled });
+
 /** Subir comprobante de transferencia: 15 por hora por IP (operación cara: sube a Cloudinary). */
 export const paymentProofLimiter = createLimiter('paymentProof', 60 * 60_000, 15, { skip: rateLimitDisabled });
 
 /** Confirmar/consultar estado de pago (polling público): 120 por minuto por IP. */
 export const paymentStatusLimiter = createLimiter('paymentStatus', 60_000, 120, { skip: rateLimitDisabled });
+
+/**
+ * Webhook de MercadoPago: 30 por minuto por IP. Sin este límite, cada request
+ * (con o sin firma válida) dispara una consulta a la API de MP — es la
+ * principal superficie de DoS del endpoint (C-3). Las notificaciones reales de
+ * MP para un mismo pedido son unas pocas por pago, así que 30/min por IP no
+ * afecta tráfico legítimo.
+ */
+export const webhookLimiter = createLimiter('webhook', 60_000, 30, { skip: rateLimitDisabled });
 
 /** Tracking de analítica (fire & forget, dispara en cada interacción): 240/min por IP. */
 export const trackLimiter = createLimiter('track', 60_000, 240, { skip: rateLimitDisabled });

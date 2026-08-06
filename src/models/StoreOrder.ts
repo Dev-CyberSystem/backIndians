@@ -6,6 +6,7 @@ import {
   CreationOptional,
 } from 'sequelize';
 import { sequelize } from '../config/db';
+import type { AfipStatus } from './Invoice';
 
 export type StoreOrderStatus =
   | 'pending_payment'
@@ -51,16 +52,37 @@ export class StoreOrder extends Model<
   declare mp_preference_id: CreationOptional<string | null>;
   declare mp_payment_id: CreationOptional<string | null>;
   declare mp_status: CreationOptional<string | null>;
+  declare mp_payment_date: CreationOptional<Date | null>;
   declare tracking_number: CreationOptional<string | null>;
   declare courier_name: CreationOptional<string | null>;
   declare tracking_token: CreationOptional<string | null>;
   declare tracking_token_expires_at: CreationOptional<Date | null>;
+  declare stock_restored_at: CreationOptional<Date | null>;
+  /** Se setea al crear el pedido: se reservó stock_reserved (2.1). */
+  declare stock_reserved_at: CreationOptional<Date | null>;
+  /** Se setea al confirmarse el pago: la reserva pasó a descuento definitivo de stock_quantity (2.1). */
+  declare stock_confirmed_at: CreationOptional<Date | null>;
+  /** Se setea cuando se registró el ingreso en caja (2.3). Independiente de stock_confirmed_at. */
+  declare cash_recorded_at: CreationOptional<Date | null>;
+  declare idempotency_key: CreationOptional<string | null>;
   declare payment_method: CreationOptional<StorePaymentMethod>;
   declare payment_proof_url: CreationOptional<string | null>;
   declare payment_proof_url_2: CreationOptional<string | null>;
   declare payment_proof_public_id: CreationOptional<string | null>;
   declare payment_proof_public_id_2: CreationOptional<string | null>;
   declare notes: CreationOptional<string | null>;
+  declare afip_status: CreationOptional<AfipStatus | null>;
+  declare afip_tipo_comprobante: CreationOptional<number | null>;
+  declare afip_concepto: CreationOptional<number | null>;
+  declare afip_iva_alicuota: CreationOptional<number | null>;
+  declare afip_doc_tipo: CreationOptional<number | null>;
+  declare afip_condicion_iva_receptor: CreationOptional<number | null>;
+  declare afip_punto_venta: CreationOptional<number | null>;
+  declare afip_cbte_nro: CreationOptional<number | null>;
+  declare afip_cae: CreationOptional<string | null>;
+  declare afip_cae_vto: CreationOptional<string | null>;
+  declare afip_sent_at: CreationOptional<Date | null>;
+  declare afip_error: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -101,10 +123,16 @@ StoreOrder.init(
     mp_preference_id: { type: DataTypes.STRING(255), allowNull: true },
     mp_payment_id: { type: DataTypes.STRING(255), allowNull: true },
     mp_status: { type: DataTypes.STRING(50), allowNull: true },
+    mp_payment_date: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     tracking_number: { type: DataTypes.STRING(200), allowNull: true },
     courier_name: { type: DataTypes.STRING(200), allowNull: true },
     tracking_token: { type: DataTypes.STRING(64), allowNull: true, unique: true },
     tracking_token_expires_at: { type: DataTypes.DATE, allowNull: true },
+    stock_restored_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    stock_reserved_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    stock_confirmed_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    cash_recorded_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    idempotency_key: { type: DataTypes.STRING(64), allowNull: true, unique: true },
     payment_method: {
       type: DataTypes.ENUM('mercadopago', 'cash', 'bank_transfer'),
       allowNull: false,
@@ -115,6 +143,18 @@ StoreOrder.init(
     payment_proof_public_id:   { type: DataTypes.STRING(300), allowNull: true },
     payment_proof_public_id_2: { type: DataTypes.STRING(300), allowNull: true },
     notes: { type: DataTypes.TEXT, allowNull: true },
+    afip_status:                 { type: DataTypes.ENUM('pending', 'sent', 'error'), allowNull: true },
+    afip_tipo_comprobante:       { type: DataTypes.TINYINT.UNSIGNED,                 allowNull: true },
+    afip_concepto:               { type: DataTypes.TINYINT.UNSIGNED,                 allowNull: true },
+    afip_iva_alicuota:           { type: DataTypes.DECIMAL(5, 2),                    allowNull: true, get() { const v = this.getDataValue('afip_iva_alicuota'); return v === null || v === undefined ? null : parseFloat(String(v)); } },
+    afip_doc_tipo:               { type: DataTypes.TINYINT.UNSIGNED,                 allowNull: true },
+    afip_condicion_iva_receptor: { type: DataTypes.TINYINT.UNSIGNED,                 allowNull: true },
+    afip_punto_venta:            { type: DataTypes.SMALLINT.UNSIGNED,                allowNull: true },
+    afip_cbte_nro:               { type: DataTypes.INTEGER.UNSIGNED,                 allowNull: true },
+    afip_cae:                    { type: DataTypes.STRING(20),                       allowNull: true },
+    afip_cae_vto:                { type: DataTypes.DATEONLY,                         allowNull: true },
+    afip_sent_at:                { type: DataTypes.DATE,                             allowNull: true },
+    afip_error:                  { type: DataTypes.TEXT,                             allowNull: true },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },

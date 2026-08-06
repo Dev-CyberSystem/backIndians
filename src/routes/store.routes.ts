@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { body, query, param } from 'express-validator';
+import { body, query, param, header } from 'express-validator';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { requireStoreAuth, optionalStoreAuth } from '../middlewares/storeAuth';
@@ -11,9 +11,11 @@ import {
   passwordResetLimiter,
   checkoutLimiter,
   couponLimiter,
+  quoteLimiter,
   paymentProofLimiter,
   paymentStatusLimiter,
   trackLimiter,
+  webhookLimiter,
 } from '../middlewares/rateLimit';
 import * as ctrl from '../controllers/store.controller';
 import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
@@ -51,6 +53,20 @@ const checkoutValidators = [
   body('payment_method').optional().isIn(['mercadopago', 'cash', 'bank_transfer']).withMessage('Método de pago inválido'),
   body('coupon_code').optional({ nullable: true }).isString().isLength({ max: 64 }),
   body('notes').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  body('expected_total').optional().isFloat({ min: 0 }).withMessage('Total inválido'),
+  header('idempotency-key').optional().isUUID().withMessage('Idempotency-Key inválida'),
+  validate,
+];
+
+// Mismo shape que el checkout, sin los datos del comprador (el quote es previo
+// a completar el formulario) — 1.6 / C-6.
+const quoteValidators = [
+  body('items').isArray({ min: 1 }).withMessage('El carrito está vacío'),
+  body('items.*.catalog_product_id').isInt({ min: 1 }).withMessage('Producto inválido'),
+  body('items.*.quantity').isInt({ min: 1, max: 1000 }).withMessage('Cantidad inválida'),
+  body('items.*.size_name').optional({ nullable: true }).isString().isLength({ max: 60 }),
+  body('shipping_type').optional().isIn(['pickup', 'delivery']).withMessage('Tipo de envío inválido'),
+  body('coupon_code').optional({ nullable: true }).isString().isLength({ max: 64 }),
   validate,
 ];
 
@@ -121,9 +137,14 @@ router.get('/products/filters', cache(60), ctrl.getFilterOptions);
 router.get('/products', cache(20), productQueryValidators, ctrl.listProducts);
 router.get('/products/:id', cache(30), param('id').isInt({ min: 1 }), validate, ctrl.getProduct);
 
-// ─── Cupones (validar, público) ──────────────────────────────────────────────
-router.post('/coupons/validate', couponLimiter, couponValidators, ctrl.validateCoupon);
+// ─── Cupones (validar, público — auth opcional para chequear "1 uso por
+// cliente" de 2.8 cuando el comprador está logueado) ──────────────────────────
+router.post('/coupons/validate', couponLimiter, optionalStoreAuth, couponValidators, ctrl.validateCoupon);
 router.get('/promo-popup', cache(30), ctrl.getPromoPopup);
+
+// ─── Presupuesto del checkout (1.6 / C-6) — público, no crea nada. Auth
+// opcional por el mismo motivo que /coupons/validate (2.8). ──────────────────
+router.post('/checkout/quote', quoteLimiter, optionalStoreAuth, quoteValidators, ctrl.checkoutQuote);
 
 // ─── Checkout (auth opcional — compradores sin cuenta también pueden comprar) ─
 router.post('/checkout', checkoutLimiter, optionalStoreAuth, checkoutValidators, ctrl.checkout);
@@ -139,7 +160,7 @@ router.get('/track/:token', paymentStatusLimiter, param('token').isString().notE
 router.post('/orders/:orderNumber/payment-proof', paymentProofLimiter, optionalStoreAuth, upload.single('file'), ctrl.uploadPaymentProof);
 
 // ─── Webhook MercadoPago (sin auth) ─────────────────────────────────────────
-router.post('/webhook/mp', ctrl.webhook);
+router.post('/webhook/mp', webhookLimiter, ctrl.webhook);
 
 // ─── Admin: pedidos de la tienda ─────────────────────────────────────────────
 const STORE_STATUS_VALUES = [
@@ -162,6 +183,39 @@ router.patch('/admin/orders/:id/status', authenticate, authorize('admin', 'billi
 router.post('/admin/orders/:id/regenerate-tracking', authenticate, authorize('admin', 'billing'), param('id').isInt({ min: 1 }), validate, ctrl.regenerateOrderTracking);
 router.post('/admin/orders/:id/send-invoice', authenticate, authorize('admin', 'billing'), ctrl.sendInvoice);
 router.get('/admin/orders/:id/invoice', authenticate, authorize('admin', 'billing'), ctrl.downloadInvoiceAdmin);
+
+// ─── Admin: devoluciones (2.4) ────────────────────────────────────────────────
+const createReturnValidators = [
+  param('id').isInt({ min: 1 }),
+  body('reason').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  body('items').isArray({ min: 1 }).withMessage('La devolución necesita al menos un ítem'),
+  body('items.*.store_order_item_id').isInt({ min: 1 }).withMessage('Ítem inválido'),
+  body('items.*.quantity').isInt({ min: 1, max: 1000 }).withMessage('Cantidad inválida'),
+  validate,
+];
+
+const reviewReturnValidators = [
+  param('id').isInt({ min: 1 }),
+  body('status').isIn(['approved', 'rejected']).withMessage('Estado de revisión inválido'),
+  body('review_notes').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  body('items').optional().isArray(),
+  body('items.*.id').optional().isInt({ min: 1 }),
+  body('items.*.condition').optional().isIn(['resellable', 'not_resellable']),
+  validate,
+];
+
+const updateReturnRefundValidators = [
+  param('id').isInt({ min: 1 }),
+  body('refund_status').isIn(['none', 'pending', 'refunded']).withMessage('Estado de reintegro inválido'),
+  body('refunded_amount').optional({ nullable: true }).isFloat({ min: 0 }),
+  validate,
+];
+
+router.get('/admin/returns', authenticate, authorize('admin', 'billing'), ctrl.listReturns);
+router.get('/admin/returns/:id', authenticate, authorize('admin', 'billing'), param('id').isInt({ min: 1 }), validate, ctrl.getReturn);
+router.post('/admin/orders/:id/returns', authenticate, authorize('admin', 'billing'), createReturnValidators, ctrl.createReturn);
+router.patch('/admin/returns/:id/review', authenticate, authorize('admin', 'billing'), reviewReturnValidators, ctrl.reviewReturn);
+router.patch('/admin/returns/:id/refund', authenticate, authorize('admin', 'billing'), updateReturnRefundValidators, ctrl.updateReturnRefund);
 
 // ─── Admin: cupones ───────────────────────────────────────────────────────────
 router.get('/admin/coupons', authenticate, authorize('admin', 'billing'), ctrl.listCoupons);

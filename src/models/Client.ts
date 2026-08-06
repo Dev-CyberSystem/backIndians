@@ -20,6 +20,7 @@ export class Client extends Model<
   declare cuit: CreationOptional<string | null>;
   declare notes: CreationOptional<string | null>;
   declare logo_url: CreationOptional<string | null>;
+  declare condicion_iva: CreationOptional<number | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -62,6 +63,10 @@ Client.init(
     },
     logo_url: {
       type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    condicion_iva: {
+      type: DataTypes.TINYINT.UNSIGNED,
       allowNull: true,
     },
     createdAt: DataTypes.DATE,
