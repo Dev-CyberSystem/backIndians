@@ -47,6 +47,7 @@ import { Settings } from './Settings';
 import { CashAccount } from './CashAccount';
 import { CashTransactionCategory } from './CashTransactionCategory';
 import { CashTransaction } from './CashTransaction';
+import { CashAuditEvent } from './CashAuditEvent';
 
 // ─── Asociaciones ───────────────────────────────────────────────────────────
 
@@ -140,6 +141,12 @@ CashTransactionCategory.hasMany(CashTransaction, { foreignKey: 'category_id', as
 // CashTransaction ↔ User
 CashTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 User.hasMany(CashTransaction, { foreignKey: 'created_by', as: 'cash_transactions' });
+
+// CashAuditEvent ↔ User (responsable del evento)
+// Sin `hasMany` inverso a propósito: la auditoría se consulta siempre desde el
+// evento hacia el usuario, nunca al revés, y no queremos exponer un accesor que
+// invite a traer el historial de auditoría colgado de un User.
+CashAuditEvent.belongsTo(User, { foreignKey: 'user_id', as: 'actor' });
 
 // ─── Tipos de prenda por cliente ────────────────────────────────────────────
 // client_id NULL = tipo global/legado (compartido por todos).
@@ -320,5 +327,6 @@ export {
   CashAccount,
   CashTransactionCategory,
   CashTransaction,
+  CashAuditEvent,
   ProductCategory,
 };

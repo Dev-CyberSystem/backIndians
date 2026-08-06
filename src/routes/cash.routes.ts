@@ -13,6 +13,22 @@ router.use(authorize('admin', 'billing'));
 // ── Resumen (ruta estática antes de /:id) ─────────────────────────────────────
 router.get('/summary', ctrl.getSummary);
 
+// ── Auditoría (solo admin; solo lectura — la tabla es append-only) ────────────
+router.get(
+  '/audit',
+  authorize('admin'),
+  [
+    query('entity_type').optional().isIn(['transaction', 'account', 'category']),
+    query('entity_id').optional().isInt({ min: 1 }),
+    query('action').optional().isIn(['create', 'update', 'reverse', 'delete', 'toggle']),
+    query('user_id').optional().isInt({ min: 1 }),
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+    validate,
+  ],
+  ctrl.listAuditEvents
+);
+
 // ── Cuentas ───────────────────────────────────────────────────────────────────
 router.get('/accounts', ctrl.listAccounts);
 

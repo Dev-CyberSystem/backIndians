@@ -4,7 +4,7 @@ import {
   CashAccount, CashTransactionCategory, CashTransaction, User,
 } from '../models';
 import { AppError } from '../middlewares/errorHandler';
-import { JwtPayload } from '../types';
+import { CashAuditContext, recordCashAudit, snapshotOf } from './cashAudit.service';
 
 type SummaryResult = {
   accounts: { id: number; name: string; type: 'cash' | 'petty_cash' | 'bank'; current_balance: number }[];
@@ -69,35 +69,69 @@ export async function listAccounts() {
   });
 }
 
-export async function createAccount(input: {
-  name: string;
-  type: 'cash' | 'petty_cash' | 'bank';
-  description?: string;
-}) {
-  return CashAccount.create({
-    name: input.name,
-    type: input.type,
-    description: input.description || null,
-    current_balance: 0,
-    active: true,
+export async function createAccount(
+  input: {
+    name: string;
+    type: 'cash' | 'petty_cash' | 'bank';
+    description?: string;
+  },
+  ctx: CashAuditContext
+) {
+  return sequelize.transaction(async (t) => {
+    const acc = await CashAccount.create(
+      {
+        name: input.name,
+        type: input.type,
+        description: input.description || null,
+        current_balance: 0,
+        active: true,
+      },
+      { transaction: t }
+    );
+
+    await recordCashAudit(
+      { entityType: 'account', entityId: acc.id, action: 'create', after: snapshotOf(acc), context: ctx },
+      t
+    );
+    return acc;
   });
 }
 
-export async function updateAccount(id: number, input: {
-  name?: string;
-  type?: 'cash' | 'petty_cash' | 'bank';
-  description?: string;
-}) {
+export async function updateAccount(
+  id: number,
+  input: {
+    name?: string;
+    type?: 'cash' | 'petty_cash' | 'bank';
+    description?: string;
+  },
+  ctx: CashAuditContext
+) {
   const acc = await CashAccount.findByPk(id);
   if (!acc) throw new AppError('Cuenta no encontrada', 404);
-  await acc.update(input);
+  const before = snapshotOf(acc);
+
+  await sequelize.transaction(async (t) => {
+    await acc.update(input, { transaction: t });
+    await recordCashAudit(
+      { entityType: 'account', entityId: acc.id, action: 'update', before, after: snapshotOf(acc), context: ctx },
+      t
+    );
+  });
   return acc;
 }
 
-export async function toggleAccount(id: number) {
+export async function toggleAccount(id: number, ctx: CashAuditContext) {
   const acc = await CashAccount.findByPk(id);
   if (!acc) throw new AppError('Cuenta no encontrada', 404);
-  await acc.update({ active: !acc.active });
+  const before = snapshotOf(acc);
+
+  await sequelize.transaction(async (t) => {
+    await acc.update({ active: !acc.active }, { transaction: t });
+    await recordCashAudit(
+      { entityType: 'account', entityId: acc.id, action: 'toggle', before, after: snapshotOf(acc), context: ctx },
+      t
+    );
+  });
   return acc;
 }
 
@@ -110,37 +144,71 @@ export async function listCategories() {
   });
 }
 
-export async function createCategory(input: {
-  name: string;
-  type: 'income' | 'expense' | 'both';
-  color?: string;
-}) {
-  return CashTransactionCategory.create({
-    name: input.name,
-    type: input.type,
-    color: input.color || null,
-    is_system: false,
-    active: true,
+export async function createCategory(
+  input: {
+    name: string;
+    type: 'income' | 'expense' | 'both';
+    color?: string;
+  },
+  ctx: CashAuditContext
+) {
+  return sequelize.transaction(async (t) => {
+    const cat = await CashTransactionCategory.create(
+      {
+        name: input.name,
+        type: input.type,
+        color: input.color || null,
+        is_system: false,
+        active: true,
+      },
+      { transaction: t }
+    );
+
+    await recordCashAudit(
+      { entityType: 'category', entityId: cat.id, action: 'create', after: snapshotOf(cat), context: ctx },
+      t
+    );
+    return cat;
   });
 }
 
-export async function updateCategory(id: number, input: {
-  name?: string;
-  type?: 'income' | 'expense' | 'both';
-  color?: string;
-}) {
+export async function updateCategory(
+  id: number,
+  input: {
+    name?: string;
+    type?: 'income' | 'expense' | 'both';
+    color?: string;
+  },
+  ctx: CashAuditContext
+) {
   const cat = await CashTransactionCategory.findByPk(id);
   if (!cat) throw new AppError('Categoría no encontrada', 404);
   if (cat.is_system) throw new AppError('No se pueden editar categorías del sistema', 403);
-  await cat.update(input);
+  const before = snapshotOf(cat);
+
+  await sequelize.transaction(async (t) => {
+    await cat.update(input, { transaction: t });
+    await recordCashAudit(
+      { entityType: 'category', entityId: cat.id, action: 'update', before, after: snapshotOf(cat), context: ctx },
+      t
+    );
+  });
   return cat;
 }
 
-export async function toggleCategory(id: number) {
+export async function toggleCategory(id: number, ctx: CashAuditContext) {
   const cat = await CashTransactionCategory.findByPk(id);
   if (!cat) throw new AppError('Categoría no encontrada', 404);
   if (cat.is_system) throw new AppError('No se pueden desactivar categorías del sistema', 403);
-  await cat.update({ active: !cat.active });
+  const before = snapshotOf(cat);
+
+  await sequelize.transaction(async (t) => {
+    await cat.update({ active: !cat.active }, { transaction: t });
+    await recordCashAudit(
+      { entityType: 'category', entityId: cat.id, action: 'toggle', before, after: snapshotOf(cat), context: ctx },
+      t
+    );
+  });
   return cat;
 }
 
@@ -260,7 +328,7 @@ export interface CreateTransactionInput {
  */
 async function createTransactionCore(
   input: CreateTransactionInput,
-  createdBy: number,
+  ctx: CashAuditContext,
   t: import('sequelize').Transaction
 ): Promise<CashTransaction> {
   if (input.type === 'transfer') {
@@ -273,7 +341,7 @@ async function createTransactionCore(
 
   await applyBalanceEffect(input.type, input.amount, input.account_id, input.transfer_account_id, t);
 
-  return CashTransaction.create(
+  const created = await CashTransaction.create(
     {
       account_id:          input.account_id,
       category_id:         input.category_id,
@@ -284,37 +352,52 @@ async function createTransactionCore(
       reference_type:      input.reference_type || null,
       reference_id:        input.reference_id || null,
       transfer_account_id: input.transfer_account_id || null,
-      created_by:          createdBy,
+      created_by:          ctx.userId,
       notes:               input.notes || null,
     },
     { transaction: t }
   );
+
+  // La auditoría vive acá y no en `createTransaction` para cubrir con un solo
+  // punto los dos caminos de alta: el panel y el automático de la tienda.
+  await recordCashAudit(
+    { entityType: 'transaction', entityId: created.id, action: 'create', after: snapshotOf(created), context: ctx },
+    t
+  );
+
+  return created;
 }
 
-export async function createTransaction(input: CreateTransactionInput, currentUser: JwtPayload) {
+export async function createTransaction(input: CreateTransactionInput, ctx: CashAuditContext) {
   let created: CashTransaction | null = null;
 
   await sequelize.transaction(async (t) => {
-    created = await createTransactionCore(input, currentUser.id, t);
+    created = await createTransactionCore(input, ctx, t);
   });
 
   return getTransaction(created!.id);
 }
 
-/** Ver `createTransactionCore` — requiere una transacción externa, nunca abre la propia. */
+/**
+ * Ver `createTransactionCore` — requiere una transacción externa, nunca abre la
+ * propia. `createdBy` es el usuario al que se atribuye el asiento (un admin si
+ * confirmó el pago a mano, o el usuario "Sistema" si fue automático); no hay
+ * IP ni user-agent porque no hay request humana detrás.
+ */
 export async function createSystemTransaction(
   input: CreateTransactionInput,
   createdBy: number,
   transaction: import('sequelize').Transaction
 ): Promise<CashTransaction> {
-  return createTransactionCore(input, createdBy, transaction);
+  return createTransactionCore(input, { userId: createdBy }, transaction);
 }
 
 export interface UpdateTransactionInput extends Partial<CreateTransactionInput> {}
 
-export async function updateTransaction(id: number, input: UpdateTransactionInput) {
+export async function updateTransaction(id: number, input: UpdateTransactionInput, ctx: CashAuditContext) {
   const tx = await CashTransaction.findByPk(id);
   if (!tx) throw new AppError('Transacción no encontrada', 404);
+  const before = snapshotOf(tx);
 
   const newType   = input.type   ?? tx.type;
   const newAmount = input.amount ?? Number(tx.amount);
@@ -354,17 +437,29 @@ export async function updateTransaction(id: number, input: UpdateTransactionInpu
       },
       { transaction: t }
     );
+
+    await recordCashAudit(
+      { entityType: 'transaction', entityId: tx.id, action: 'update', before, after: snapshotOf(tx), context: ctx },
+      t
+    );
   });
 
   return getTransaction(id);
 }
 
-export async function deleteTransaction(id: number) {
+export async function deleteTransaction(id: number, ctx: CashAuditContext) {
   const tx = await CashTransaction.findByPk(id);
   if (!tx) throw new AppError('Transacción no encontrada', 404);
+  const before = snapshotOf(tx);
 
   await sequelize.transaction(async (t) => {
     await revertBalanceEffect(tx.type, Number(tx.amount), tx.account_id, tx.transfer_account_id, t);
+    // La auditoría va ANTES del destroy: después de borrar la fila, el
+    // snapshot es lo único que queda de ella.
+    await recordCashAudit(
+      { entityType: 'transaction', entityId: tx.id, action: 'delete', before, after: null, context: ctx },
+      t
+    );
     await tx.destroy({ transaction: t });
   });
 }
