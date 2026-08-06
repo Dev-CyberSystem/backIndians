@@ -84,40 +84,52 @@ describe('Auditoría de caja — Fase 1', () => {
     expect(after.account_id).toBe(accountId);
   });
 
-  it('editar el monto de un movimiento deja registrado el importe anterior', async () => {
+  it('editar la descripción (PATCH) deja registrado el valor anterior — el monto no se toca así (Fase 2)', async () => {
     const tx = await api().post(`${API}/cash/transactions`).set(...auth(admin)).send({
       account_id: accountId, category_id: categoryId, type: 'income',
-      amount: 1000, description: 'Movimiento a editar', date: TODAY,
+      amount: 1000, description: 'Descripción original', date: TODAY,
     });
     const txId = tx.body.data.id;
 
-    await api().put(`${API}/cash/transactions/${txId}`).set(...auth(admin))
-      .send({ amount: 9999 });
+    await api().patch(`${API}/cash/transactions/${txId}`).set(...auth(admin))
+      .send({ description: 'Descripción corregida' });
 
     const ev = await CashAuditEvent.findOne({
       where: { entity_type: 'transaction', entity_id: txId, action: 'update' },
       order: [['id', 'DESC']],
     });
     expect(ev).not.toBeNull();
+    expect((ev!.before_json as Record<string, unknown>).description).toBe('Descripción original');
+    expect((ev!.after_json  as Record<string, unknown>).description).toBe('Descripción corregida');
+    // El monto es idéntico antes y después: PATCH no lo toca (Fase 2 — CASH-MUT-001).
     expect(Number((ev!.before_json as Record<string, unknown>).amount)).toBe(1000);
-    expect(Number((ev!.after_json  as Record<string, unknown>).amount)).toBe(9999);
+    expect(Number((ev!.after_json  as Record<string, unknown>).amount)).toBe(1000);
   });
 
-  it('borrar un movimiento conserva su snapshot (es lo único que queda)', async () => {
+  it('revertir un movimiento deja dos eventos de auditoría con motivo (Fase 2)', async () => {
     const tx = await api().post(`${API}/cash/transactions`).set(...auth(admin)).send({
       account_id: accountId, category_id: categoryId, type: 'income',
-      amount: 777, description: 'Movimiento a borrar', date: TODAY,
+      amount: 777, description: 'Movimiento a revertir', date: TODAY,
     });
     const txId = tx.body.data.id;
 
-    await api().delete(`${API}/cash/transactions/${txId}`).set(...auth(admin));
+    const rev = await api().post(`${API}/cash/transactions/${txId}/reverse`).set(...auth(admin))
+      .send({ reason: 'Cargado en la cuenta equivocada' });
+    expect(rev.status).toBe(201);
 
-    const ev = await CashAuditEvent.findOne({
-      where: { entity_type: 'transaction', entity_id: txId, action: 'delete' },
+    const evOriginal = await CashAuditEvent.findOne({
+      where: { entity_type: 'transaction', entity_id: txId, action: 'reverse' },
     });
-    expect(ev).not.toBeNull();
-    expect(Number((ev!.before_json as Record<string, unknown>).amount)).toBe(777);
-    expect(ev!.after_json).toBeNull(); // ya no existe un "después"
+    expect(evOriginal).not.toBeNull();
+    expect(evOriginal!.reason).toBe('Cargado en la cuenta equivocada');
+    expect((evOriginal!.before_json as Record<string, unknown>).status).toBe('active');
+    expect((evOriginal!.after_json  as Record<string, unknown>).status).toBe('reversed');
+
+    const evReversal = await CashAuditEvent.findOne({
+      where: { entity_type: 'transaction', entity_id: rev.body.data.id, action: 'reverse' },
+    });
+    expect(evReversal).not.toBeNull();
+    expect(evReversal!.before_json).toBeNull(); // el contraasiento es un alta, no tiene "antes"
   });
 
   // ── Inmutabilidad ──────────────────────────────────────────────────────────

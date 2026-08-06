@@ -142,6 +142,11 @@ CashTransactionCategory.hasMany(CashTransaction, { foreignKey: 'category_id', as
 CashTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 User.hasMany(CashTransaction, { foreignKey: 'created_by', as: 'cash_transactions' });
 
+// CashTransaction ↔ CashTransaction (reversión — self-reference)
+CashTransaction.belongsTo(CashTransaction, { foreignKey: 'reversal_of_id', as: 'reversal_of' });
+CashTransaction.hasMany(CashTransaction, { foreignKey: 'reversal_of_id', as: 'reversals' });
+CashTransaction.belongsTo(User, { foreignKey: 'reversed_by', as: 'reverser' });
+
 // CashAuditEvent ↔ User (responsable del evento)
 // Sin `hasMany` inverso a propósito: la auditoría se consulta siempre desde el
 // evento hacia el usuario, nunca al revés, y no queremos exponer un accesor que

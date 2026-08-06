@@ -79,7 +79,8 @@ export async function listTransactions(req: AuthRequest, res: Response, next: Ne
       type:           req.query.type           as cashService.ListTransactionsOptions['type'] | undefined,
       date_from:      req.query.date_from      as string | undefined,
       date_to:        req.query.date_to        as string | undefined,
-      reference_type: req.query.reference_type as 'invoice' | 'order' | undefined,
+      status:         req.query.status         as cashService.ListTransactionsOptions['status'] | undefined,
+      reference_type: req.query.reference_type as cashService.ListTransactionsOptions['reference_type'],
     });
 
     res.json({
@@ -104,17 +105,17 @@ export async function createTransaction(req: AuthRequest, res: Response, next: N
   } catch (err) { next(err); }
 }
 
-export async function updateTransaction(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+export async function patchTransaction(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const tx = await cashService.updateTransaction(parseInt(req.params.id), req.body, auditContextFromRequest(req));
+    const tx = await cashService.patchTransaction(parseInt(req.params.id), req.body, auditContextFromRequest(req));
     res.json({ success: true, data: tx });
   } catch (err) { next(err); }
 }
 
-export async function deleteTransaction(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+export async function reverseTransaction(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    await cashService.deleteTransaction(parseInt(req.params.id), auditContextFromRequest(req));
-    res.json({ success: true, data: { message: 'Transacción eliminada y saldo revertido' } });
+    const reversal = await cashService.reverseTransaction(parseInt(req.params.id), req.body, auditContextFromRequest(req));
+    res.status(201).json({ success: true, data: reversal });
   } catch (err) { next(err); }
 }
 

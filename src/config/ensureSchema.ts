@@ -132,4 +132,74 @@ export async function ensureSchema(): Promise<void> {
   } catch (err) {
     logger.error('ensureSchema.storeTracking', err, { meta: { fatal: false } });
   }
+
+  // ─── Inmutabilidad y reversión de caja (migración 091) ──────────────────────
+  try {
+    const cashTransactions = await qi.describeTable('cash_transactions');
+
+    if (!cashTransactions.status) {
+      await qi.addColumn('cash_transactions', 'status', {
+        type: DataTypes.ENUM('active', 'reversed'),
+        allowNull: false,
+        defaultValue: 'active',
+      });
+      await qi.addIndex('cash_transactions', ['status'], {
+        name: 'idx_cash_transactions_status',
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'cash_transactions', column: 'status' } });
+    }
+
+    if (!cashTransactions.reversal_of_id) {
+      await qi.addColumn('cash_transactions', 'reversal_of_id', {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      });
+      await qi.addIndex('cash_transactions', ['reversal_of_id'], {
+        name: 'idx_cash_transactions_reversal_of',
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'cash_transactions', column: 'reversal_of_id' } });
+    }
+
+    if (!cashTransactions.reversal_reason) {
+      await qi.addColumn('cash_transactions', 'reversal_reason', {
+        type: DataTypes.STRING(500),
+        allowNull: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'cash_transactions', column: 'reversal_reason' } });
+    }
+
+    if (!cashTransactions.reversed_at) {
+      await qi.addColumn('cash_transactions', 'reversed_at', {
+        type: DataTypes.DATE,
+        allowNull: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'cash_transactions', column: 'reversed_at' } });
+    }
+
+    if (!cashTransactions.reversed_by) {
+      await qi.addColumn('cash_transactions', 'reversed_by', {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'cash_transactions', column: 'reversed_by' } });
+    }
+
+    // Ver nota en la migración 091: unique SOLO acá (índice) y en la migración,
+    // nunca `unique: true` en el atributo del modelo Sequelize — así evitamos
+    // el índice duplicado que hoy sufre `store_orders.idempotency_key` bajo
+    // `sync()` (limpiado en cada arranque por `dedupeIndexes.ts`).
+    if (!cashTransactions.idempotency_key) {
+      await qi.addColumn('cash_transactions', 'idempotency_key', {
+        type: DataTypes.STRING(80),
+        allowNull: true,
+      });
+      await qi.addIndex('cash_transactions', ['idempotency_key'], {
+        name: 'uq_cash_transactions_idempotency_key',
+        unique: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'cash_transactions', column: 'idempotency_key' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.cashReversal', err, { meta: { fatal: false } });
+  }
 }

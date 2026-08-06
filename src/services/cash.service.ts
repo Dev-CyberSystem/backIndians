@@ -1,4 +1,4 @@
-import { Op, QueryTypes } from 'sequelize';
+import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
 import { sequelize } from '../config/db';
 import {
   CashAccount, CashTransactionCategory, CashTransaction, User,
@@ -219,15 +219,19 @@ const TX_INCLUDES = [
   { model: CashAccount, as: 'transfer_account', attributes: ['id', 'name', 'type'] },
   { model: CashTransactionCategory, as: 'category', attributes: ['id', 'name', 'type', 'color'] },
   { model: User, as: 'creator', attributes: ['id', 'name', 'role'] },
+  { model: CashTransaction, as: 'reversal_of', attributes: ['id', 'description', 'amount', 'type'] },
+  { model: CashTransaction, as: 'reversals', attributes: ['id', 'description', 'amount', 'type', 'createdAt'] },
+  { model: User, as: 'reverser', attributes: ['id', 'name'] },
 ];
 
 export interface ListTransactionsOptions {
   account_id?: number;
   category_id?: number;
   type?: 'income' | 'expense' | 'transfer';
+  status?: 'active' | 'reversed';
   date_from?: string;
   date_to?: string;
-  reference_type?: 'invoice' | 'order';
+  reference_type?: 'invoice' | 'order' | 'store_order';
   page: number;
   limit: number;
 }
@@ -240,6 +244,7 @@ export async function listTransactions(options: ListTransactionsOptions) {
   if (options.account_id)      where.account_id   = options.account_id;
   if (options.category_id)     where.category_id  = options.category_id;
   if (options.type)            where.type         = options.type;
+  if (options.status)          where.status       = options.status; // sin filtro: se ven activas y revertidas
   if (options.reference_type)  where.reference_type = options.reference_type;
 
   if (options.date_from || options.date_to) {
@@ -286,25 +291,6 @@ async function applyBalanceEffect(
   }
 }
 
-// Revierte el efecto previo de una transacción
-async function revertBalanceEffect(
-  type: 'income' | 'expense' | 'transfer',
-  amount: number,
-  accountId: number,
-  transferAccountId: number | null | undefined,
-  t: import('sequelize').Transaction
-) {
-  if (type === 'income') {
-    await CashAccount.decrement('current_balance', { by: amount, where: { id: accountId }, transaction: t });
-  } else if (type === 'expense') {
-    await CashAccount.increment('current_balance', { by: amount, where: { id: accountId }, transaction: t });
-  } else if (type === 'transfer') {
-    if (!transferAccountId) return;
-    await CashAccount.increment('current_balance', { by: amount, where: { id: accountId }, transaction: t });
-    await CashAccount.decrement('current_balance', { by: amount, where: { id: transferAccountId }, transaction: t });
-  }
-}
-
 export interface CreateTransactionInput {
   account_id: number;
   category_id: number;
@@ -316,6 +302,8 @@ export interface CreateTransactionInput {
   reference_id?: number;
   transfer_account_id?: number;
   notes?: string;
+  /** Reintento de red seguro: dos altas con la misma clave devuelven el mismo movimiento. */
+  idempotency_key?: string;
 }
 
 /**
@@ -354,6 +342,7 @@ async function createTransactionCore(
       transfer_account_id: input.transfer_account_id || null,
       created_by:          ctx.userId,
       notes:               input.notes || null,
+      idempotency_key:     input.idempotency_key || null,
     },
     { transaction: t }
   );
@@ -369,11 +358,36 @@ async function createTransactionCore(
 }
 
 export async function createTransaction(input: CreateTransactionInput, ctx: CashAuditContext) {
-  let created: CashTransaction | null = null;
+  // Camino rápido: un reintento secuencial genuino (no una carrera) ya
+  // encuentra el movimiento sin abrir una transacción ni generar auditoría de más.
+  if (input.idempotency_key) {
+    const existing = await CashTransaction.findOne({ where: { idempotency_key: input.idempotency_key } });
+    if (existing) return getTransaction(existing.id);
+  }
 
-  await sequelize.transaction(async (t) => {
-    created = await createTransactionCore(input, ctx, t);
-  });
+  let created: CashTransaction | null = null;
+  try {
+    await sequelize.transaction(async (t) => {
+      created = await createTransactionCore(input, ctx, t);
+    });
+  } catch (err) {
+    // Carrera genuina: dos requests con la misma clave llegaron a la vez y el
+    // índice único de la DB (migración 091) frenó al segundo. No se duplica:
+    // se devuelve el movimiento que ganó la carrera.
+    //
+    // No se filtra por `err.fields` (a diferencia del patrón equivalente en
+    // `store.service.ts`): acá el modelo NO declara `unique: true` en el
+    // atributo (a propósito, ver migración 091 — evita el índice duplicado
+    // bajo `sync()`), y sin esa declaración Sequelize no siempre puede
+    // resolver `fields` para este constraint. Es seguro igual: si el
+    // `UniqueConstraintError` no fuera por `idempotency_key`, la búsqueda de
+    // abajo no encuentra nada y se relanza el error original sin ocultarlo.
+    if (err instanceof UniqueConstraintError && input.idempotency_key) {
+      const existing = await CashTransaction.findOne({ where: { idempotency_key: input.idempotency_key } });
+      if (existing) return getTransaction(existing.id);
+    }
+    throw err;
+  }
 
   return getTransaction(created!.id);
 }
@@ -392,52 +406,31 @@ export async function createSystemTransaction(
   return createTransactionCore(input, { userId: createdBy }, transaction);
 }
 
-export interface UpdateTransactionInput extends Partial<CreateTransactionInput> {}
+/**
+ * Edición limitada a campos no financieros. `amount`, `type`, `account_id`,
+ * `transfer_account_id` y `date` de un movimiento confirmado NUNCA se tocan
+ * acá, aunque el body los traiga — se construye el patch campo por campo, no
+ * se spreadea `input` (mismo criterio que ya usa `createTransactionCore`).
+ * Cualquier corrección de importe pasa por `reverseTransaction`.
+ */
+export interface PatchTransactionInput {
+  description?: string;
+  notes?: string | null;
+  category_id?: number;
+}
 
-export async function updateTransaction(id: number, input: UpdateTransactionInput, ctx: CashAuditContext) {
+export async function patchTransaction(id: number, input: PatchTransactionInput, ctx: CashAuditContext) {
   const tx = await CashTransaction.findByPk(id);
   if (!tx) throw new AppError('Transacción no encontrada', 404);
   const before = snapshotOf(tx);
 
-  const newType   = input.type   ?? tx.type;
-  const newAmount = input.amount ?? Number(tx.amount);
-  const newAccountId = input.account_id ?? tx.account_id;
-  const newTransferAccountId = input.transfer_account_id !== undefined
-    ? input.transfer_account_id
-    : tx.transfer_account_id;
-
-  if (newType === 'transfer') {
-    if (!newTransferAccountId) throw new AppError('Cuenta destino requerida para transferencias', 400);
-    if (newTransferAccountId === newAccountId) throw new AppError('La cuenta destino debe ser distinta a la cuenta origen', 400);
-  }
-
-  const oldType              = tx.type;
-  const oldAmount            = Number(tx.amount);
-  const oldAccountId         = tx.account_id;
-  const oldTransferAccountId = tx.transfer_account_id;
+  const patch: PatchTransactionInput = {};
+  if (input.description !== undefined) patch.description = input.description;
+  if (input.notes !== undefined) patch.notes = input.notes;
+  if (input.category_id !== undefined) patch.category_id = input.category_id;
 
   await sequelize.transaction(async (t) => {
-    // Revertir efecto anterior
-    await revertBalanceEffect(oldType, oldAmount, oldAccountId, oldTransferAccountId, t);
-    // Aplicar efecto nuevo
-    await applyBalanceEffect(newType, newAmount, newAccountId, newTransferAccountId, t);
-
-    await tx.update(
-      {
-        account_id:          newAccountId,
-        category_id:         input.category_id         ?? tx.category_id,
-        type:                newType,
-        amount:              newAmount,
-        description:         input.description         ?? tx.description,
-        date:                input.date                ?? tx.date,
-        reference_type:      input.reference_type      ?? tx.reference_type,
-        reference_id:        input.reference_id        ?? tx.reference_id,
-        transfer_account_id: newTransferAccountId,
-        notes:               input.notes               ?? tx.notes,
-      },
-      { transaction: t }
-    );
-
+    await tx.update(patch, { transaction: t });
     await recordCashAudit(
       { entityType: 'transaction', entityId: tx.id, action: 'update', before, after: snapshotOf(tx), context: ctx },
       t
@@ -447,21 +440,125 @@ export async function updateTransaction(id: number, input: UpdateTransactionInpu
   return getTransaction(id);
 }
 
-export async function deleteTransaction(id: number, ctx: CashAuditContext) {
-  const tx = await CashTransaction.findByPk(id);
-  if (!tx) throw new AppError('Transacción no encontrada', 404);
-  const before = snapshotOf(tx);
+export interface ReverseTransactionInput {
+  reason: string;
+  /** Reversión parcial (p. ej. una devolución que no es por el total). Por defecto: todo el saldo aún no revertido. */
+  amount?: number;
+}
+
+/**
+ * Único mecanismo de corrección de un movimiento confirmado: crea un
+ * contraasiento (monto igual o parcial, tipo/cuentas invertidos) y deja el
+ * original intacto en sus campos financieros — solo se le marca `status`
+ * cuando queda completamente revertido. Soporta reversión parcial desde el
+ * diseño (no se agrega después) porque la Fase 4 del plan la necesita para
+ * devoluciones parciales de tienda.
+ *
+ * La fecha del contraasiento es SIEMPRE la de hoy, nunca la del movimiento
+ * original: la corrección ocurre cuando se detecta, no se reescribe
+ * retroactivamente un período ya cerrado (decisión confirmada con el usuario).
+ */
+export async function reverseTransaction(
+  id: number,
+  input: ReverseTransactionInput,
+  ctx: CashAuditContext
+): Promise<CashTransaction> {
+  let reversalId: number | null = null;
 
   await sequelize.transaction(async (t) => {
-    await revertBalanceEffect(tx.type, Number(tx.amount), tx.account_id, tx.transfer_account_id, t);
-    // La auditoría va ANTES del destroy: después de borrar la fila, el
-    // snapshot es lo único que queda de ella.
+    // Lock de fila: si dos reversiones de la misma transacción llegan casi
+    // juntas, la segunda espera a que la primera commitee y ve el `remaining`
+    // ya actualizado — sin esto habría una condición de carrera real (CASH-CONC-001).
+    const original = await CashTransaction.findByPk(id, { lock: Transaction.LOCK.UPDATE, transaction: t });
+    if (!original) throw new AppError('Transacción no encontrada', 404);
+    if (original.reversal_of_id) throw new AppError('Una reversión no se puede volver a revertir', 400);
+    if (original.status === 'reversed') throw new AppError('La transacción ya fue revertida por completo', 400);
+
+    const originalAmount = Number(original.amount);
+    const alreadyReversed = Number(
+      (await CashTransaction.sum('amount', { where: { reversal_of_id: original.id }, transaction: t })) ?? 0
+    );
+    const remaining = originalAmount - alreadyReversed;
+    const amountToReverse = input.amount ?? remaining;
+
+    if (amountToReverse <= 0) throw new AppError('El monto a revertir debe ser mayor a 0', 400);
+    // Margen de un décimo de centavo por acumulación de redondeo en sumas sucesivas.
+    if (amountToReverse > remaining + 0.001) {
+      throw new AppError(
+        `No se puede revertir ${amountToReverse}: solo queda ${remaining.toFixed(2)} sin revertir de esta transacción`,
+        400
+      );
+    }
+
+    // income↔expense; transfer invierte cuenta origen/destino.
+    let reversalType: 'income' | 'expense' | 'transfer';
+    let reversalAccountId: number;
+    let reversalTransferAccountId: number | null;
+    if (original.type === 'income') {
+      reversalType = 'expense';
+      reversalAccountId = original.account_id;
+      reversalTransferAccountId = null;
+    } else if (original.type === 'expense') {
+      reversalType = 'income';
+      reversalAccountId = original.account_id;
+      reversalTransferAccountId = null;
+    } else {
+      reversalType = 'transfer';
+      reversalAccountId = original.transfer_account_id!;
+      reversalTransferAccountId = original.account_id;
+    }
+
+    await applyBalanceEffect(reversalType, amountToReverse, reversalAccountId, reversalTransferAccountId, t);
+
+    const before = snapshotOf(original);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const reversal = await CashTransaction.create(
+      {
+        account_id:          reversalAccountId,
+        category_id:         original.category_id,
+        type:                reversalType,
+        amount:              amountToReverse,
+        description:         `Reversión de #${original.id} — ${original.description}`,
+        date:                today,
+        reference_type:      original.reference_type,
+        reference_id:        original.reference_id,
+        transfer_account_id: reversalTransferAccountId,
+        created_by:          ctx.userId,
+        notes:               input.reason,
+        reversal_of_id:      original.id,
+        reversal_reason:     input.reason,
+      },
+      { transaction: t }
+    );
+
+    const fullyReversed = amountToReverse >= remaining - 0.001;
+    if (fullyReversed) {
+      await original.update(
+        { status: 'reversed', reversed_at: new Date(), reversed_by: ctx.userId },
+        { transaction: t }
+      );
+    }
+
     await recordCashAudit(
-      { entityType: 'transaction', entityId: tx.id, action: 'delete', before, after: null, context: ctx },
+      {
+        entityType: 'transaction', entityId: original.id, action: 'reverse',
+        before, after: snapshotOf(original), reason: input.reason, context: ctx,
+      },
       t
     );
-    await tx.destroy({ transaction: t });
+    await recordCashAudit(
+      {
+        entityType: 'transaction', entityId: reversal.id, action: 'reverse',
+        after: snapshotOf(reversal), reason: input.reason, context: ctx,
+      },
+      t
+    );
+
+    reversalId = reversal.id;
   });
+
+  return getTransaction(reversalId!);
 }
 
 // ── Resumen ───────────────────────────────────────────────────────────────────

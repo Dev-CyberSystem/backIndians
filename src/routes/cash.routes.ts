@@ -100,9 +100,13 @@ router.get(
     query('account_id').optional().isInt({ min: 1 }),
     query('category_id').optional().isInt({ min: 1 }),
     query('type').optional().isIn(['income', 'expense', 'transfer']),
+    query('status').optional().isIn(['active', 'reversed']),
     query('date_from').optional().isDate({ format: 'YYYY-MM-DD' }),
     query('date_to').optional().isDate({ format: 'YYYY-MM-DD' }),
-    query('reference_type').optional().isIn(['invoice', 'order']),
+    // Incluye 'store_order': hallazgo CASH-FILTER-001 de la auditoría — el
+    // validador no dejaba filtrar por el propio valor que usa la integración
+    // automática de tienda.
+    query('reference_type').optional().isIn(['invoice', 'order', 'store_order']),
     query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 100 }),
     validate,
@@ -133,40 +137,43 @@ router.post(
     body('reference_type').optional({ nullable: true }).isIn(['invoice', 'order']),
     body('reference_id').optional({ nullable: true }).isInt({ min: 1 }),
     body('notes').optional({ nullable: true }).isString(),
+    body('idempotency_key').optional({ nullable: true }).isString().isLength({ max: 80 }),
     validate,
   ],
   ctrl.createTransaction
 );
 
-router.put(
+// Edición limitada a campos no financieros — ver PatchTransactionInput en el
+// servicio para por qué nunca se acepta amount/type/account_id/date acá.
+router.patch(
   '/transactions/:id',
   [
     param('id').isInt({ min: 1 }),
-    body('account_id').optional().isInt({ min: 1 }),
+    body('description').optional().trim().isLength({ min: 1, max: 255 }),
+    body('notes').optional({ nullable: true }).isString(),
     body('category_id').optional().isInt({ min: 1 }),
-    body('type').optional().isIn(['income', 'expense', 'transfer']),
+    validate,
+  ],
+  ctrl.patchTransaction
+);
+
+// Único camino para corregir un importe: crea un contraasiento, nunca toca
+// el original (hallazgo CASH-MUT-001 de la auditoría — PUT/DELETE quedaron
+// eliminados a propósito, no es un descuido).
+router.post(
+  '/transactions/:id/reverse',
+  [
+    param('id').isInt({ min: 1 }),
+    body('reason').trim().isLength({ min: 10, max: 500 }).withMessage('El motivo debe tener al menos 10 caracteres'),
     body('amount')
       .optional()
       .isDecimal({ decimal_digits: '0,2' })
       .toFloat()
       .custom((v) => v > 0)
-      .withMessage('Monto debe ser mayor a 0'),
-    body('description').optional().trim().isLength({ min: 1, max: 255 }),
-    body('date').optional().isDate({ format: 'YYYY-MM-DD' }),
-    body('transfer_account_id').optional({ nullable: true }).isInt({ min: 1 }),
-    body('reference_type').optional({ nullable: true }).isIn(['invoice', 'order']),
-    body('reference_id').optional({ nullable: true }).isInt({ min: 1 }),
-    body('notes').optional({ nullable: true }).isString(),
+      .withMessage('Si se especifica, el monto a revertir debe ser mayor a 0'),
     validate,
   ],
-  ctrl.updateTransaction
-);
-
-router.delete(
-  '/transactions/:id',
-  authorize('admin'),
-  [param('id').isInt({ min: 1 }), validate],
-  ctrl.deleteTransaction
+  ctrl.reverseTransaction
 );
 
 export default router;
