@@ -57,15 +57,17 @@ export async function reportDailyInconsistencies(): Promise<{
   });
 
   // Pedido que ya confirmó stock (pago acreditado) pero nunca quedó
-  // registrado en caja (2.3) — típicamente porque `store_cash_account_id`
-  // no está configurado. No es un bug de código, pero es plata que no se
-  // está viendo en la conciliación — vale la pena que el admin lo sepa.
+  // registrado en caja/banco (2.3) — típicamente porque falta configurar la
+  // cuenta que corresponde a su medio de pago (`store_cash_account_id` para
+  // efectivo, `store_bank_account_id` para MercadoPago/transferencia desde
+  // la Fase 3). No es un bug de código, pero es plata que no se está viendo
+  // en la conciliación — vale la pena que el admin lo sepa.
   const paidWithoutCashEntry = await StoreOrder.findAll({
     where: {
       stock_confirmed_at: { [Op.not]: null },
       cash_recorded_at: null,
     },
-    attributes: ['id', 'order_number'],
+    attributes: ['id', 'order_number', 'payment_method'],
   });
 
   // Comprobantes (pedidos de fábrica, catálogo o tienda) que quedaron en
@@ -117,10 +119,21 @@ export async function reportDailyInconsistencies(): Promise<{
   }
 
   if (paidWithoutCashEntry.length > 0) {
+    const missingCash = paidWithoutCashEntry.filter((o) => o.payment_method === 'cash');
+    const missingBank = paidWithoutCashEntry.filter((o) => o.payment_method !== 'cash');
     logger.error(
       'jobs.reportInconsistencies.paidWithoutCashEntry',
-      new Error(`${paidWithoutCashEntry.length} pedido(s) pagado(s) sin registro en caja (¿falta configurar store_cash_account_id?)`),
-      { meta: { orderNumbers: paidWithoutCashEntry.map((o) => o.order_number) } }
+      new Error(
+        `${paidWithoutCashEntry.length} pedido(s) pagado(s) sin registro en caja/banco `
+        + `(¿falta configurar store_cash_account_id o store_bank_account_id?)`
+      ),
+      {
+        meta: {
+          orderNumbers: paidWithoutCashEntry.map((o) => o.order_number),
+          missingCashAccountConfig: missingCash.map((o) => o.order_number),
+          missingBankAccountConfig: missingBank.map((o) => o.order_number),
+        },
+      }
     );
   }
 

@@ -1,6 +1,7 @@
 import { sequelize } from '../config/db';
-import { Settings } from '../models';
+import { Settings, CashAccount } from '../models';
 import { invalidateCache } from '../utils/cache';
+import { AppError } from '../middlewares/errorHandler';
 
 export interface CompanySettings {
   company_name: string;
@@ -60,8 +61,12 @@ const VALID_KEYS: string[] = [
   'tracking_link_expiry_days',
   // AFIP / ARCA — Facturación electrónica
   'afip_enabled', 'afip_environment', 'afip_punto_venta', 'afip_concepto_default',
-  // Tienda — conexión con caja (2.3)
+  // Tienda — conexión con caja (2.3). Dos cuentas separadas desde la Fase 3
+  // del plan de corrección de caja (CASH-PAY-002): store_cash_account_id
+  // recibe SOLO pagos en efectivo; store_bank_account_id recibe MercadoPago
+  // y transferencia — nunca deben mezclarse en la misma cuenta física.
   'store_cash_account_id',
+  'store_bank_account_id',
 ];
 
 export async function getAllSettings(): Promise<Record<string, string>> {
@@ -73,11 +78,33 @@ export async function getAllSettings(): Promise<Record<string, string>> {
   return map;
 }
 
+// Fase 3 del plan de corrección de caja (CASH-PAY-002): la cuenta de tienda
+// para efectivo solo puede ser tipo `cash`, la de no-efectivo solo `bank` —
+// se rechaza el guardado si no coincide, no alcanza con un warning porque es
+// exactamente la mala configuración que esta fase existe para prevenir.
+const ACCOUNT_SETTING_TYPE: Partial<Record<string, 'cash' | 'bank'>> = {
+  store_cash_account_id: 'cash',
+  store_bank_account_id: 'bank',
+};
+
 export async function updateSettings(
   data: Record<string, string>
 ): Promise<Record<string, string>> {
   const entries = Object.entries(data).filter(([k]) => VALID_KEYS.includes(k));
   if (!entries.length) return getAllSettings();
+
+  for (const [key, value] of entries) {
+    const expectedType = ACCOUNT_SETTING_TYPE[key];
+    if (!expectedType || !value) continue; // '' es la forma válida de "sin configurar"
+    const account = await CashAccount.findByPk(Number(value));
+    if (!account) throw new AppError(`La cuenta configurada para "${key}" no existe`, 400);
+    if (account.type !== expectedType) {
+      throw new AppError(
+        `"${key}" debe ser una cuenta de tipo "${expectedType}" — "${account.name}" es de tipo "${account.type}"`,
+        400
+      );
+    }
+  }
 
   const now = new Date();
   await sequelize.transaction(async (t) => {

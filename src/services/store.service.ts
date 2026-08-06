@@ -1298,13 +1298,28 @@ async function getSystemUserId(transaction: Transaction): Promise<number> {
 const STORE_CASH_CATEGORY_NAME = 'Ventas tienda online';
 
 /**
- * Registra el ingreso en caja al confirmarse el pago de un pedido de tienda
- * (2.3 — cierra C-7 para el circuito de cobros). Requiere que el admin haya
- * configurado `store_cash_account_id` en Configuración — si no está
- * configurado, NO bloquea la confirmación del pago (la plata ya se cobró,
- * el asiento de caja es una consecuencia administrativa, no al revés):
- * solo loguea un warning y queda pendiente hasta que se configure la
- * cuenta (el reporte de conciliación de 2.7 puede detectar estos casos).
+ * Qué setting de cuenta corresponde según el medio de pago (Fase 3 del plan
+ * de corrección de caja — cierra CASH-PAY-002: antes, un pago con
+ * MercadoPago o transferencia se registraba en la misma cuenta que el
+ * efectivo, mezclando dinero que nunca entró físicamente con el cajón real).
+ * Solo `cash` es efectivo de verdad; `mercadopago`/`bank_transfer` van a la
+ * cuenta bancaria configurada aparte.
+ */
+function cashSettingKeyFor(paymentMethod: 'mercadopago' | 'cash' | 'bank_transfer'): 'store_cash_account_id' | 'store_bank_account_id' {
+  return paymentMethod === 'cash' ? 'store_cash_account_id' : 'store_bank_account_id';
+}
+
+/**
+ * Registra el ingreso al confirmarse el pago de un pedido de tienda (2.3 —
+ * cierra C-7 para el circuito de cobros). La cuenta destino depende del
+ * medio de pago (ver `cashSettingKeyFor`): efectivo va a `store_cash_account_id`
+ * (una cuenta física de tipo `cash`); MercadoPago/transferencia van a
+ * `store_bank_account_id` (una cuenta `bank` — ese dinero nunca pasó por el
+ * cajón). Si la cuenta que corresponde no está configurada, NO bloquea la
+ * confirmación del pago (la plata ya se cobró, el asiento es una
+ * consecuencia administrativa, no al revés): solo loguea un warning y queda
+ * pendiente hasta que se configure (el reporte de conciliación de 2.7 puede
+ * detectar estos casos).
  *
  * `createdBy`: si un admin confirmó el pago a mano, se le atribuye a él/ella;
  * si fue automático (webhook de MP, job de reconciliación/expiración), se
@@ -1312,10 +1327,10 @@ const STORE_CASH_CATEGORY_NAME = 'Ventas tienda online';
  *
  * Idempotente por `cash_recorded_at`, columna separada de
  * `stock_confirmed_at` a propósito: si falta configurar la cuenta, un
- * reintento futuro puede completar el asiento de caja sin depender de que
- * el stock (que sí se confirmó bien) se vuelva a tocar.
+ * reintento futuro puede completar el asiento sin depender de que el stock
+ * (que sí se confirmó bien) se vuelva a tocar.
  */
-async function recordStoreOrderCashIncome(
+async function recordStoreOrderIncome(
   order: StoreOrder,
   changedBy: number | null,
   transaction: Transaction
@@ -1326,11 +1341,12 @@ async function recordStoreOrderCashIncome(
   });
   if (!locked || locked.cash_recorded_at) return;
 
+  const settingKey = cashSettingKeyFor(locked.payment_method);
   const settings = await getAllSettings();
-  const accountId = Number(settings.store_cash_account_id);
+  const accountId = Number(settings[settingKey]);
   if (!accountId) {
     logger.warn('store.cashIncome.accountNotConfigured', {
-      meta: { orderId: order.id, orderNumber: order.order_number },
+      meta: { orderId: order.id, orderNumber: order.order_number, paymentMethod: locked.payment_method, settingKey },
     });
     return;
   }
@@ -1567,10 +1583,11 @@ export async function recordStoreOrderStatusChange(
           options.changedBy ?? null,
           t
         );
-        // Ingreso en caja (2.3), mismo disparador que la confirmación de
-        // stock — ver recordStoreOrderCashIncome para el detalle de por qué
-        // no bloquea el pago si falta configurar la cuenta.
-        await recordStoreOrderCashIncome(order, options.changedBy ?? null, t);
+        // Ingreso en caja/banco (2.3, cuenta según medio de pago desde la
+        // Fase 3), mismo disparador que la confirmación de stock — ver
+        // recordStoreOrderIncome para el detalle de por qué no bloquea el
+        // pago si falta configurar la cuenta correspondiente.
+        await recordStoreOrderIncome(order, options.changedBy ?? null, t);
       }
 
       // Restituir stock y liberar cupón al entrar en cancelled (C-1/A-9).
