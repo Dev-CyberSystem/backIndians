@@ -260,6 +260,67 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
     expect(reversalCount).toBe(1);
   });
 
+  // ── CASH-REF-003: la caja nunca veta el registro de la devolución ────────
+
+  it('un reintegro MAYOR al total del pedido se registra igual, revirtiendo solo lo que la caja puede absorber', async () => {
+    const before = await accountBalance(cashAccountId);
+    const { orderId, orderItemId, total } = await createPaidOrder(5000, 'ReintegroExcedido');
+    await deliverOrder(orderId);
+
+    const created = await api().post(`${API}/store/admin/orders/${orderId}/returns`).set(...auth(admin))
+      .send({ items: [{ store_order_item_id: orderItemId, quantity: 1 }] });
+    const returnId = created.body.data.id;
+
+    // El admin devolvió $9000 por fuera del sistema (más que el pedido). Antes
+    // esto respondía 400 y la devolución NO quedaba registrada.
+    const res = await api().patch(`${API}/store/admin/returns/${returnId}/refund`).set(...auth(admin))
+      .send({ refund_status: 'refunded', refunded_amount: 9000 });
+    expect(res.status).toBe(200);
+    expect(res.body.data.refund_status).toBe('refunded');
+    expect(Number(res.body.data.refunded_amount)).toBe(9000);
+
+    // En caja se revierte el asiento completo ($5000), no $9000: el desvío
+    // queda logueado para conciliación, pero no impide registrar el hecho.
+    expect(await accountBalance(cashAccountId)).toBe(before + total - total);
+  });
+
+  it('dos devoluciones que juntas superan el total del pedido se registran ambas', async () => {
+    const { orderId, orderItemId } = await createPaidOrder(4000, 'DosQueExceden', 2);
+    await deliverOrder(orderId);
+
+    const r1 = await api().post(`${API}/store/admin/orders/${orderId}/returns`).set(...auth(admin))
+      .send({ items: [{ store_order_item_id: orderItemId, quantity: 1 }] });
+    const ref1 = await api().patch(`${API}/store/admin/returns/${r1.body.data.id}/refund`).set(...auth(admin))
+      .send({ refund_status: 'refunded', refunded_amount: 6000 });
+    expect(ref1.status).toBe(200);
+
+    await deliverOrder(orderId);
+    const r2 = await api().post(`${API}/store/admin/orders/${orderId}/returns`).set(...auth(admin))
+      .send({ items: [{ store_order_item_id: orderItemId, quantity: 1 }] });
+    // Solo quedan $2000 sin revertir del asiento, pero el registro igual entra.
+    const ref2 = await api().patch(`${API}/store/admin/returns/${r2.body.data.id}/refund`).set(...auth(admin))
+      .send({ refund_status: 'refunded', refunded_amount: 5000 });
+    expect(ref2.status).toBe(200);
+    expect(Number(ref2.body.data.refunded_amount)).toBe(5000);
+  });
+
+  it('un reintegro de $0 se registra sin intentar ningún contraasiento', async () => {
+    const before = await accountBalance(cashAccountId);
+    const { orderId, orderItemId, total } = await createPaidOrder(3500, 'ReintegroCero');
+    await deliverOrder(orderId);
+
+    const created = await api().post(`${API}/store/admin/orders/${orderId}/returns`).set(...auth(admin))
+      .send({ items: [{ store_order_item_id: orderItemId, quantity: 1 }] });
+
+    const res = await api().patch(`${API}/store/admin/returns/${created.body.data.id}/refund`).set(...auth(admin))
+      .send({ refund_status: 'refunded', refunded_amount: 0 });
+    expect(res.status).toBe(200);
+    expect(Number(res.body.data.refunded_amount)).toBe(0);
+
+    // Sin reintegro real no hay nada que revertir: el ingreso queda intacto.
+    expect(await accountBalance(cashAccountId)).toBe(before + total);
+  });
+
   it('el monto reintegrado es obligatorio para marcar el reintegro como realizado', async () => {
     const { orderId, orderItemId } = await createPaidOrder(3000, 'SinMonto');
     await deliverOrder(orderId);

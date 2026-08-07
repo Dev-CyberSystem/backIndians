@@ -7,7 +7,7 @@ import { AppError } from '../middlewares/errorHandler';
 import { CashAuditContext, recordCashAudit, snapshotOf } from './cashAudit.service';
 
 type SummaryResult = {
-  accounts: { id: number; name: string; type: 'cash' | 'petty_cash' | 'bank'; current_balance: number }[];
+  accounts: { id: number; name: string; type: 'cash' | 'petty_cash' | 'bank'; current_balance: number; active: boolean }[];
   total_income: number;
   total_expense: number;
   net_balance: number;
@@ -324,8 +324,21 @@ async function createTransactionCore(
     if (input.transfer_account_id === input.account_id) throw new AppError('La cuenta destino debe ser distinta a la cuenta origen', 400);
   }
 
-  const accountExists = await CashAccount.count({ where: { id: input.account_id }, transaction: t });
-  if (!accountExists) throw new AppError('Cuenta no encontrada', 404);
+  // Una cuenta desactivada no acepta movimientos nuevos (CASH-VAL-004). Antes
+  // solo se validaba la existencia, así que el "Desactivar" del panel no
+  // impedía nada: se seguía cargando contra la cuenta y, como el resumen
+  // filtraba las inactivas, ese dinero desaparecía del total. Las reversiones
+  // NO pasan por acá a propósito — un movimiento siempre se tiene que poder
+  // revertir, aunque su cuenta se haya dado de baja después.
+  const account = await CashAccount.findByPk(input.account_id, { transaction: t });
+  if (!account) throw new AppError('Cuenta no encontrada', 404);
+  if (!account.active) throw new AppError(`La cuenta "${account.name}" está desactivada y no admite movimientos nuevos`, 400);
+
+  if (input.transfer_account_id) {
+    const target = await CashAccount.findByPk(input.transfer_account_id, { transaction: t });
+    if (!target) throw new AppError('Cuenta destino no encontrada', 404);
+    if (!target.active) throw new AppError(`La cuenta destino "${target.name}" está desactivada y no admite movimientos nuevos`, 400);
+  }
 
   await applyBalanceEffect(input.type, input.amount, input.account_id, input.transfer_account_id, t);
 
@@ -590,8 +603,17 @@ export async function reverseSystemTransaction(
 export async function getSummary(period?: string): Promise<SummaryResult> {
   const { dateFrom, dateTo, periodLabel } = parsePeriod(period);
 
+  // Incluye las cuentas inactivas que TODAVÍA tienen saldo (CASH-VAL-004):
+  // filtrarlas por `active` a secas hacía que al desactivar una cuenta con
+  // plata, esa plata desapareciera del "Saldo total" del panel aunque siguiera
+  // en la base. Se devuelven marcadas con `active` para que la UI las distinga.
   const accounts = await CashAccount.findAll({
-    where: { active: true },
+    where: {
+      [Op.or]: [
+        { active: true },
+        { current_balance: { [Op.ne]: 0 } },
+      ],
+    },
     order: [['name', 'ASC']],
   });
 
@@ -617,7 +639,12 @@ export async function getSummary(period?: string): Promise<SummaryResult> {
        ctc.name,
        ctc.type,
        ctc.color,
-       SUM(ct.amount) AS total
+       -- Neto de EGRESO por categoría: los ingresos restan (CASH-RPT-001).
+       -- Con SUM(amount) a secas, ingresos y egresos de la misma categoría se
+       -- sumaban en vez de netearse, y como toda reversión crea un
+       -- contraasiento en la MISMA categoría, revertir un movimiento
+       -- DUPLICABA su valor en el gráfico en lugar de anularlo.
+       SUM(CASE WHEN ct.type = 'income' THEN -ct.amount ELSE ct.amount END) AS total
      FROM cash_transactions ct
      JOIN cash_transaction_categories ctc ON ctc.id = ct.category_id
      WHERE ct.date BETWEEN :dateFrom AND :dateTo
@@ -647,6 +674,7 @@ export async function getSummary(period?: string): Promise<SummaryResult> {
       name:            a.name,
       type:            a.type as 'cash' | 'petty_cash' | 'bank',
       current_balance: Number(a.current_balance),
+      active:          a.active,
     })),
     total_income:  totalIncome,
     total_expense: totalExpense,

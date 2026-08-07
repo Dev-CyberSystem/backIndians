@@ -225,10 +225,19 @@ export interface UpdateStoreReturnRefundInput {
  * real: si el pedido tiene un ingreso de caja/banco registrado
  * (`cash_recorded_at`), revierte ese ingreso por `refunded_amount` (no por
  * el total del pedido — la devolución puede ser parcial). Por eso
- * `refunded_amount` pasa a ser obligatorio en este caso: sin un monto no hay
- * forma de saber cuánto revertir. Idempotente por `cash_reversed_at` propio
- * de la devolución (no el de `store_orders` — puede haber varias
- * devoluciones parciales sobre el mismo pedido, cada una con su propia marca).
+ * `refunded_amount` es obligatorio en este caso: sin un monto no hay forma de
+ * saber cuánto revertir. Idempotente por `cash_reversed_at` propio de la
+ * devolución (no el de `store_orders` — puede haber varias devoluciones
+ * parciales sobre el mismo pedido, cada una con su propia marca).
+ *
+ * **El registro de la devolución SIEMPRE se persiste (CASH-REF-003)**: la
+ * reversión de caja es best-effort y no puede vetarlo. Si el monto reintegrado
+ * excede lo que queda por revertir del asiento (dos devoluciones que juntas
+ * superan el pedido, o un monto mayor al total), se revierte el remanente y el
+ * desvío se loguea para conciliación. La versión anterior propagaba el error
+ * de caja y devolvía 400, impidiéndole al operador registrar plata que YA
+ * había devuelto — el sistema quedaba divergido de la realidad, que es
+ * exactamente lo que este módulo existe para evitar.
  */
 export async function updateStoreReturnRefund(returnId: number, input: UpdateStoreReturnRefundInput) {
   const existing = await StoreReturn.findByPk(returnId);
@@ -256,15 +265,29 @@ export async function updateStoreReturnRefund(returnId: number, input: UpdateSto
     if (becomesRefunded && !ret.cash_reversed_at) {
       const order = await StoreOrder.findByPk(ret.store_order_id, { transaction: t });
       if (order?.cash_recorded_at) {
-        const reversed = await reverseStoreOrderCashIncome(
+        const outcome = await reverseStoreOrderCashIncome(
           order.id,
           `Devolución #${ret.id} de pedido ${order.order_number}`,
           input.changedBy,
           t,
           Number(input.refunded_amount)
         );
-        if (reversed) {
+        if (outcome.reversed) {
           await ret.update({ cash_reversed_at: new Date() }, { transaction: t });
+        }
+        // El desvío no bloquea el registro (ver doc de la función), pero tiene
+        // que quedar visible: es plata devuelta que la caja no pudo reflejar.
+        if (outcome.shortfall > 0) {
+          logger.warn('storeReturns.refund.cashShortfall', {
+            meta: {
+              returnId: ret.id,
+              orderId: order.id,
+              orderNumber: order.order_number,
+              refundedAmount: Number(input.refunded_amount),
+              reversedInCash: outcome.applied,
+              shortfall: outcome.shortfall,
+            },
+          });
         }
       }
     }

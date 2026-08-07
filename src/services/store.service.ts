@@ -32,6 +32,7 @@ import { getAllSettings } from './settings.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
 import { CashTransaction } from '../models/CashTransaction';
+import { CashAccount } from '../models/CashAccount';
 import { createSystemTransaction, reverseSystemTransaction } from './cash.service';
 import {
   STORE_STATUS_LABELS,
@@ -1352,6 +1353,21 @@ async function recordStoreOrderIncome(
     return;
   }
 
+  // Desde CASH-VAL-004, `createTransactionCore` rechaza cuentas desactivadas.
+  // Acá se chequea ANTES para no dejar que esa excepción tumbe la confirmación
+  // del pago: la plata ya se cobró, el asiento es una consecuencia
+  // administrativa (mismo criterio que la cuenta sin configurar, arriba).
+  const account = await CashAccount.findByPk(accountId, { transaction });
+  if (!account || !account.active) {
+    logger.warn('store.cashIncome.accountUnusable', {
+      meta: {
+        orderId: order.id, orderNumber: order.order_number, accountId, settingKey,
+        reason: account ? 'inactive' : 'missing',
+      },
+    });
+    return;
+  }
+
   const category = await CashTransactionCategory.findOne({
     where: { name: STORE_CASH_CATEGORY_NAME, is_system: true },
     transaction,
@@ -1386,20 +1402,35 @@ async function recordStoreOrderIncome(
   await locked.update({ cash_recorded_at: new Date() }, { transaction });
 }
 
+export interface CashReversalOutcome {
+  /** true si se llegó a crear un contraasiento. */
+  reversed: boolean;
+  /** Monto efectivamente revertido en caja. */
+  applied: number;
+  /** Parte del monto pedido que la caja NO pudo absorber (0 si entró todo). */
+  shortfall: number;
+}
+
 /**
  * Revierte (total o parcialmente) el ingreso de caja/banco ya registrado
- * para un pedido, si existe (Fase 4 del plan de corrección de caja — cierra
- * CASH-SALE-002: hoy cancelar un pedido pagado o registrar una devolución no
- * revertía el asiento). Reutiliza `reverseTransaction` (Fase 2), que soporta
- * monto parcial por diseño para este caso.
+ * para un pedido, si existe (Fase 4 — cierra CASH-SALE-002). Reutiliza
+ * `reverseTransaction` (Fase 2), que soporta monto parcial por diseño.
  *
- * No es idempotente por sí sola: no toca `cash_reversed_at` de nada — esa
- * marca vive en la entidad que dispara la reversión (`store_orders` para una
- * cancelación total, `store_returns` para cada devolución, que puede ser
- * parcial y repetirse sobre el mismo pedido) y es el llamador quien decide
- * si corresponde invocar esta función. Devuelve `false` sin hacer nada si no
- * hay ingreso registrado o si ya está completamente revertido — no es un
- * error, es el caso normal de un pedido que nunca se cobró.
+ * **Es best-effort a propósito (CASH-REF-003)**: nunca lanza por "la caja no
+ * puede absorber este monto". Si se pide revertir más de lo que queda sin
+ * revertir, se revierte el remanente y el resto se informa en `shortfall`
+ * para que el llamador lo loguee. La versión anterior propagaba el error de
+ * `reverseTransactionCore` y eso terminaba **impidiendo registrar una
+ * devolución que el negocio ya había hecho** — una regla contable interna no
+ * puede vetar un hecho consumado (mismo criterio que `recordStoreOrderIncome`,
+ * que no bloquea el cobro si falta configurar la cuenta).
+ *
+ * No es idempotente por sí sola: no toca ningún `cash_reversed_at` — esa marca
+ * vive en la entidad que dispara la reversión (`store_orders` para la
+ * cancelación, `store_returns` para cada devolución) y es el llamador quien
+ * decide. Devuelve `reversed: false` sin hacer nada si no hay ingreso
+ * registrado o si ya está completamente revertido: no es un error, es el caso
+ * normal de un pedido que nunca se cobró.
  */
 export async function reverseStoreOrderCashIncome(
   orderId: number,
@@ -1407,16 +1438,33 @@ export async function reverseStoreOrderCashIncome(
   changedBy: number | null,
   transaction: Transaction,
   amount?: number
-): Promise<boolean> {
+): Promise<CashReversalOutcome> {
+  const nothing = (shortfall: number): CashReversalOutcome => ({ reversed: false, applied: 0, shortfall });
+
   const original = await CashTransaction.findOne({
     where: { reference_type: 'store_order', reference_id: orderId, reversal_of_id: null },
     transaction,
   });
-  if (!original || original.status === 'reversed') return false;
+  if (!original || original.status === 'reversed') return nothing(amount ?? 0);
+
+  const alreadyReversed = Number(
+    (await CashTransaction.sum('amount', { where: { reversal_of_id: original.id }, transaction })) ?? 0
+  );
+  const remaining = Number(original.amount) - alreadyReversed;
+  if (remaining <= 0) return nothing(amount ?? 0);
+
+  const requested = amount ?? remaining;
+  const applied = Math.min(requested, remaining);
+  if (applied <= 0) return nothing(requested);
 
   const createdBy = changedBy ?? (await getSystemUserId(transaction));
-  await reverseSystemTransaction(original.id, { reason, amount }, createdBy, transaction);
-  return true;
+  await reverseSystemTransaction(original.id, { reason, amount: applied }, createdBy, transaction);
+
+  return {
+    reversed: true,
+    applied,
+    shortfall: Math.max(0, Number((requested - applied).toFixed(2))),
+  };
 }
 
 export async function restoreStoreOrderStock(
@@ -1643,13 +1691,13 @@ export async function recordStoreOrderStatusChange(
           transaction: t,
         });
         if (lockedForCash?.cash_recorded_at && !lockedForCash.cash_reversed_at) {
-          const reversed = await reverseStoreOrderCashIncome(
+          const outcome = await reverseStoreOrderCashIncome(
             lockedForCash.id,
             `Cancelación de pedido ${lockedForCash.order_number}`,
             options.changedBy ?? null,
             t
           );
-          if (reversed) {
+          if (outcome.reversed) {
             await lockedForCash.update({ cash_reversed_at: new Date() }, { transaction: t });
           }
         }
