@@ -699,12 +699,31 @@ export async function getSummary(period?: string): Promise<SummaryResult> {
     order: [['name', 'ASC']],
   });
 
+  // Neto de reversiones, compensando por signo (CASH-RPT-002 / DEC-013). Antes
+  // sumaba `amount` de todo lo que tuviera `type='income'`/`'expense'` sin
+  // distinguir el original del contraasiento — y como una reversión de un
+  // ingreso se crea como un movimiento `expense` (y viceversa), un ingreso de
+  // $5.000 revertido inflaba +$5.000 a ingresos Y +$5.000 a egresos, aunque
+  // `net_balance` diera bien por cancelarse entre sí.
+  //
+  // Se resta el contraasiento en vez de excluir la fila (`reversal_of_id IS
+  // NOT NULL`) a propósito: en una reversión PARCIAL, excluir la fila entera
+  // haría desaparecer el movimiento completo del reporte en vez de dejarlo en
+  // el remanente todavía vigente (ej. $1.000 revertido en $400 → $600, no $0).
   const totals = await sequelize.query<{
     total_income: string; total_expense: string;
   }>(
     `SELECT
-       SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END) AS total_income,
-       SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS total_expense
+       SUM(CASE
+         WHEN type = 'income'  AND reversal_of_id IS NULL     THEN  amount
+         WHEN type = 'expense' AND reversal_of_id IS NOT NULL THEN -amount
+         ELSE 0
+       END) AS total_income,
+       SUM(CASE
+         WHEN type = 'expense' AND reversal_of_id IS NULL     THEN  amount
+         WHEN type = 'income'  AND reversal_of_id IS NOT NULL THEN -amount
+         ELSE 0
+       END) AS total_expense
      FROM cash_transactions
      WHERE date BETWEEN :dateFrom AND :dateTo`,
     { replacements: { dateFrom, dateTo }, type: QueryTypes.SELECT }
@@ -726,6 +745,12 @@ export async function getSummary(period?: string): Promise<SummaryResult> {
        -- sumaban en vez de netearse, y como toda reversión crea un
        -- contraasiento en la MISMA categoría, revertir un movimiento
        -- DUPLICABA su valor en el gráfico en lugar de anularlo.
+       --
+       -- Ya cumple el mismo criterio de DEC-013 (neto compensando por signo,
+       -- no excluyendo filas) sin necesitar mirar reversal_of_id: como una
+       -- reversión SIEMPRE se crea con el tipo opuesto al original
+       -- (reverseTransactionCore), sumar por tipo con signo ya compensa el
+       -- contraasiento automáticamente, sea de una reversión total o parcial.
        SUM(CASE WHEN ct.type = 'income' THEN -ct.amount ELSE ct.amount END) AS total
      FROM cash_transactions ct
      JOIN cash_transaction_categories ctc ON ctc.id = ct.category_id
@@ -736,13 +761,30 @@ export async function getSummary(period?: string): Promise<SummaryResult> {
     { replacements: { dateFrom, dateTo }, type: QueryTypes.SELECT }
   );
 
+  // Mismo criterio de neteo que `totals` arriba, día por día. El contraasiento
+  // se fecha en el día en que se hizo la corrección (`businessDate()`), no en
+  // el día del movimiento original — así que si la reversión ocurre en otra
+  // jornada, el efecto neto se ve correctamente distribuido en el AGREGADO
+  // del período (`totals`), pero cada día individual refleja lo que pasó ESE
+  // día: el día del original muestra el ingreso bruto, el día de la reversión
+  // muestra la corrección. Es el mismo comportamiento que un libro contable
+  // real: la corrección se asienta cuando se detecta, no se reescribe el
+  // pasado.
   const dailyEvolution = await sequelize.query<{
     date: string; income: string; expense: string;
   }>(
     `SELECT
        date,
-       SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END) AS income,
-       SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
+       SUM(CASE
+         WHEN type = 'income'  AND reversal_of_id IS NULL     THEN  amount
+         WHEN type = 'expense' AND reversal_of_id IS NOT NULL THEN -amount
+         ELSE 0
+       END) AS income,
+       SUM(CASE
+         WHEN type = 'expense' AND reversal_of_id IS NULL     THEN  amount
+         WHEN type = 'income'  AND reversal_of_id IS NOT NULL THEN -amount
+         ELSE 0
+       END) AS expense
      FROM cash_transactions
      WHERE date BETWEEN :dateFrom AND :dateTo
      GROUP BY date
