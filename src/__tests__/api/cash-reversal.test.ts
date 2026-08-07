@@ -244,4 +244,69 @@ describe('Reversión e inmutabilidad de caja — Fase 2', () => {
     const idsActive = onlyActive.body.data.map((t: { id: number }) => t.id);
     expect(idsActive).not.toContain(txId);
   });
+
+  // ── Permisos de reversión (Fase 5 — decisión confirmada con el usuario) ────
+
+  it('billing puede crear y patchear movimientos, pero NO revertirlos — reversión queda reservada a admin', async () => {
+    const billing = await loginAs('billing');
+    const txId = await createTx(200);
+
+    const patch = await api().patch(`${API}/cash/transactions/${txId}`).set(...auth(billing))
+      .send({ description: 'Editado por billing' });
+    expect(patch.status).toBe(200); // sigue permitido
+
+    const reverse = await api().post(`${API}/cash/transactions/${txId}/reverse`).set(...auth(billing))
+      .send({ reason: 'Intento de reversión desde billing' });
+    expect(reverse.status).toBe(403);
+
+    const asAdmin = await api().post(`${API}/cash/transactions/${txId}/reverse`).set(...auth(admin))
+      .send({ reason: 'Reversión correcta desde admin' });
+    expect(asAdmin.status).toBe(201); // admin sí puede
+  });
+
+  // ── Precisión con decimales y montos grandes (Fase 6) ──────────────────────
+
+  it('revertir un monto con centavos ($1000.10 + $2000.20) no arrastra error de redondeo', async () => {
+    const before = await accountBalance(accountId);
+    const tx1 = await createTx(1000.10);
+    const tx2 = await createTx(2000.20);
+    expect(await accountBalance(accountId)).toBeCloseTo(before + 3000.30, 2);
+
+    await api().post(`${API}/cash/transactions/${tx1}/reverse`).set(...auth(admin))
+      .send({ reason: 'Reversión con centavos 1' });
+    await api().post(`${API}/cash/transactions/${tx2}/reverse`).set(...auth(admin))
+      .send({ reason: 'Reversión con centavos 2' });
+
+    expect(await accountBalance(accountId)).toBeCloseTo(before, 2); // vuelve exacto, sin arrastre
+  });
+
+  it('una reversión parcial en centavos dentro del margen de redondeo cierra el remanente por completo', async () => {
+    const txId = await createTx(10.30);
+
+    // Tres reversiones parciales de $3.43 cada una — la suma ($10.29) queda a
+    // 1 centavo del original ($10.30) por redondeo de punto flotante, y el
+    // margen de tolerancia (0.001) de reverseTransactionCore debe cubrir eso.
+    await api().post(`${API}/cash/transactions/${txId}/reverse`).set(...auth(admin))
+      .send({ reason: 'Parcial 1 de 3 en centavos', amount: 3.43 });
+    await api().post(`${API}/cash/transactions/${txId}/reverse`).set(...auth(admin))
+      .send({ reason: 'Parcial 2 de 3 en centavos', amount: 3.43 });
+    const last = await api().post(`${API}/cash/transactions/${txId}/reverse`).set(...auth(admin))
+      .send({ reason: 'Parcial 3 de 3 en centavos', amount: 3.44 });
+    expect(last.status).toBe(201);
+
+    const original = await CashTransaction.findByPk(txId);
+    expect(original!.status).toBe('reversed');
+  });
+
+  it('revertir un movimiento por un monto grande ($9.999.999,99) mantiene la precisión', async () => {
+    const before = await accountBalance(accountId);
+    const txId = await createTx(9999999.99);
+    expect(await accountBalance(accountId)).toBeCloseTo(before + 9999999.99, 2);
+
+    const rev = await api().post(`${API}/cash/transactions/${txId}/reverse`).set(...auth(admin))
+      .send({ reason: 'Reversión de un monto grande' });
+    expect(rev.status).toBe(201);
+    expect(Number(rev.body.data.amount)).toBeCloseTo(9999999.99, 2);
+    expect(await accountBalance(accountId)).toBeCloseTo(before, 2);
+  });
 });

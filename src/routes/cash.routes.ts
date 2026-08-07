@@ -159,9 +159,13 @@ router.patch(
 
 // Único camino para corregir un importe: crea un contraasiento, nunca toca
 // el original (hallazgo CASH-MUT-001 de la auditoría — PUT/DELETE quedaron
-// eliminados a propósito, no es un descuido).
+// eliminados a propósito, no es un descuido). Solo admin (Fase 5 del plan de
+// corrección, decisión confirmada con el usuario): billing sigue pudiendo
+// crear movimientos y corregir campos no financieros vía PATCH, pero
+// revertir un movimiento confirmado queda reservado a admin.
 router.post(
   '/transactions/:id/reverse',
+  authorize('admin'),
   [
     param('id').isInt({ min: 1 }),
     body('reason').trim().isLength({ min: 10, max: 500 }).withMessage('El motivo debe tener al menos 10 caracteres'),
