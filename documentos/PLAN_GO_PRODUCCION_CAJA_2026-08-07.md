@@ -152,43 +152,49 @@ Cierra el bloqueante #2. Es la fase más grande y la única que toca esquema.
 
 ---
 
-### Fase 3 — Cierre de calidad
+### Fase 3 — Cierre de calidad ✅ 3.1-3.4 HECHAS, 3.5/3.6 diferidas (2026-08-07)
 
 Las tres puertas que quedaron sin cerrar en la verificación final.
 
-| # | Tarea | Detalle | Bloqueante |
-|---|---|---|---|
-| 3.1 | **Verificar en navegador el cambio de UI de la verificación final** (R-07) | Abrir `/cash`, ver el detalle de un movimiento revertido y de un contraasiento: debe aparecer el texto explicativo en vez del formulario. Verificar que el selector de categoría filtra por tipo | **Sí** — es la única puerta de calidad del trabajo ya hecho que sigue abierta |
-| 3.2 | **E2E de caja** (R-09) | `e2e/tests/cash.spec.ts`: alta → detalle → reversión → verificación del saldo → intento de editar un revertido. Es el recorrido que el pedido exige y hoy no existe | **Sí** |
-| 3.3 | **E2E de cobranza** | Cobrar una factura en efectivo y ver el movimiento aparecer en `/cash`. Es la prueba de que la Fase 2 funciona de punta a punta | **Sí** (depende de Fase 2) |
-| 3.4 | `npm audit` en ambos repos (R-06) | Separar runtime de desarrollo, descartar falsos positivos | Sí, si aparece algo crítico en runtime |
-| 3.5 | Pantalla de auditoría (R-08) | `getAuditEvents` en `api/cash.ts` + pestaña "Auditoría" en `CashFlowPage`, solo `admin`. Hoy el control existe pero **nadie lo ve desde el panel** | **No** — no es defecto de integridad, pero sin esto el rastro de `CASH-MA-001` solo se lee por `curl` |
-| 3.6 | Migración correctiva del `down()` de la `091` (R-10) | Nueva migración que borre la FK antes que el índice. **No editar la `091`**, ya está aplicada | **No** — pero mientras no esté, el único rollback de esquema es restaurar el backup |
+| # | Tarea | Detalle | Bloqueante | Estado |
+|---|---|---|---|---|
+| 3.1 | **Verificar en navegador el cambio de UI de la verificación final** (R-07) | Abrir `/cash`, ver el detalle de un movimiento revertido y de un contraasiento: debe aparecer el texto explicativo en vez del formulario. Verificar que el selector de categoría filtra por tipo | **Sí** — es la única puerta de calidad del trabajo ya hecho que sigue abierta | ✅ Hecha — screenshots en `e2e/test-results/cash-detail-*.png` |
+| 3.2 | **E2E de caja** (R-09) | `e2e/tests/cash.spec.ts`: alta → detalle → reversión → verificación del saldo → intento de editar un revertido. Es el recorrido que el pedido exige y hoy no existe | **Sí** | ✅ Hecha — 3/3 tests en verde |
+| 3.3 | **E2E de cobranza** | Cobrar una factura en efectivo y ver el movimiento aparecer en `/cash`. Es la prueba de que la Fase 2 funciona de punta a punta | **Sí** (depende de Fase 2) | ✅ Hecha — 1/1, con verificación cruzada por API del saldo |
+| 3.4 | `npm audit` en ambos repos (R-06) | Separar runtime de desarrollo, descartar falsos positivos | Sí, si aparece algo crítico en runtime | ✅ Hecha — ver hallazgo CORS abajo |
+| 3.5 | Pantalla de auditoría (R-08) | `getAuditEvents` en `api/cash.ts` + pestaña "Auditoría" en `CashFlowPage`, solo `admin`. Hoy el control existe pero **nadie lo ve desde el panel** | **No** — no es defecto de integridad, pero sin esto el rastro de `CASH-MA-001` solo se lee por `curl` | ⏸️ Diferida, no bloqueante |
+| 3.6 | Migración correctiva del `down()` de la `091` (R-10) | Nueva migración que borre la FK antes que el índice. **No editar la `091`**, ya está aplicada | **No** — pero mientras no esté, el único rollback de esquema es restaurar el backup | ⏸️ Diferida, no bloqueante |
 
-**Esfuerzo: M (3-4 días).** Sin riesgo de regresión: es verificación y aditivo.
+**Esfuerzo real: ~1 día.** Sin riesgo de regresión en el código de caja — pero **3.2/3.3 destaparon un hallazgo real fuera del alcance de caja**: el preflight CORS rechazaba el header `Idempotency-Key` (`allowedHeaders` en `app.ts` no lo incluía), lo que bloqueaba en un navegador real **tanto el checkout de la tienda (desde que se le agregó idempotencia) como el cobro de facturas recién conectado en la Fase 2**. Los tests de API (supertest) nunca lo detectaron porque no pasan por CORS del navegador — es la razón de ser de un E2E real. Corregido (`allowedHeaders += 'Idempotency-Key'`), suite completa (287/287) y E2E completo (26/26 en chromium, 2 fallos preexistentes no relacionados: seed de cliente de tienda faltante y un canonical de SEO) re-verificados sin regresión.
+
+`npm audit fix` (sin `--force`) aplicado en ambos repos: corrige `body-parser`, `ip-address`, `morgan`, `socket.io-parser` (backend) y `axios`, `dompurify`, `socket.io-parser` (frontend) — todos parches dentro del rango semver ya declarado, `package.json` sin cambios en ningún caso. Quedan dos vulnerabilidades **moderadas** sin fix seguro, documentadas como riesgo residual aceptado: `uuid` vía `sequelize` (requiere `--force` y downgradear sequelize a una versión antigua) y `react-router` vía `react-router-dom` (requiere saltar de 6.x a 7.18.2, cambio mayor que toca toda la app). Ninguno de los dos se aplica sin decisión explícita del usuario.
 
 ---
 
-### Fase 4 — Re-verificación integral
+### Fase 4 — Re-verificación integral ✅ HECHA (2026-08-07)
 
 **Todas** las puertas de calidad, no solo las que se tocaron.
 
-| # | Puerta | Criterio |
-|---|---|---|
-| 4.1 | `typecheck` backend (`tsconfig.json` y `tsconfig.seed.json`) y frontend | Limpio |
-| 4.2 | `build` en ambos repos | Limpio |
-| 4.3 | `npm run test:full` | **Todo en verde.** Referencia actual: 270/270 en 43 suites |
-| 4.4 | `lint` frontend | Sin errores nuevos sobre la línea de base (171 preexistentes) |
-| 4.5 | Sondeo adversarial completo | Re-correr `probe2.mjs` ampliado con los casos de la Fase 2. **22/22 actuales + los nuevos** |
-| 4.6 | `scripts/cash-integrity-check.ts` | Sin anomalías bloqueantes, todas las cuentas cuadran con su libro |
-| 4.7 | E2E Playwright | Los specs de 3.2 y 3.3 en verde |
-| 4.8 | Reset real de base + migraciones desde cero | `db:drop` + `db:create` + `db:migrate` + `seed:test`. **Valida el camino real de despliegue**, no el `sync()` del día a día |
-| 4.9 | Caso contable ARS 155.000 | Re-verificado en cuenta limpia |
-| 4.10 | Regresión de los módulos conectados | Ventas, facturación, pagos, stock, devoluciones, reportes, permisos |
+| # | Puerta | Criterio | Resultado |
+|---|---|---|---|
+| 4.1 | `typecheck` backend (`tsconfig.json` y `tsconfig.seed.json`) y frontend | Limpio | ✅ Limpio los 3 |
+| 4.2 | `build` en ambos repos | Limpio | ✅ Limpio |
+| 4.3 | `npm run test:full` | **Todo en verde.** Referencia actual: 270/270 en 43 suites | ✅ **287/287, 44 suites** — contra la base migrada desde cero (4.8), no `sync()` |
+| 4.4 | `lint` frontend | Sin errores nuevos sobre la línea de base (171 preexistentes) | ✅ 171, sin nuevos |
+| 4.5 | Sondeo adversarial completo | Re-correr `probe2.mjs` ampliado con los casos de la Fase 2. **22/22 actuales + los nuevos** | ✅ **32/32** (22 originales + 10 nuevos de cobranza, `S0`-`S7`) |
+| 4.6 | `scripts/cash-integrity-check.ts` | Sin anomalías bloqueantes, todas las cuentas cuadran con su libro | ✅ Sin anomalías, 24/24 cuentas cuadran (base recién sembrada) |
+| 4.7 | E2E Playwright | Los specs de 3.2 y 3.3 en verde | ✅ 22 en verde (incluye los 4 tests de caja/cobranza), 2 fallos preexistentes sin relación (ver abajo), 2 saltados en mobile (mismo criterio ya documentado) |
+| 4.8 | Reset real de base + migraciones desde cero | `db:drop` + `db:create` + `db:migrate` + `seed:test`. **Valida el camino real de despliegue**, no el `sync()` del día a día | ✅ 95 migraciones desde cero, sin errores |
+| 4.9 | Caso contable ARS 155.000 | Re-verificado en cuenta limpia | ✅ Exacto, `R2` en `probe2.mjs` |
+| 4.10 | Regresión de los módulos conectados | Ventas, facturación, pagos, stock, devoluciones, reportes, permisos | ✅ Cubierto por las 287 pruebas de `test:full` + el E2E completo |
 
-> **Regla que se violó tres veces en este proyecto y no se puede volver a violar:** nunca editar `src/` mientras corre la suite de tests. Produjo mediciones inválidas en tres sesiones distintas, la última ayer.
+**Los 2 fallos de E2E son idénticos, byte a byte, a los de la Fase 3** (falta el seed `lucia.fernandez@example.com` de tienda; un canonical de SEO de categoría "futbol") — confirmado que **no son regresiones del reset**, son gaps preexistentes de datos/SEO ajenos a caja.
 
-**Esfuerzo: S (1 día).**
+**Corrección al propio sondeo adversarial durante la Fase 4:** las primeras dos corridas de los casos `S5`/`S6b` (asiento en caja tras cobrar, asiento revertido tras anular) fallaron — no por un defecto del sistema, sino porque el script no configuraba `store_cash_account_id` antes de cobrar, así que el best-effort de `BR-CASH-008` correctamente no generaba ningún asiento. Se agregó el caso `S0` (cobro sin cuenta configurada no bloquea el pago ni genera asiento) como prueba explícita de esa regla, y se configuró la cuenta para el resto de los casos. 32/32 en la corrida final.
+
+> **Regla que se violó tres veces en este proyecto y no se puede volver a violar:** nunca editar `src/` mientras corre la suite de tests. Se respetó en toda la Fase 4 — solo se editó el script de sondeo (fuera de `src/`) mientras la suite corría en background.
+
+**Esfuerzo real: ~2 horas.** Sin cambios de código: Fase 4 es puramente verificación, no genera commits.
 
 ---
 
