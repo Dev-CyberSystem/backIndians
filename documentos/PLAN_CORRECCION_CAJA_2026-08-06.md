@@ -31,9 +31,11 @@
 | ¿Cómo se separan los medios de pago no efectivos? | **Segunda cuenta bancaria.** Nuevo setting `store_bank_account_id`: MercadoPago y transferencia impactan una cuenta `bank`; solo el efectivo impacta la cuenta `cash`. | Mantiene la trazabilidad completa del dinero, separado por dónde está realmente. Fase 3. |
 | ¿Qué se hace con los datos históricos? | **No hay datos reales** — todo lo que hay en la base es de pruebas y se puede borrar. El usuario va a resetear la base igualmente para probar las correcciones. | **Se elimina por completo el frente de migración de datos históricos**, que era el más riesgoso. Las migraciones no necesitan backfill ni estrategia de compatibilidad hacia atrás. |
 
-### ⚠️ Punto a confirmar antes de desplegar (no bloquea el desarrollo)
+### ✅ Punto de producción — confirmado (2026-08-07)
 
-La decisión "no hay datos reales" se tomó sobre la base de **desarrollo** (`textil_db`). Antes de aplicar cualquier migración en el entorno de Railway/producción hay que confirmar explícitamente si ahí también es todo data de prueba, o si existen pedidos de tienda / clientes reales. Si hubiera datos reales en producción, cambia la estrategia de la Fase 7 (haría falta backfill y backup previo). **No se aplica ninguna migración en producción sin esa confirmación.**
+La decisión "no hay datos reales" se había tomado solo sobre la base de **desarrollo** (`textil_db`). El usuario confirmó el 2026-08-07 que **en producción (Railway) los datos también son de prueba** — no hay pedidos de tienda ni clientes reales que requieran backfill o estrategia de compatibilidad hacia atrás. Esto **desbloquea** aplicar las migraciones 090-092 en producción cuando se decida desplegar, sin el riesgo que motivaba este punto.
+
+**Importante — esto NO significa que el despliegue ya se haya hecho.** Confirmado explícitamente con el usuario el 2026-08-07: por ahora solo se deja documentado; el deploy real (merge de `auditoriacaja` a `main` en ambos repos, redeploy de backend/frontend, aplicar las migraciones en Railway, configurar `store_bank_account_id` en producción) queda pendiente hasta que se pida explícitamente. No iniciar ese despliegue solo por esta confirmación.
 
 ---
 
