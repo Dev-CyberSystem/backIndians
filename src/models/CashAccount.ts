@@ -20,7 +20,14 @@ CashAccount.init(
     id:              { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
     name:            { type: DataTypes.STRING(150), allowNull: false },
     type:            { type: DataTypes.ENUM('cash', 'petty_cash', 'bank'), allowNull: false },
-    current_balance: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
+    current_balance: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: false,
+      defaultValue: 0,
+      get() {
+        return parseFloat(String(this.getDataValue('current_balance')));
+      },
+    },
     description:     { type: DataTypes.TEXT, allowNull: true },
     active:          { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     createdAt:       DataTypes.DATE,
