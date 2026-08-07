@@ -1,4 +1,4 @@
-import { DataTypes } from 'sequelize';
+import { DataTypes, QueryTypes } from 'sequelize';
 import { sequelize } from './db';
 import { logger } from '../utils/logger';
 
@@ -226,5 +226,80 @@ export async function ensureSchema(): Promise<void> {
     }
   } catch (err) {
     logger.error('ensureSchema.cashReversalMarks', err, { meta: { fatal: false } });
+  }
+
+  // ─── Cobranza de facturas conectada a caja (migraciones 093-095, DEC-012) ───
+  try {
+    const invoicePayments = await qi.describeTable('invoice_payments');
+
+    if (!invoicePayments.payment_method) {
+      await qi.addColumn('invoice_payments', 'payment_method', {
+        type: DataTypes.ENUM('cash', 'bank_transfer', 'mercadopago'),
+        allowNull: false,
+        // `sync()` sin datos previos no puede darle un default sensato a un
+        // NOT NULL sobre filas ya existentes; en dev la tabla puede tener
+        // filas de prueba viejas sin este campo. `defaultValue` acá es solo
+        // para que `addColumn` no falle sobre esas filas — no expresa una
+        // afirmación de negocio (ver migración 093 para el criterio real:
+        // sin default en producción, porque no había datos reales que migrar).
+        defaultValue: 'cash',
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'invoice_payments', column: 'payment_method' } });
+    }
+    if (!invoicePayments.cash_recorded_at) {
+      await qi.addColumn('invoice_payments', 'cash_recorded_at', { type: DataTypes.DATE, allowNull: true });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'invoice_payments', column: 'cash_recorded_at' } });
+    }
+    if (!invoicePayments.idempotency_key) {
+      await qi.addColumn('invoice_payments', 'idempotency_key', { type: DataTypes.STRING(80), allowNull: true });
+      await qi.addIndex('invoice_payments', ['idempotency_key'], {
+        name: 'uq_invoice_payments_idempotency_key',
+        unique: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'invoice_payments', column: 'idempotency_key' } });
+    }
+
+    const catalogInvoicePayments = await qi.describeTable('catalog_invoice_payments');
+
+    if (!catalogInvoicePayments.payment_method) {
+      await qi.addColumn('catalog_invoice_payments', 'payment_method', {
+        type: DataTypes.ENUM('cash', 'bank_transfer', 'mercadopago'),
+        allowNull: false,
+        defaultValue: 'cash',
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'catalog_invoice_payments', column: 'payment_method' } });
+    }
+    if (!catalogInvoicePayments.cash_recorded_at) {
+      await qi.addColumn('catalog_invoice_payments', 'cash_recorded_at', { type: DataTypes.DATE, allowNull: true });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'catalog_invoice_payments', column: 'cash_recorded_at' } });
+    }
+    if (!catalogInvoicePayments.idempotency_key) {
+      await qi.addColumn('catalog_invoice_payments', 'idempotency_key', { type: DataTypes.STRING(80), allowNull: true });
+      await qi.addIndex('catalog_invoice_payments', ['idempotency_key'], {
+        name: 'uq_catalog_invoice_payments_idempotency_key',
+        unique: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'catalog_invoice_payments', column: 'idempotency_key' } });
+    }
+
+    // `sync()` sin `alter` no toca columnas de tablas ya existentes, así que
+    // el ENUM de `reference_type` no gana 'catalog_invoice' solo por
+    // actualizar el modelo TypeScript — hay que alterarlo explícitamente,
+    // igual que hace la migración 095 en producción.
+    const rows = await sequelize.query<{ COLUMN_TYPE: string }>(
+      `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cash_transactions' AND COLUMN_NAME = 'reference_type'`,
+      { type: QueryTypes.SELECT }
+    );
+    const alreadyHasCatalogInvoice = rows[0]?.COLUMN_TYPE?.includes("'catalog_invoice'");
+    if (!alreadyHasCatalogInvoice) {
+      await qi.changeColumn('cash_transactions', 'reference_type', {
+        type: DataTypes.ENUM('invoice', 'order', 'store_order', 'catalog_invoice'),
+        allowNull: true,
+      });
+      logger.info('ensureSchema.changeColumn', { meta: { table: 'cash_transactions', column: 'reference_type' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.invoiceCollectionsCash', err, { meta: { fatal: false } });
   }
 }

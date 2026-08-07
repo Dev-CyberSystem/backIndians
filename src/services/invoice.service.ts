@@ -1,9 +1,11 @@
-import { QueryTypes, Op, Transaction } from 'sequelize';
+import { QueryTypes, Op, Transaction, UniqueConstraintError } from 'sequelize';
 import { sequelize } from '../config/db';
 import { Invoice, Order, Client, OrderItem, GarmentType, FabricType, User, Settings, InvoicePayment } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { InvoiceStatus, JwtPayload } from '../types';
 import { InvoiceExtraItem } from '../models/Invoice';
+import type { InvoicePaymentMethod } from '../models/InvoicePayment';
+import { recordInvoiceCollectionCashIncome, reverseAllForReference } from './cash.service';
 
 export interface UpdateInvoiceInput {
   due_date?: string;
@@ -193,7 +195,34 @@ export async function updateInvoice(
   const orderTotal = Number((invoice as any).order?.total_amount ?? 0);
   updateData.total_amount = calcTotal(orderTotal, newExtras, newDiscount);
 
-  await invoice.update(updateData);
+  // Al anular una factura con cobros ya asentados, revertir todos sus
+  // ingresos de caja en la MISMA transacción del cambio de estado (DEC-012,
+  // cierra CASH-INV-001 del lado de la anulación). Best-effort por diseño de
+  // `reverseAllForReference`: nunca bloquea la anulación por un problema de
+  // caja. El guard de arriba (`invoice.status === 'cancelled'` → 400) ya
+  // impide que esto se dispare dos veces sobre la misma factura.
+  //
+  // Nota: esta reversión solo cubre la transición HACIA 'cancelled'. Un
+  // cambio manual de 'paid' a 'issued'/'draft' sin pasar por 'cancelled' no
+  // revierte caja — es un caso de edición administrativa fuera del alcance
+  // de esta fase, no una regla de negocio nueva que se esté decidiendo acá.
+  // (El guard de arriba ya aseguró que `invoice.status` no puede ser
+  // 'cancelled' a esta altura, así que solo hace falta mirar el destino.)
+  const cancelling = input.status === 'cancelled';
+
+  if (cancelling) {
+    await sequelize.transaction(async (t) => {
+      await invoice.update(updateData, { transaction: t });
+      await reverseAllForReference(
+        'invoice', invoice.id,
+        `Anulación de factura ${invoice.invoice_number}`,
+        currentUser.id, t
+      );
+    });
+  } else {
+    await invoice.update(updateData);
+  }
+
   return getInvoiceById(id);
 }
 
@@ -201,26 +230,94 @@ export async function getInvoiceByOrderId(orderId: number): Promise<Invoice | nu
   return Invoice.findOne({ where: { order_id: orderId }, include: invoiceIncludes });
 }
 
+export interface AddInvoicePaymentInput {
+  amount: number;
+  payment_method: InvoicePaymentMethod;
+  notes?: string;
+  /** Reintento de red seguro: dos altas con la misma clave devuelven el mismo cobro. */
+  idempotency_key?: string;
+}
+
+/**
+ * Registra un cobro de una factura de fábrica y su asiento de caja
+ * correspondiente (DEC-012 — cierra CASH-INV-001/CASH-INV-002).
+ *
+ * Antes: `InvoicePayment.create` + `findAll` + `update` de la factura, las
+ * tres fuera de transacción y sin ninguna clave de idempotencia — dos
+ * cobranzas concurrentes podían dejar `payment_amount` subvaluado y la
+ * factura sin pasar a `paid` (CASH-INV-002), y el cobro nunca tocaba caja
+ * (CASH-INV-001). Ahora: `LOCK.UPDATE` sobre la factura dentro de la misma
+ * transacción que crea el pago, recalcula el total y arma el asiento —
+ * mismo patrón que `createTransactionCore`/`recordStoreOrderIncome`.
+ */
 export async function addPaymentToInvoice(
   id: number,
-  amount: number,
-  notes?: string
+  input: AddInvoicePaymentInput,
+  currentUser: JwtPayload
 ): Promise<Invoice> {
-  const invoice = await Invoice.findByPk(id);
-  if (!invoice) throw new AppError('Factura no encontrada', 404);
-  if (invoice.status === 'cancelled') throw new AppError('No se puede pagar una factura anulada', 400);
-  if (invoice.status === 'paid') throw new AppError('La factura ya está completamente pagada', 400);
+  // Camino rápido: un reintento secuencial genuino ya encuentra el pago sin
+  // abrir transacción de más (mismo patrón que `createTransaction` en cash.service.ts).
+  if (input.idempotency_key) {
+    const existing = await InvoicePayment.findOne({ where: { idempotency_key: input.idempotency_key } });
+    if (existing) return getInvoiceById(existing.invoice_id, currentUser);
+  }
 
-  await InvoicePayment.create({ invoice_id: id, amount, notes: notes ?? null });
+  let invoiceId = id;
+  try {
+    await sequelize.transaction(async (t) => {
+      const invoice = await Invoice.findByPk(id, { transaction: t, lock: Transaction.LOCK.UPDATE });
+      if (!invoice) throw new AppError('Factura no encontrada', 404);
+      if (invoice.status === 'cancelled') throw new AppError('No se puede pagar una factura anulada', 400);
+      if (invoice.status === 'paid') throw new AppError('La factura ya está completamente pagada', 400);
 
-  const rows = await InvoicePayment.findAll({ where: { invoice_id: id } });
-  const totalPaid = rows.reduce((s, p) => s + p.amount, 0);
-  const invoiceTotal = Number(invoice.total_amount ?? 0);
+      const payment = await InvoicePayment.create(
+        {
+          invoice_id: id,
+          amount: input.amount,
+          payment_method: input.payment_method,
+          notes: input.notes ?? null,
+          idempotency_key: input.idempotency_key ?? null,
+        },
+        { transaction: t }
+      );
 
-  await invoice.update({
-    payment_amount: totalPaid,
-    status: invoiceTotal > 0 && totalPaid >= invoiceTotal ? 'paid' : invoice.status,
-  });
+      const rows = await InvoicePayment.findAll({ where: { invoice_id: id }, transaction: t });
+      const totalPaid = rows.reduce((s, p) => s + p.amount, 0);
+      const invoiceTotal = Number(invoice.total_amount ?? 0);
 
-  return getInvoiceById(id) as Promise<Invoice>;
+      await invoice.update(
+        {
+          payment_amount: totalPaid,
+          status: invoiceTotal > 0 && totalPaid >= invoiceTotal ? 'paid' : invoice.status,
+        },
+        { transaction: t }
+      );
+
+      const recordedAt = await recordInvoiceCollectionCashIncome(
+        {
+          referenceType: 'invoice',
+          referenceId: invoice.id,
+          amount: input.amount,
+          paymentMethod: input.payment_method,
+          description: `Cobro factura ${invoice.invoice_number}`,
+          createdBy: currentUser.id,
+        },
+        t
+      );
+      if (recordedAt) await payment.update({ cash_recorded_at: recordedAt }, { transaction: t });
+
+      invoiceId = invoice.id;
+    });
+  } catch (err) {
+    // Carrera genuina: dos requests con la misma clave llegaron a la vez y el
+    // índice único de la DB (migración 093) frenó al segundo — mismo patrón
+    // que `createTransaction` en cash.service.ts.
+    if (err instanceof UniqueConstraintError && input.idempotency_key) {
+      const existing = await InvoicePayment.findOne({ where: { idempotency_key: input.idempotency_key } });
+      if (existing) return getInvoiceById(existing.invoice_id, currentUser);
+    }
+    throw err;
+  }
+
+  return getInvoiceById(invoiceId, currentUser) as Promise<Invoice>;
 }

@@ -159,6 +159,55 @@ const CHECKS: Check[] = [
           WHERE u.id IS NULL`,
     expectZero: true,
   },
+
+  // ── Cobranza de facturas conectada a caja (DEC-012, Fase 2 del plan de GO) ──
+
+  {
+    id: 'CT-19',
+    description: 'Cobros de fábrica con cash_recorded_at marcado pero sin asiento de caja',
+    sql: `SELECT p.id, p.invoice_id, p.cash_recorded_at FROM invoice_payments p
+          LEFT JOIN cash_transactions ct
+            ON ct.reference_type = 'invoice' AND ct.reference_id = p.invoice_id
+            AND ct.reversal_of_id IS NULL AND ct.amount = p.amount
+          WHERE p.cash_recorded_at IS NOT NULL AND ct.id IS NULL`,
+    expectZero: false, // best-effort por diseño: match por monto es aproximado si hay varios cobros iguales
+  },
+  {
+    id: 'CT-20',
+    description: 'Cobros de catálogo con cash_recorded_at marcado pero sin asiento de caja',
+    sql: `SELECT p.id, p.catalog_invoice_id, p.cash_recorded_at FROM catalog_invoice_payments p
+          LEFT JOIN cash_transactions ct
+            ON ct.reference_type = 'catalog_invoice' AND ct.reference_id = p.catalog_invoice_id
+            AND ct.reversal_of_id IS NULL AND ct.amount = p.amount
+          WHERE p.cash_recorded_at IS NOT NULL AND ct.id IS NULL`,
+    expectZero: false,
+  },
+  {
+    id: 'CT-21',
+    description: 'Facturas de fábrica anuladas con ingreso de caja todavía sin revertir',
+    sql: `SELECT i.id, i.invoice_number, ct.id AS tx_id, ct.amount FROM invoices i
+          JOIN cash_transactions ct
+            ON ct.reference_type = 'invoice' AND ct.reference_id = i.id AND ct.reversal_of_id IS NULL
+          WHERE i.status = 'cancelled' AND ct.status = 'active'`,
+    expectZero: true,
+  },
+  {
+    id: 'CT-22',
+    description: 'Facturas de catálogo anuladas con ingreso de caja todavía sin revertir',
+    sql: `SELECT i.id, i.invoice_number, ct.id AS tx_id, ct.amount FROM catalog_invoices i
+          JOIN cash_transactions ct
+            ON ct.reference_type = 'catalog_invoice' AND ct.reference_id = i.id AND ct.reversal_of_id IS NULL
+          WHERE i.status = 'cancelled' AND ct.status = 'active'`,
+    expectZero: true,
+  },
+  {
+    id: 'CT-23',
+    description: 'Cobros de fábrica o catálogo sin medio de pago (esquema roto: la columna es NOT NULL)',
+    sql: `SELECT id, 'invoice_payments' AS tabla FROM invoice_payments WHERE payment_method IS NULL
+          UNION ALL
+          SELECT id, 'catalog_invoice_payments' AS tabla FROM catalog_invoice_payments WHERE payment_method IS NULL`,
+    expectZero: true,
+  },
 ];
 
 /**

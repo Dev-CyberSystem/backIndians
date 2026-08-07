@@ -6,6 +6,132 @@ import {
 import { AppError } from '../middlewares/errorHandler';
 import { CashAuditContext, recordCashAudit, snapshotOf } from './cashAudit.service';
 import { businessDate } from '../utils/helpers';
+import { getAllSettings } from './settings.service';
+import { logger } from '../utils/logger';
+
+export type CashReferenceType = 'invoice' | 'order' | 'store_order' | 'catalog_invoice';
+
+/** Medios de pago que puede tener un cobro/venta en todo el sistema (mismo vocabulario que `store_orders.payment_method`). */
+export type CashPaymentMethod = 'mercadopago' | 'cash' | 'bank_transfer';
+
+/**
+ * Qué setting de cuenta corresponde según el medio de pago (DEC-012 / Fase 3
+ * del plan de corrección de caja original — cierra CASH-PAY-002: antes, un
+ * pago con MercadoPago o transferencia se registraba en la misma cuenta que
+ * el efectivo, mezclando dinero que nunca entró físicamente con el cajón
+ * real). Solo `cash` es efectivo de verdad; `mercadopago`/`bank_transfer` van
+ * a la cuenta bancaria configurada aparte.
+ *
+ * Vivía duplicada en `store.service.ts`: la cobranza de facturas (fábrica y
+ * catálogo, DEC-012) necesita exactamente el mismo mapeo, así que se
+ * centraliza acá para que ningún llamador la vuelva a declarar por su
+ * cuenta — mismo criterio de no duplicar que ya le costó caro al proyecto
+ * con `STORE_ORDER_TRANSITIONS`.
+ */
+export function cashSettingKeyFor(paymentMethod: CashPaymentMethod): 'store_cash_account_id' | 'store_bank_account_id' {
+  return paymentMethod === 'cash' ? 'store_cash_account_id' : 'store_bank_account_id';
+}
+
+export interface CashReversalOutcome {
+  /** true si se llegó a crear al menos un contraasiento. */
+  reversed: boolean;
+  /** Monto efectivamente revertido en caja. */
+  applied: number;
+  /** Parte del monto pedido que la caja NO pudo absorber (0 si entró todo). */
+  shortfall: number;
+}
+
+/**
+ * Categoría de sistema compartida por los dos circuitos de cobranza de
+ * facturas — fábrica (`invoice.service.ts`) y catálogo (`catalog.service.ts`,
+ * una copia funcional del primero). Es el mismo concepto de negocio: cobrar
+ * una factura ya emitida. Migración 095.
+ */
+export const INVOICE_COLLECTIONS_CASH_CATEGORY_NAME = 'Cobranzas de facturas';
+
+export interface RecordInvoiceCollectionCashIncomeInput {
+  referenceType: 'invoice' | 'catalog_invoice';
+  referenceId: number;
+  amount: number;
+  paymentMethod: CashPaymentMethod;
+  description: string;
+  createdBy: number;
+}
+
+/**
+ * Registra el ingreso de caja de UN cobro de factura, fábrica o catálogo
+ * (DEC-012 — cierra CASH-INV-001). Compartida entre los dos circuitos para
+ * no duplicar la lógica de mapeo medio→cuenta ni las guardas.
+ *
+ * Best-effort, mismo criterio que `recordStoreOrderIncome` en
+ * `store.service.ts` (BR-CASH-008): si la cuenta destino no está configurada
+ * o está inactiva, loguea un warning y sigue — el cobro ya se registró, el
+ * asiento de caja es una consecuencia administrativa, nunca al revés. Cada
+ * cobro genera su propio asiento (a diferencia de un pedido de tienda, una
+ * factura puede tener varios cobros parciales).
+ *
+ * Devuelve la fecha del asiento si se creó, o `null` si no se pudo — el
+ * llamador usa eso para marcar `cash_recorded_at` en la fila del pago.
+ */
+export async function recordInvoiceCollectionCashIncome(
+  input: RecordInvoiceCollectionCashIncomeInput,
+  transaction: import('sequelize').Transaction
+): Promise<Date | null> {
+  const settingKey = cashSettingKeyFor(input.paymentMethod);
+  const settings = await getAllSettings();
+  const accountId = Number(settings[settingKey]);
+  if (!accountId) {
+    logger.warn('invoiceCollection.cashIncome.accountNotConfigured', {
+      meta: {
+        referenceType: input.referenceType, referenceId: input.referenceId,
+        paymentMethod: input.paymentMethod, settingKey,
+      },
+    });
+    return null;
+  }
+
+  const account = await CashAccount.findByPk(accountId, { transaction });
+  if (!account || !account.active) {
+    logger.warn('invoiceCollection.cashIncome.accountUnusable', {
+      meta: {
+        referenceType: input.referenceType, referenceId: input.referenceId,
+        accountId, settingKey, reason: account ? 'inactive' : 'missing',
+      },
+    });
+    return null;
+  }
+
+  const category = await CashTransactionCategory.findOne({
+    where: { name: INVOICE_COLLECTIONS_CASH_CATEGORY_NAME, is_system: true },
+    transaction,
+  });
+  if (!category) {
+    logger.error(
+      'invoiceCollection.cashIncome.missingCategory',
+      new Error(`Falta la categoría "${INVOICE_COLLECTIONS_CASH_CATEGORY_NAME}" (migración 095)`),
+      { meta: { referenceType: input.referenceType, referenceId: input.referenceId } }
+    );
+    return null;
+  }
+
+  const recordedAt = new Date();
+  await createSystemTransaction(
+    {
+      account_id: accountId,
+      category_id: category.id,
+      type: 'income',
+      amount: input.amount,
+      description: input.description,
+      date: businessDate(),
+      reference_type: input.referenceType,
+      reference_id: input.referenceId,
+    },
+    input.createdBy,
+    transaction
+  );
+
+  return recordedAt;
+}
 
 type SummaryResult = {
   accounts: { id: number; name: string; type: 'cash' | 'petty_cash' | 'bank'; current_balance: number; active: boolean }[];
@@ -257,7 +383,7 @@ export interface ListTransactionsOptions {
   status?: 'active' | 'reversed';
   date_from?: string;
   date_to?: string;
-  reference_type?: 'invoice' | 'order' | 'store_order';
+  reference_type?: CashReferenceType;
   page: number;
   limit: number;
 }
@@ -353,7 +479,7 @@ export interface CreateTransactionInput {
   amount: number;
   description: string;
   date: string;
-  reference_type?: 'invoice' | 'order' | 'store_order';
+  reference_type?: CashReferenceType;
   reference_id?: number;
   transfer_account_id?: number;
   notes?: string;
@@ -678,6 +804,49 @@ export async function reverseSystemTransaction(
   transaction: import('sequelize').Transaction
 ): Promise<CashTransaction> {
   return reverseTransactionCore(id, input, { userId: createdBy }, transaction);
+}
+
+/**
+ * Revierte POR COMPLETO todos los movimientos activos (o con remanente tras
+ * una reversión parcial) asociados a una referencia de negocio — usada al
+ * anular una factura con uno o más cobros ya asentados (DEC-012). A
+ * diferencia de `reverseStoreOrderCashIncome` (un pedido de tienda genera
+ * como máximo UN ingreso, `cash_recorded_at` lo garantiza), una factura
+ * puede tener varios cobros parciales, cada uno con su propio asiento — así
+ * que acá se buscan y revierten TODOS, no uno solo.
+ *
+ * Best-effort por cada uno, mismo criterio que `reverseStoreOrderCashIncome`
+ * (CASH-REF-003): nunca lanza por "la caja no puede absorber esto". Si no
+ * hay nada que revertir (factura nunca cobrada, o sus cobros ya fueron
+ * revertidos antes), devuelve un array vacío sin tocar nada — es el caso
+ * normal de anular una factura que nunca se cobró, no un error. Por
+ * construcción es también idempotente: una segunda llamada sobre la misma
+ * referencia no encuentra originales activos y no hace nada.
+ */
+export async function reverseAllForReference(
+  referenceType: CashReferenceType,
+  referenceId: number,
+  reason: string,
+  createdBy: number,
+  transaction: import('sequelize').Transaction
+): Promise<CashReversalOutcome[]> {
+  const originals = await CashTransaction.findAll({
+    where: { reference_type: referenceType, reference_id: referenceId, reversal_of_id: null, status: 'active' },
+    transaction,
+  });
+
+  const outcomes: CashReversalOutcome[] = [];
+  for (const original of originals) {
+    const alreadyReversed = Number(
+      (await CashTransaction.sum('amount', { where: { reversal_of_id: original.id }, transaction })) ?? 0
+    );
+    const remaining = Number(original.amount) - alreadyReversed;
+    if (remaining <= 0) continue;
+
+    await reverseTransactionCore(original.id, { reason, amount: remaining }, { userId: createdBy }, transaction);
+    outcomes.push({ reversed: true, applied: remaining, shortfall: 0 });
+  }
+  return outcomes;
 }
 
 // ── Resumen ───────────────────────────────────────────────────────────────────

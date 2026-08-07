@@ -33,7 +33,7 @@ import { StoreOrderStatus } from '../models/StoreOrder';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
 import { CashTransaction } from '../models/CashTransaction';
 import { CashAccount } from '../models/CashAccount';
-import { createSystemTransaction, reverseSystemTransaction } from './cash.service';
+import { createSystemTransaction, reverseSystemTransaction, cashSettingKeyFor, CashReversalOutcome } from './cash.service';
 import {
   STORE_STATUS_LABELS,
   isValidStoreTransition,
@@ -1301,18 +1301,6 @@ async function getSystemUserId(transaction: Transaction): Promise<number> {
 const STORE_CASH_CATEGORY_NAME = 'Ventas tienda online';
 
 /**
- * Qué setting de cuenta corresponde según el medio de pago (Fase 3 del plan
- * de corrección de caja — cierra CASH-PAY-002: antes, un pago con
- * MercadoPago o transferencia se registraba en la misma cuenta que el
- * efectivo, mezclando dinero que nunca entró físicamente con el cajón real).
- * Solo `cash` es efectivo de verdad; `mercadopago`/`bank_transfer` van a la
- * cuenta bancaria configurada aparte.
- */
-function cashSettingKeyFor(paymentMethod: 'mercadopago' | 'cash' | 'bank_transfer'): 'store_cash_account_id' | 'store_bank_account_id' {
-  return paymentMethod === 'cash' ? 'store_cash_account_id' : 'store_bank_account_id';
-}
-
-/**
  * Registra el ingreso al confirmarse el pago de un pedido de tienda (2.3 —
  * cierra C-7 para el circuito de cobros). La cuenta destino depende del
  * medio de pago (ver `cashSettingKeyFor`): efectivo va a `store_cash_account_id`
@@ -1403,15 +1391,6 @@ async function recordStoreOrderIncome(
   );
 
   await locked.update({ cash_recorded_at: new Date() }, { transaction });
-}
-
-export interface CashReversalOutcome {
-  /** true si se llegó a crear un contraasiento. */
-  reversed: boolean;
-  /** Monto efectivamente revertido en caja. */
-  applied: number;
-  /** Parte del monto pedido que la caja NO pudo absorber (0 si entró todo). */
-  shortfall: number;
 }
 
 /**

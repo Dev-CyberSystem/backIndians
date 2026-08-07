@@ -1,5 +1,5 @@
 import { v2 as cloudinary } from 'cloudinary';
-import { type Includeable, Op } from 'sequelize';
+import { type Includeable, Op, Transaction, UniqueConstraintError } from 'sequelize';
 import { AppError } from '../middlewares/errorHandler';
 import { invalidateCache } from '../utils/cache';
 import {
@@ -19,6 +19,8 @@ import {
 import { sequelize } from '../config/db';
 import * as mpService from './mercadopago.service';
 import * as stockLedger from './stockLedger.service';
+import type { InvoicePaymentMethod } from '../models/InvoicePayment';
+import { recordInvoiceCollectionCashIncome, reverseAllForReference } from './cash.service';
 
 // ─── Include estándar de un producto ─────────────────────────────────────────
 
@@ -616,9 +618,19 @@ export async function getCatalogInvoice(orderId: number) {
   return invoice;
 }
 
+/**
+ * Al anular una factura de catálogo con cobros ya asentados, revierte todos
+ * sus ingresos de caja en la MISMA transacción del cambio de estado
+ * (DEC-012 — mismo tratamiento que `updateInvoice` en `invoice.service.ts`
+ * para facturas de fábrica). Best-effort por diseño de
+ * `reverseAllForReference`: nunca bloquea la anulación por un problema de
+ * caja, y es naturalmente idempotente (una segunda llamada con
+ * status='cancelled' no encuentra nada activo que revertir).
+ */
 export async function updateCatalogInvoiceStatus(
   orderId: number,
   status: 'draft' | 'issued' | 'paid' | 'cancelled',
+  changedBy: number,
   payment_amount?: number | null
 ) {
   const invoice = await CatalogInvoice.findOne({ where: { catalog_order_id: orderId } });
@@ -627,7 +639,20 @@ export async function updateCatalogInvoiceStatus(
   if (payment_amount !== undefined && payment_amount !== null) {
     updates.payment_amount = payment_amount;
   }
-  await invoice.update(updates);
+
+  if (status === 'cancelled') {
+    await sequelize.transaction(async (t) => {
+      await invoice.update(updates, { transaction: t });
+      await reverseAllForReference(
+        'catalog_invoice', invoice.id,
+        `Anulación de factura ${invoice.invoice_number} (catálogo)`,
+        changedBy, t
+      );
+    });
+  } else {
+    await invoice.update(updates);
+  }
+
   return invoice;
 }
 
@@ -704,26 +729,83 @@ export async function initiateCatalogPayment(
   return mpResult;
 }
 
+export interface AddCatalogInvoicePaymentInput {
+  amount: number;
+  payment_method: InvoicePaymentMethod;
+  notes?: string;
+  /** Reintento de red seguro: dos altas con la misma clave devuelven el mismo cobro. */
+  idempotency_key?: string;
+}
+
+/**
+ * Copia funcional de `addPaymentToInvoice` (`invoice.service.ts`) para el
+ * circuito de catálogo — mismo defecto original (sin transacción, sin
+ * medio de pago, sin idempotencia, sin asiento de caja) y misma corrección
+ * (DEC-012, cierra CASH-INV-001/CASH-INV-002 también acá). Ver los
+ * comentarios completos en `addPaymentToInvoice`.
+ */
 export async function addPaymentToCatalogInvoice(
   orderId: number,
-  amount: number,
-  notes?: string
+  input: AddCatalogInvoicePaymentInput,
+  changedBy: number
 ) {
-  const invoice = await CatalogInvoice.findOne({ where: { catalog_order_id: orderId } });
-  if (!invoice) throw new AppError('Factura no encontrada', 404);
-  if (invoice.status === 'cancelled') throw new AppError('No se puede pagar una factura cancelada', 400);
-  if (invoice.status === 'paid') throw new AppError('La factura ya está completamente pagada', 400);
+  if (input.idempotency_key) {
+    const existing = await CatalogInvoicePayment.findOne({ where: { idempotency_key: input.idempotency_key } });
+    if (existing) return getCatalogInvoice(orderId);
+  }
 
-  await CatalogInvoicePayment.create({ catalog_invoice_id: invoice.id, amount, notes: notes ?? null });
+  try {
+    await sequelize.transaction(async (t) => {
+      const invoice = await CatalogInvoice.findOne({
+        where: { catalog_order_id: orderId }, transaction: t, lock: Transaction.LOCK.UPDATE,
+      });
+      if (!invoice) throw new AppError('Factura no encontrada', 404);
+      if (invoice.status === 'cancelled') throw new AppError('No se puede pagar una factura cancelada', 400);
+      if (invoice.status === 'paid') throw new AppError('La factura ya está completamente pagada', 400);
 
-  const rows = await CatalogInvoicePayment.findAll({ where: { catalog_invoice_id: invoice.id } });
-  const totalPaid = rows.reduce((s, p) => s + p.amount, 0);
-  const invoiceTotal = Number(invoice.total_amount ?? 0);
+      const payment = await CatalogInvoicePayment.create(
+        {
+          catalog_invoice_id: invoice.id,
+          amount: input.amount,
+          payment_method: input.payment_method,
+          notes: input.notes ?? null,
+          idempotency_key: input.idempotency_key ?? null,
+        },
+        { transaction: t }
+      );
 
-  await invoice.update({
-    payment_amount: totalPaid,
-    status: invoiceTotal > 0 && totalPaid >= invoiceTotal ? 'paid' : invoice.status,
-  });
+      const rows = await CatalogInvoicePayment.findAll({ where: { catalog_invoice_id: invoice.id }, transaction: t });
+      const totalPaid = rows.reduce((s, p) => s + p.amount, 0);
+      const invoiceTotal = Number(invoice.total_amount ?? 0);
+
+      await invoice.update(
+        {
+          payment_amount: totalPaid,
+          status: invoiceTotal > 0 && totalPaid >= invoiceTotal ? 'paid' : invoice.status,
+        },
+        { transaction: t }
+      );
+
+      const recordedAt = await recordInvoiceCollectionCashIncome(
+        {
+          referenceType: 'catalog_invoice',
+          referenceId: invoice.id,
+          amount: input.amount,
+          paymentMethod: input.payment_method,
+          description: `Cobro factura ${invoice.invoice_number} (catálogo)`,
+          createdBy: changedBy,
+        },
+        t
+      );
+      if (recordedAt) await payment.update({ cash_recorded_at: recordedAt }, { transaction: t });
+    });
+  } catch (err) {
+    if (err instanceof UniqueConstraintError && input.idempotency_key) {
+      const existing = await CatalogInvoicePayment.findOne({ where: { idempotency_key: input.idempotency_key } });
+      if (existing) return getCatalogInvoice(orderId);
+    }
+    throw err;
+  }
 
   return getCatalogInvoice(orderId);
 }

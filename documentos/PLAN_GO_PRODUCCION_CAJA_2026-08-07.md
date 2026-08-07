@@ -85,9 +85,13 @@ SUM(CASE WHEN type = 'income'  AND reversal_of_id IS NULL     THEN  amount
 
 ---
 
-### Fase 2 — `CASH-INV-001` + `CASH-INV-002`: conectar cobranzas con caja
+### Fase 2 — `CASH-INV-001` + `CASH-INV-002`: conectar cobranzas con caja ✅ HECHA (2026-08-07)
 
 Cierra el bloqueante #2. Es la fase más grande y la única que toca esquema.
+
+**Resultado:** las 24 tareas de esta fase están implementadas y validadas. Migraciones `093`-`095` aplicadas en desarrollo. `cashSettingKeyFor`/`CashReversalOutcome` centralizados en `cash.service.ts` (2.6); `reverseAllForReference` (nueva) revierte TODOS los cobros de una factura al anularla, no solo el último. 13 tests nuevos en `invoice-collections-cash.test.ts`, 5 checks nuevos en `cash-integrity-check.ts` (CT-19 a CT-23). Suite completa: **287/287, 44 suites** (era 274 al terminar la Fase 1). Reglas documentadas: `BR-CASH-013`/`014`/`015` en `03-BUSINESS-RULES.md`, decisiones `DEC-012` en `08-DECISIONS.md`.
+
+**Ajuste sobre el plan original:** la tarea 2.7 (renombrar el concepto en la UI) se resolvió con un cambio de texto —subtítulo y nota aclaratoria en `EcommerceSettingsPage.tsx`— en vez de mover la sección de pantalla, porque el setting vive en un solo lugar y moverlo hubiera sido más disruptivo que aclarar in situ que ahora es compartido.
 
 #### 2.a — Medio de pago en los cobros (migración)
 

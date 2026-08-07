@@ -105,8 +105,9 @@ router.get(
     query('date_to').optional().isDate({ format: 'YYYY-MM-DD' }),
     // Incluye 'store_order': hallazgo CASH-FILTER-001 de la auditoría — el
     // validador no dejaba filtrar por el propio valor que usa la integración
-    // automática de tienda.
-    query('reference_type').optional().isIn(['invoice', 'order', 'store_order']),
+    // automática de tienda. 'catalog_invoice' se agregó con DEC-012 (Fase 2
+    // del plan de GO), mismo motivo.
+    query('reference_type').optional().isIn(['invoice', 'order', 'store_order', 'catalog_invoice']),
     query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 100 }),
     validate,

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { body, param, query } from 'express-validator';
+import { body, param, query, header } from 'express-validator';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
@@ -217,7 +217,9 @@ router.post(
   [
     param('id').isInt({ min: 1 }),
     body('amount').isFloat({ min: 0.01 }).withMessage('El monto debe ser mayor a 0'),
+    body('payment_method').isIn(['cash', 'bank_transfer', 'mercadopago']).withMessage('Medio de pago inválido'),
     body('notes').optional().isString(),
+    header('idempotency-key').optional().isUUID().withMessage('Idempotency-Key inválida'),
     validate,
   ],
   ctrl.addCatalogInvoicePayment
