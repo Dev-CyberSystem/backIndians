@@ -19,3 +19,28 @@ export function parseLimit(value: unknown, max = 100, fallback = 20): number {
   if (isNaN(n) || n < 1) return fallback;
   return Math.min(n, max);
 }
+
+/** Zona horaria operativa del negocio. */
+export const BUSINESS_TIMEZONE = 'America/Argentina/Tucuman';
+
+/**
+ * Fecha de negocio (`YYYY-MM-DD`) en la zona horaria del negocio.
+ *
+ * Reemplaza a `new Date().toISOString().slice(0, 10)`, que devuelve la fecha
+ * **UTC**: como Tucumán es UTC−3, todo lo registrado entre las 21:00 y la
+ * medianoche local quedaba fechado al día siguiente. En caja eso corre un
+ * movimiento (o el contraasiento de una reversión) a la jornada equivocada y
+ * descuadra el resumen diario y cualquier corte por fecha.
+ *
+ * `en-CA` se usa porque su formato corto ya es ISO (`2026-08-07`); no depende
+ * de la zona horaria del servidor (Railway corre en UTC, la máquina de
+ * desarrollo no).
+ */
+export function businessDate(at: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(at);
+}

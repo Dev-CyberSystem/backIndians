@@ -39,15 +39,16 @@ describe('Facturas — API', () => {
 
   it('registra un pago parcial y luego completa el total', async () => {
     const partial = await api().post(`${API}/invoices/${invoiceId}/payments`).set(...auth(admin))
-      .send({ amount: 30000, notes: 'Seña' });
+      .send({ amount: 30000, payment_method: 'cash', notes: 'Seña' });
     expect(partial.status).toBeGreaterThanOrEqual(200);
     expect(partial.status).toBeLessThan(300);
 
     let inv = await api().get(`${API}/invoices/${invoiceId}`).set(...auth(admin));
     expect(Number(inv.body.data?.payment_amount)).toBe(30000);
+    expect(inv.body.data?.payments?.[0]?.payment_method).toBe('cash');
 
     const rest = await api().post(`${API}/invoices/${invoiceId}/payments`).set(...auth(admin))
-      .send({ amount: 50000, notes: 'Saldo' });
+      .send({ amount: 50000, payment_method: 'bank_transfer', notes: 'Saldo' });
     expect(rest.status).toBeGreaterThanOrEqual(200);
     expect(rest.status).toBeLessThan(300);
 

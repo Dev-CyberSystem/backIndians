@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ValidationError, UniqueConstraintError } from 'sequelize';
+import { ValidationError, UniqueConstraintError, ForeignKeyConstraintError } from 'sequelize';
 import { logger } from '../utils/logger';
 import type { LogContext } from '../types/logging';
 
@@ -77,6 +77,25 @@ export function errorHandler(
         ? 'Ya existe una prenda con ese nombre para este cliente. Usá otro nombre.'
         : 'Ya existe un registro con esos datos (valor duplicado).',
       errors: err.errors.map((e) => ({ field: e.path, message: e.message })),
+    });
+    return;
+  }
+
+  // Referencia a una fila que no existe (o borrado de una fila referenciada)
+  // → 400, no 500 (CASH-VAL-006). Enviar un `category_id` inexistente es un
+  // error del cliente, no una falla del servidor: devolvía 500 y, en
+  // desarrollo, filtraba el mensaje crudo de MySQL con nombres de tabla y
+  // constraint. Va antes que `ValidationError` sin ser subclase suya, pero se
+  // agrupa acá con el resto de los errores de integridad de base.
+  if (err instanceof ForeignKeyConstraintError) {
+    logger.warn('db.foreignKey', {
+      ...ctx,
+      message: 'Referencia inexistente',
+      meta: { ...ctx.meta, table: err.table, fields: err.fields },
+    });
+    res.status(400).json({
+      success: false,
+      message: 'Uno de los registros referenciados no existe o está en uso.',
     });
     return;
   }

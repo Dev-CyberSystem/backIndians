@@ -35,7 +35,15 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    // 'Idempotency-Key' faltaba acá desde siempre: el checkout de la tienda
+    // (1.4) y ahora el cobro de facturas (Fase 2 de caja, DEC-012) la envían
+    // desde el frontend, pero el preflight CORS la rechazaba — "Request
+    // header field idempotency-key is not allowed by
+    // Access-Control-Allow-Headers" — así que en un navegador real la
+    // request ni siquiera salía. Nunca se detectó porque los tests de API
+    // (supertest) no pasan por CORS del navegador; recién lo mostró un E2E
+    // real contra Chromium (Fase 3 del plan de GO).
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
   })
 );
 

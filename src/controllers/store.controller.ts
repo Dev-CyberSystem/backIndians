@@ -468,10 +468,12 @@ export async function reviewReturn(req: Request, res: Response, next: NextFuncti
 
 export async function updateReturnRefund(req: Request, res: Response, next: NextFunction) {
   try {
+    const userId = (req as unknown as AuthRequest).user!.id;
     const { refund_status, refunded_amount } = req.body;
     const ret = await storeReturns.updateStoreReturnRefund(Number(req.params.id), {
       refund_status,
       refunded_amount: refunded_amount ?? null,
+      changedBy: userId,
     });
     res.json({ success: true, data: ret });
   } catch (err) { next(err); }

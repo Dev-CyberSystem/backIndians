@@ -31,7 +31,9 @@ import { generateInvoicePdf } from '../utils/store.pdf';
 import { getAllSettings } from './settings.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
-import { createSystemTransaction } from './cash.service';
+import { CashTransaction } from '../models/CashTransaction';
+import { CashAccount } from '../models/CashAccount';
+import { createSystemTransaction, reverseSystemTransaction, cashSettingKeyFor, CashReversalOutcome } from './cash.service';
 import {
   STORE_STATUS_LABELS,
   isValidStoreTransition,
@@ -41,6 +43,7 @@ import { getIO } from '../config/socket';
 import { cached } from '../utils/cache';
 import { cloudinary } from '../config/cloudinary';
 import { roundPrice } from '../utils/money';
+import { businessDate } from '../utils/helpers';
 
 // ─── Comprobantes de pago: URLs firmadas ─────────────────────────────────────
 
@@ -1298,13 +1301,16 @@ async function getSystemUserId(transaction: Transaction): Promise<number> {
 const STORE_CASH_CATEGORY_NAME = 'Ventas tienda online';
 
 /**
- * Registra el ingreso en caja al confirmarse el pago de un pedido de tienda
- * (2.3 — cierra C-7 para el circuito de cobros). Requiere que el admin haya
- * configurado `store_cash_account_id` en Configuración — si no está
- * configurado, NO bloquea la confirmación del pago (la plata ya se cobró,
- * el asiento de caja es una consecuencia administrativa, no al revés):
- * solo loguea un warning y queda pendiente hasta que se configure la
- * cuenta (el reporte de conciliación de 2.7 puede detectar estos casos).
+ * Registra el ingreso al confirmarse el pago de un pedido de tienda (2.3 —
+ * cierra C-7 para el circuito de cobros). La cuenta destino depende del
+ * medio de pago (ver `cashSettingKeyFor`): efectivo va a `store_cash_account_id`
+ * (una cuenta física de tipo `cash`); MercadoPago/transferencia van a
+ * `store_bank_account_id` (una cuenta `bank` — ese dinero nunca pasó por el
+ * cajón). Si la cuenta que corresponde no está configurada, NO bloquea la
+ * confirmación del pago (la plata ya se cobró, el asiento es una
+ * consecuencia administrativa, no al revés): solo loguea un warning y queda
+ * pendiente hasta que se configure (el reporte de conciliación de 2.7 puede
+ * detectar estos casos).
  *
  * `createdBy`: si un admin confirmó el pago a mano, se le atribuye a él/ella;
  * si fue automático (webhook de MP, job de reconciliación/expiración), se
@@ -1312,10 +1318,10 @@ const STORE_CASH_CATEGORY_NAME = 'Ventas tienda online';
  *
  * Idempotente por `cash_recorded_at`, columna separada de
  * `stock_confirmed_at` a propósito: si falta configurar la cuenta, un
- * reintento futuro puede completar el asiento de caja sin depender de que
- * el stock (que sí se confirmó bien) se vuelva a tocar.
+ * reintento futuro puede completar el asiento sin depender de que el stock
+ * (que sí se confirmó bien) se vuelva a tocar.
  */
-async function recordStoreOrderCashIncome(
+async function recordStoreOrderIncome(
   order: StoreOrder,
   changedBy: number | null,
   transaction: Transaction
@@ -1326,11 +1332,27 @@ async function recordStoreOrderCashIncome(
   });
   if (!locked || locked.cash_recorded_at) return;
 
+  const settingKey = cashSettingKeyFor(locked.payment_method);
   const settings = await getAllSettings();
-  const accountId = Number(settings.store_cash_account_id);
+  const accountId = Number(settings[settingKey]);
   if (!accountId) {
     logger.warn('store.cashIncome.accountNotConfigured', {
-      meta: { orderId: order.id, orderNumber: order.order_number },
+      meta: { orderId: order.id, orderNumber: order.order_number, paymentMethod: locked.payment_method, settingKey },
+    });
+    return;
+  }
+
+  // Desde CASH-VAL-004, `createTransactionCore` rechaza cuentas desactivadas.
+  // Acá se chequea ANTES para no dejar que esa excepción tumbe la confirmación
+  // del pago: la plata ya se cobró, el asiento es una consecuencia
+  // administrativa (mismo criterio que la cuenta sin configurar, arriba).
+  const account = await CashAccount.findByPk(accountId, { transaction });
+  if (!account || !account.active) {
+    logger.warn('store.cashIncome.accountUnusable', {
+      meta: {
+        orderId: order.id, orderNumber: order.order_number, accountId, settingKey,
+        reason: account ? 'inactive' : 'missing',
+      },
     });
     return;
   }
@@ -1349,7 +1371,9 @@ async function recordStoreOrderCashIncome(
   }
 
   const createdBy = changedBy ?? (await getSystemUserId(transaction));
-  const today = new Date().toISOString().slice(0, 10);
+  // Fecha de negocio (UTC−3), no UTC: con `toISOString()` un pago confirmado
+  // después de las 21:00 local quedaba asentado en la jornada siguiente.
+  const today = businessDate();
 
   await createSystemTransaction(
     {
@@ -1367,6 +1391,62 @@ async function recordStoreOrderCashIncome(
   );
 
   await locked.update({ cash_recorded_at: new Date() }, { transaction });
+}
+
+/**
+ * Revierte (total o parcialmente) el ingreso de caja/banco ya registrado
+ * para un pedido, si existe (Fase 4 — cierra CASH-SALE-002). Reutiliza
+ * `reverseTransaction` (Fase 2), que soporta monto parcial por diseño.
+ *
+ * **Es best-effort a propósito (CASH-REF-003)**: nunca lanza por "la caja no
+ * puede absorber este monto". Si se pide revertir más de lo que queda sin
+ * revertir, se revierte el remanente y el resto se informa en `shortfall`
+ * para que el llamador lo loguee. La versión anterior propagaba el error de
+ * `reverseTransactionCore` y eso terminaba **impidiendo registrar una
+ * devolución que el negocio ya había hecho** — una regla contable interna no
+ * puede vetar un hecho consumado (mismo criterio que `recordStoreOrderIncome`,
+ * que no bloquea el cobro si falta configurar la cuenta).
+ *
+ * No es idempotente por sí sola: no toca ningún `cash_reversed_at` — esa marca
+ * vive en la entidad que dispara la reversión (`store_orders` para la
+ * cancelación, `store_returns` para cada devolución) y es el llamador quien
+ * decide. Devuelve `reversed: false` sin hacer nada si no hay ingreso
+ * registrado o si ya está completamente revertido: no es un error, es el caso
+ * normal de un pedido que nunca se cobró.
+ */
+export async function reverseStoreOrderCashIncome(
+  orderId: number,
+  reason: string,
+  changedBy: number | null,
+  transaction: Transaction,
+  amount?: number
+): Promise<CashReversalOutcome> {
+  const nothing = (shortfall: number): CashReversalOutcome => ({ reversed: false, applied: 0, shortfall });
+
+  const original = await CashTransaction.findOne({
+    where: { reference_type: 'store_order', reference_id: orderId, reversal_of_id: null },
+    transaction,
+  });
+  if (!original || original.status === 'reversed') return nothing(amount ?? 0);
+
+  const alreadyReversed = Number(
+    (await CashTransaction.sum('amount', { where: { reversal_of_id: original.id }, transaction })) ?? 0
+  );
+  const remaining = Number(original.amount) - alreadyReversed;
+  if (remaining <= 0) return nothing(amount ?? 0);
+
+  const requested = amount ?? remaining;
+  const applied = Math.min(requested, remaining);
+  if (applied <= 0) return nothing(requested);
+
+  const createdBy = changedBy ?? (await getSystemUserId(transaction));
+  await reverseSystemTransaction(original.id, { reason, amount: applied }, createdBy, transaction);
+
+  return {
+    reversed: true,
+    applied,
+    shortfall: Math.max(0, Number((requested - applied).toFixed(2))),
+  };
 }
 
 export async function restoreStoreOrderStock(
@@ -1567,10 +1647,11 @@ export async function recordStoreOrderStatusChange(
           options.changedBy ?? null,
           t
         );
-        // Ingreso en caja (2.3), mismo disparador que la confirmación de
-        // stock — ver recordStoreOrderCashIncome para el detalle de por qué
-        // no bloquea el pago si falta configurar la cuenta.
-        await recordStoreOrderCashIncome(order, options.changedBy ?? null, t);
+        // Ingreso en caja/banco (2.3, cuenta según medio de pago desde la
+        // Fase 3), mismo disparador que la confirmación de stock — ver
+        // recordStoreOrderIncome para el detalle de por qué no bloquea el
+        // pago si falta configurar la cuenta correspondiente.
+        await recordStoreOrderIncome(order, options.changedBy ?? null, t);
       }
 
       // Restituir stock y liberar cupón al entrar en cancelled (C-1/A-9).
@@ -1583,6 +1664,25 @@ export async function recordStoreOrderStatusChange(
           options.changedBy ?? null,
           t
         );
+
+        // Revertir el ingreso de caja/banco ya registrado (Fase 4). Lockea
+        // el pedido para leer cash_recorded_at/cash_reversed_at de forma
+        // consistente — mismo criterio que recordStoreOrderIncome arriba.
+        const lockedForCash = await StoreOrder.findByPk(order.id, {
+          lock: Transaction.LOCK.UPDATE,
+          transaction: t,
+        });
+        if (lockedForCash?.cash_recorded_at && !lockedForCash.cash_reversed_at) {
+          const outcome = await reverseStoreOrderCashIncome(
+            lockedForCash.id,
+            `Cancelación de pedido ${lockedForCash.order_number}`,
+            options.changedBy ?? null,
+            t
+          );
+          if (outcome.reversed) {
+            await lockedForCash.update({ cash_reversed_at: new Date() }, { transaction: t });
+          }
+        }
       }
     }
   };

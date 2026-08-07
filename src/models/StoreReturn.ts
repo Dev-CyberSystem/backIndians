@@ -15,6 +15,8 @@ export class StoreReturn extends Model<
   declare refund_status: CreationOptional<StoreReturnRefundStatus>;
   declare refunded_amount: CreationOptional<number | null>;
   declare refunded_at: CreationOptional<Date | null>;
+  /** Se setea al revertir en caja el monto de esta devolución (Fase 4). Marca propia (no la de store_orders) porque puede haber varias devoluciones parciales sobre el mismo pedido. */
+  declare cash_reversed_at: CreationOptional<Date | null>;
   declare requested_by: CreationOptional<number | null>;
   declare reviewed_by: CreationOptional<number | null>;
   declare reviewed_at: CreationOptional<Date | null>;
@@ -40,6 +42,7 @@ StoreReturn.init(
       },
     },
     refunded_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    cash_reversed_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     requested_by: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true, defaultValue: null },
     reviewed_by: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true, defaultValue: null },
     reviewed_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },

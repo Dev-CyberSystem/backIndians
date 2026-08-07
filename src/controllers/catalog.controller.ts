@@ -185,10 +185,16 @@ export async function getCatalogInvoice(req: AuthRequest, res: Response, next: N
 
 export async function addCatalogInvoicePayment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const idempotencyKey = req.headers['idempotency-key'];
     const invoice = await catalogService.addPaymentToCatalogInvoice(
       parseInt(req.params.id),
-      Number(req.body.amount),
-      req.body.notes
+      {
+        amount: Number(req.body.amount),
+        payment_method: req.body.payment_method,
+        notes: req.body.notes,
+        idempotency_key: typeof idempotencyKey === 'string' ? idempotencyKey : undefined,
+      },
+      req.user!.id
     );
     res.status(201).json({ success: true, data: invoice });
   } catch (err) { next(err); }
@@ -199,6 +205,7 @@ export async function updateCatalogInvoiceStatus(req: AuthRequest, res: Response
     const invoice = await catalogService.updateCatalogInvoiceStatus(
       parseInt(req.params.id),
       req.body.status,
+      req.user!.id,
       req.body.payment_amount != null ? Number(req.body.payment_amount) : undefined
     );
     res.json({ success: true, data: invoice });
