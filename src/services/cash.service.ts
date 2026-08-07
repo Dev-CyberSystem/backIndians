@@ -5,6 +5,7 @@ import {
 } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { CashAuditContext, recordCashAudit, snapshotOf } from './cashAudit.service';
+import { businessDate } from '../utils/helpers';
 
 type SummaryResult = {
   accounts: { id: number; name: string; type: 'cash' | 'petty_cash' | 'bank'; current_balance: number; active: boolean }[];
@@ -97,21 +98,35 @@ export async function createAccount(
   });
 }
 
+export interface UpdateAccountInput {
+  name?: string;
+  type?: 'cash' | 'petty_cash' | 'bank';
+  description?: string;
+}
+
 export async function updateAccount(
   id: number,
-  input: {
-    name?: string;
-    type?: 'cash' | 'petty_cash' | 'bank';
-    description?: string;
-  },
+  input: UpdateAccountInput,
   ctx: CashAuditContext
 ) {
   const acc = await CashAccount.findByPk(id);
   if (!acc) throw new AppError('Cuenta no encontrada', 404);
   const before = snapshotOf(acc);
 
+  // Patch campo por campo, NUNCA `acc.update(input)` con el body crudo: el
+  // controlador pasa `req.body` tal cual y `express-validator` valida los
+  // campos declarados pero no descarta los demás, así que un
+  // `PUT /cash/accounts/:id {"current_balance": 999999}` reescribía el saldo
+  // directamente, sin asiento, salteándose todo el libro contable
+  // (CASH-MA-001). `current_balance` solo se mueve por
+  // `applyBalanceEffect`; `active` solo por el endpoint `/toggle`.
+  const patch: UpdateAccountInput = {};
+  if (input.name !== undefined)        patch.name        = input.name;
+  if (input.type !== undefined)        patch.type        = input.type;
+  if (input.description !== undefined) patch.description = input.description;
+
   await sequelize.transaction(async (t) => {
-    await acc.update(input, { transaction: t });
+    await acc.update(patch, { transaction: t });
     await recordCashAudit(
       { entityType: 'account', entityId: acc.id, action: 'update', before, after: snapshotOf(acc), context: ctx },
       t
@@ -172,13 +187,15 @@ export async function createCategory(
   });
 }
 
+export interface UpdateCategoryInput {
+  name?: string;
+  type?: 'income' | 'expense' | 'both';
+  color?: string;
+}
+
 export async function updateCategory(
   id: number,
-  input: {
-    name?: string;
-    type?: 'income' | 'expense' | 'both';
-    color?: string;
-  },
+  input: UpdateCategoryInput,
   ctx: CashAuditContext
 ) {
   const cat = await CashTransactionCategory.findByPk(id);
@@ -186,8 +203,17 @@ export async function updateCategory(
   if (cat.is_system) throw new AppError('No se pueden editar categorías del sistema', 403);
   const before = snapshotOf(cat);
 
+  // Mismo criterio que `updateAccount` (CASH-MA-001): sin whitelist, un
+  // `PUT {"is_system": true}` convertía una categoría común en categoría del
+  // sistema —inmodificable e indesactivable para siempre— y un
+  // `{"active": false}` esquivaba el `/toggle` auditado como `toggle`.
+  const patch: UpdateCategoryInput = {};
+  if (input.name !== undefined)  patch.name  = input.name;
+  if (input.type !== undefined)  patch.type  = input.type;
+  if (input.color !== undefined) patch.color = input.color;
+
   await sequelize.transaction(async (t) => {
-    await cat.update(input, { transaction: t });
+    await cat.update(patch, { transaction: t });
     await recordCashAudit(
       { entityType: 'category', entityId: cat.id, action: 'update', before, after: snapshotOf(cat), context: ctx },
       t
@@ -272,6 +298,35 @@ export async function getTransaction(id: number) {
   return tx;
 }
 
+/**
+ * Valida que la categoría exista, esté activa y sea compatible con el tipo de
+ * movimiento (CASH-VAL-005). Antes no se validaba nada: se aceptaban
+ * categorías desactivadas y categorías `income` en movimientos `expense`, lo
+ * que ensucia directamente el neto por categoría de `getSummary`. Por la UI no
+ * se llegaba (el panel filtra por tipo y `GET /categories` solo devuelve
+ * activas), pero la regla tiene que estar en el backend.
+ *
+ * `transfer` acepta cualquier tipo de categoría, igual que el formulario del
+ * panel: una transferencia entre cuentas propias no es ni ingreso ni egreso.
+ */
+async function assertCategoryUsable(
+  categoryId: number,
+  txType: 'income' | 'expense' | 'transfer',
+  t: import('sequelize').Transaction
+): Promise<void> {
+  const category = await CashTransactionCategory.findByPk(categoryId, { transaction: t });
+  if (!category) throw new AppError('Categoría no encontrada', 404);
+  if (!category.active) {
+    throw new AppError(`La categoría "${category.name}" está desactivada y no admite movimientos nuevos`, 400);
+  }
+  if (txType !== 'transfer' && category.type !== 'both' && category.type !== txType) {
+    throw new AppError(
+      `La categoría "${category.name}" es de tipo ${category.type} y no se puede usar en un movimiento de tipo ${txType}`,
+      400
+    );
+  }
+}
+
 // Aplica el efecto de una transacción sobre los saldos dentro de una DB transaction
 async function applyBalanceEffect(
   type: 'income' | 'expense' | 'transfer',
@@ -339,6 +394,12 @@ async function createTransactionCore(
     if (!target) throw new AppError('Cuenta destino no encontrada', 404);
     if (!target.active) throw new AppError(`La cuenta destino "${target.name}" está desactivada y no admite movimientos nuevos`, 400);
   }
+
+  // Igual que la cuenta: las reversiones NO pasan por acá a propósito (crean
+  // el contraasiento con `CashTransaction.create` directo), porque un
+  // contraasiento es del tipo OPUESTO al original y siempre reusa su misma
+  // categoría — validar compatibilidad ahí impediría corregir un movimiento.
+  await assertCategoryUsable(input.category_id, input.type, t);
 
   await applyBalanceEffect(input.type, input.amount, input.account_id, input.transfer_account_id, t);
 
@@ -435,6 +496,20 @@ export interface PatchTransactionInput {
 export async function patchTransaction(id: number, input: PatchTransactionInput, ctx: CashAuditContext) {
   const tx = await CashTransaction.findByPk(id);
   if (!tx) throw new AppError('Transacción no encontrada', 404);
+
+  // Un movimiento cerrado ya no se toca (CASH-MUT-003). La Fase 2 estableció
+  // que un movimiento confirmado no se altera, pero este PATCH no miraba el
+  // `status`: un movimiento ya revertido —registro histórico cerrado— seguía
+  // aceptando cambios de `category_id`, y eso REESCRIBE retroactivamente los
+  // reportes (el contraasiento queda en la categoría vieja y el original en la
+  // nueva: dejan de cancelarse en `by_category`).
+  if (tx.status === 'reversed') {
+    throw new AppError('El movimiento ya fue revertido: no se puede modificar. Registrá un movimiento nuevo si hace falta corregir algo.', 400);
+  }
+  if (tx.reversal_of_id) {
+    throw new AppError('Un contraasiento de reversión no se puede modificar.', 400);
+  }
+
   const before = snapshotOf(tx);
 
   const patch: PatchTransactionInput = {};
@@ -443,6 +518,12 @@ export async function patchTransaction(id: number, input: PatchTransactionInput,
   if (input.category_id !== undefined) patch.category_id = input.category_id;
 
   await sequelize.transaction(async (t) => {
+    // Cambiar de categoría exige las mismas garantías que el alta: sin esto,
+    // un PATCH podía mover el movimiento a una categoría desactivada, de tipo
+    // incompatible o directamente inexistente (esto último caía en 500 por FK).
+    if (patch.category_id !== undefined && patch.category_id !== tx.category_id) {
+      await assertCategoryUsable(patch.category_id, tx.type, t);
+    }
     await tx.update(patch, { transaction: t });
     await recordCashAudit(
       { entityType: 'transaction', entityId: tx.id, action: 'update', before, after: snapshotOf(tx), context: ctx },
@@ -522,7 +603,8 @@ async function reverseTransactionCore(
   await applyBalanceEffect(reversalType, amountToReverse, reversalAccountId, reversalTransferAccountId, t);
 
   const before = snapshotOf(original);
-  const today = new Date().toISOString().slice(0, 10);
+  // Fecha de negocio (UTC−3), no UTC: ver `businessDate`.
+  const today = businessDate();
 
   const reversal = await CashTransaction.create(
     {

@@ -43,6 +43,7 @@ import { getIO } from '../config/socket';
 import { cached } from '../utils/cache';
 import { cloudinary } from '../config/cloudinary';
 import { roundPrice } from '../utils/money';
+import { businessDate } from '../utils/helpers';
 
 // ─── Comprobantes de pago: URLs firmadas ─────────────────────────────────────
 
@@ -1382,7 +1383,9 @@ async function recordStoreOrderIncome(
   }
 
   const createdBy = changedBy ?? (await getSystemUserId(transaction));
-  const today = new Date().toISOString().slice(0, 10);
+  // Fecha de negocio (UTC−3), no UTC: con `toISOString()` un pago confirmado
+  // después de las 21:00 local quedaba asentado en la jornada siguiente.
+  const today = businessDate();
 
   await createSystemTransaction(
     {
