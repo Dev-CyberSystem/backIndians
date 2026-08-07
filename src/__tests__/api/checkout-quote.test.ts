@@ -94,6 +94,73 @@ describe('Total correcto en el checkout (quote) — API', () => {
     expect(problem.motivo).toMatch(/Stock insuficiente/);
   });
 
+  it('un producto con precio 0 queda no disponible en el quote y no se puede comprar', async () => {
+    const zeroPriceProduct = await api().post(`${API}/catalog/products`).set(...auth(admin)).send({
+      client_id: clientId,
+      title: `Producto Precio Cero QA ${Date.now()}`,
+      price: 0,
+      stock_quantity: 10,
+      show_in_store: true,
+      active: true,
+    });
+    const zeroPriceProductId = zeroPriceProduct.body.data?.id;
+    expect(zeroPriceProductId).toBeTruthy();
+
+    const quoteRes = await api().post(`${API}/store/checkout/quote`).send({
+      items: [{ catalog_product_id: zeroPriceProductId, size_name: null, quantity: 1 }],
+      shipping_type: 'pickup',
+    });
+    expect(quoteRes.status).toBe(200);
+    expect(quoteRes.body.data.all_available).toBe(false);
+    expect(quoteRes.body.data.items[0].disponible).toBe(false);
+    expect(quoteRes.body.data.items[0].motivo).toMatch(/precio válido/);
+
+    const checkout = await api().post(`${API}/store/checkout`).send({
+      customerName: 'Robot QA Precio Cero',
+      customerEmail: `qa-precio-cero+${Date.now()}@test.local`,
+      customerPhone: '1100000000',
+      items: [{ catalog_product_id: zeroPriceProductId, size_name: null, quantity: 1 }],
+      shipping_type: 'pickup',
+      payment_method: 'cash',
+    });
+    expect(checkout.status).toBe(400);
+  });
+
+  it('un producto con precio negativo (public_price mal cargado) queda no disponible y no se puede comprar', async () => {
+    // "price" no puede ser negativo (validador isFloat({min:0})), pero
+    // "public_price" no tiene ese chequeo — es el vector real de un precio
+    // negativo llegando al checkout (ej. error de tipeo al cargarlo).
+    const negativePriceProduct = await api().post(`${API}/catalog/products`).set(...auth(admin)).send({
+      client_id: clientId,
+      title: `Producto Precio Negativo QA ${Date.now()}`,
+      price: 100,
+      public_price: -100,
+      stock_quantity: 10,
+      show_in_store: true,
+      active: true,
+    });
+    const negativePriceProductId = negativePriceProduct.body.data?.id;
+    expect(negativePriceProductId).toBeTruthy();
+
+    const quoteRes = await api().post(`${API}/store/checkout/quote`).send({
+      items: [{ catalog_product_id: negativePriceProductId, size_name: null, quantity: 1 }],
+      shipping_type: 'pickup',
+    });
+    expect(quoteRes.status).toBe(200);
+    expect(quoteRes.body.data.all_available).toBe(false);
+    expect(quoteRes.body.data.items[0].disponible).toBe(false);
+
+    const checkout = await api().post(`${API}/store/checkout`).send({
+      customerName: 'Robot QA Precio Negativo',
+      customerEmail: `qa-precio-negativo+${Date.now()}@test.local`,
+      customerPhone: '1100000000',
+      items: [{ catalog_product_id: negativePriceProductId, size_name: null, quantity: 1 }],
+      shipping_type: 'pickup',
+      payment_method: 'cash',
+    });
+    expect(checkout.status).toBe(400);
+  });
+
   it('el checkout con expected_total desincronizado devuelve 409 con el desglose nuevo', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       customerName: 'Robot QA Quote',

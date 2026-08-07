@@ -677,6 +677,23 @@ async function computeOrderTotals(input: {
     // Precio a cobrar SIN decimales (regla ≤0,50 abajo / ≥0,51 arriba). Debe
     // coincidir con effectivePrice del frontend.
     const price = roundPrice(disc > 0 ? (basePrice * (100 - disc)) / 100 : basePrice);
+
+    // Precio inválido (0 o negativo, ej. dato mal cargado en el catálogo): el
+    // producto no se puede comprar hasta que se corrija en el panel.
+    if (price <= 0) {
+      resolvedItems.push({
+        catalog_product_id: cartItem.catalog_product_id,
+        size_name: cartItem.size_name ?? null,
+        product_title: product.title,
+        quantity: cartItem.quantity,
+        unit_price: price,
+        subtotal: 0,
+        disponible: false,
+        motivo: `${product.title} no tiene un precio válido configurado`,
+      });
+      continue;
+    }
+
     const sizes = (product as unknown as { sizes?: CatalogProductSize[] }).sizes ?? [];
     let sizeRecord: CatalogProductSize | undefined;
 
