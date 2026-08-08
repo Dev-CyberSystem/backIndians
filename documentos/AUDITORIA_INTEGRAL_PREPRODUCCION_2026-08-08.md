@@ -20,7 +20,9 @@
 
 El sistema está considerablemente mejor preparado de lo que suele estar un proyecto en esta etapa. Los caminos donde se juega el dinero — cálculo de precios, checkout, reserva y descuento de stock, asientos de caja — están construidos con los patrones correctos y **verificados por 293 tests automatizados que pasan en verde**. Las migraciones corren desde cero sin un solo error y el esquema que producen coincide columna por columna con el que genera el ORM.
 
-La auditoría encontró **3 defectos P1 reales**, los tres del mismo tipo (*mass assignment*: campos sensibles que llegaban del cliente y se escribían sin filtrar). **Los tres fueron demostrados fallando, corregidos y cubiertos con tests de regresión que ahora pasan.** No quedó ningún P0 ni P1 abierto.
+La auditoría encontró **4 defectos P1 reales**: tres de *mass assignment* (campos sensibles que llegaban del cliente y se escribían sin filtrar) y uno de pérdida de reservas de stock (**AUD-15**, encontrado en la revisión posterior a la primera entrega). **Los cuatro fueron demostrados fallando, corregidos y cubiertos con tests de regresión que ahora pasan.** No quedó ningún P0 ni P1 abierto.
+
+> **Nota sobre este informe.** La primera versión declaraba `GO CONDICIONADO` con 3 P1 cerrados y el módulo de stock como `VERIFICADO`. Una revisión adversarial de los tres entregables encontró AUD-15 (P1, en ese mismo módulo) y varias cegueras en el SQL de integridad. El veredicto se sostiene sólo con las condiciones ampliadas de §9. La lección operativa: **un informe de auditoría también hay que auditarlo**, y los entregables de verificación (SQL, tests) merecen el mismo escrutinio que el código.
 
 Lo que impide un `GO` liso no es el código, es **la configuración del entorno productivo**: hay una variable de entorno pendiente desde el incidente del 2026-08-07, dos parámetros de caja cuyo valor real en producción no pude verificar, y un backup productivo que nunca se probó restaurando.
 
@@ -110,7 +112,9 @@ AUD-01 >> status: 200 | customer_id quedó en: 7 | atacante: 6 | victima: 7
 ```
 La dirección quedó registrada en la libreta de otra persona, marcada como predeterminada.
 
-**Impacto.** Escritura cruzada entre clientes (rompe el aislamiento horizontal). Un atacante puede insertar una dirección elegida por él en la cuenta de otro comprador y dejarla como predeterminada; si la víctima confirma un pedido sin revisar, la mercadería se despacha a la dirección del atacante. Inyectando además `id` se podía pisar otra fila.
+**Impacto.** Escritura cruzada entre clientes (rompe el aislamiento horizontal). Un atacante puede insertar una dirección elegida por él en la cuenta de otro comprador y dejarla como predeterminada; si la víctima confirma un pedido sin revisar, la mercadería se despacha a la dirección del atacante.
+
+> **Corrección de esta ficha (revisión del 2026-08-08).** La primera versión decía que inyectando `id` "se podía pisar otra fila". No es así: el `findOne({ id, customer_id })` de propiedad ya existía antes del fix, así que un `id` ajeno daba 404, y un `id` propio con otro `id` en el body sólo habría intentado renumerar la PK. El impacto real es el descrito arriba, que sí está demostrado.
 
 **Corrección.** Whitelist explícita de los 7 campos editables. `customer_id` sale **siempre** del token, nunca del body — mismo criterio ya aplicado en `cash.service.ts#updateAccount` (CASH-MA-001).
 
@@ -155,6 +159,33 @@ AUD-03 >> refresh con token previo al cambio de clave: 200
 **Corrección.** Los tres caminos incrementan `session_version`, consistente con `loginService` (que ya lo hacía) y con la tienda.
 
 **Verificación:** `AUD-03` — comprueba que el refresh token viejo da 401, que el access token viejo da 401, y que con la contraseña nueva se puede entrar (evita romper el flujo legítimo).
+
+---
+
+### AUD-15 — `P1` — Editar los talles de un producto borraba las reservas vivas
+
+> Encontrado en la **revisión del informe** (2026-08-08, posterior a la primera entrega). Estaba en el módulo que este informe había declarado `VERIFICADO`, y en el punto exacto que `CLAUDE.md` marca como la única excepción consciente al ledger.
+
+**Módulo:** Catálogo · talles y stock
+**Archivo:** `src/services/catalog.service.ts` → `saveProductSizes()`
+
+**Causa raíz.** La función borraba **todos** los talles del producto y los recreaba. El `bulkCreate` mapeaba sólo `size_name`, `stock_quantity` y `sort_order`: **`stock_reserved` no se copiaba**, así que volvía a su default `0`.
+
+**Impacto.** Tres consecuencias, todas en el camino del dinero:
+
+1. **Doble venta.** Las reservas de pedidos en `pending_payment` desaparecían y las mismas unidades volvían a estar disponibles.
+2. **Pedido pagado imposible de confirmar.** Al acreditarse el pago, `confirmStoreOrderStock` descuenta la reserva (`delta: -quantity` sobre `stock_reserved`, `store.service.ts:1274`) y `adjustStock` lanza 400 si el resultado queda negativo (`stockLedger.service.ts:77`). Con la reserva en 0, **la confirmación del pago falla**: plata cobrada, stock sin descontar, pedido trabado.
+3. **Ledger mutilado.** La FK de `catalog_stock_movements.catalog_product_size_id` es `ON DELETE SET NULL` (migración 067): borrar el talle dejaba todos sus movimientos históricos sin referencia, indistinguibles de movimientos a nivel producto.
+
+Se disparaba con `PUT /catalog/products/:id/sizes` — operación rutinaria de admin/billing — sin ninguna guarda.
+
+**Mitigante que sí existía.** `resolveStoreOrderItemSize()` tiene fallback por `size_name`, así que si el admin recreaba los mismos nombres, el vínculo pedido→talle se recomponía. No mitigaba 1 ni 2.
+
+**Corrección.** `saveProductSizes` pasó de *destroy + recreate* a **upsert por `size_name`**: los talles que siguen se actualizan in place (conservan `id`, `stock_reserved` y todas las FKs que los apuntan), los nuevos se crean, y los que desaparecen se borran **sólo si no tienen reservas vivas** — si las tienen, la operación entera se rechaza con **409**. Talles repetidos en la lista: **400**. Lock `FOR UPDATE` sobre las filas existentes para que un checkout concurrente no reserve sobre un talle en vías de borrarse.
+
+⚠️ **Cambio de contrato de API:** `PUT /catalog/products/:id/sizes` ahora puede devolver 409 y 400 donde antes siempre devolvía 200. El frontend debe mostrar el mensaje del error (viene en el cuerpo) — ver condición **C8**.
+
+**Verificación:** `AUD-15` en `audit-preprod-regressions.test.ts` — 4 tests, 3 de los cuales **fallan contra el código anterior**: reserva preservada al editar, 409 al quitar un talle reservado, 200 al quitar uno sin reservas (anti-corrección-de-más) y 400 ante nombres repetidos.
 
 ---
 
@@ -248,7 +279,10 @@ Parecía un riesgo de "pasa en dev, falla en producción". `order.service.ts:465
 - Firma del webhook de MP con HMAC-SHA256 y `timingSafeEqual`, **fail-closed en producción**.
 - Getters DECIMAL→number en los modelos con campos monetarios.
 
-### 6.3. Stock y concurrencia — **VERIFICADO**
+### 6.3. Stock y concurrencia — **PARCIAL**
+
+> Esta sección decía `VERIFICADO` en la primera versión del informe. Se degradó al encontrarse **AUD-15**: todo lo que sigue es cierto del ledger, pero el ledger no era el único camino por el que se movía el stock de talles. La lección de §7 ("cuando se corrige un patrón, barrer todos los módulos que lo comparten") se aplicaba también acá y no se aplicó: se auditó a fondo `adjustStock` y no se abrió `saveProductSizes`, que la propia `CLAUDE.md` señalaba como la excepción.
+
 
 - `stockLedger.adjustStock()` es el único punto autorizado; siempre exige la transacción del llamador y toma `LOCK.UPDATE` sobre la fila antes de leer.
 - Modelo de dos fases correcto: el checkout **reserva** (`stock_reserved`), el pago confirmado **descuenta** (`stock_quantity`). Disponible = físico − reservado.
@@ -359,7 +393,23 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 | **C6** | Decidir explícitamente si se activa HSTS (queda fuera a propósito, ver AUD-06) | Dueño / Dev | Decisión registrada; si es afirmativa, se agrega y se prueba en staging |
 | **C7** | Definir un monitoreo mínimo: al menos una alerta por caída del servicio y otra por tasa de error 5xx | DevOps | Provocar un error controlado y verificar que llega el aviso |
 
+| **C8** | El frontend debe **mostrar el mensaje de error** del 409/400 nuevo de `PUT /catalog/products/:id/sizes` (AUD-15). Si hoy asume 200, el admin ve un guardado que en realidad falló | Dev | Editar los talles de un producto con un pedido pendiente e intentar quitar ese talle: el mensaje del backend tiene que llegar a la pantalla |
+
 > C7 es la más floja de las siete en cuanto a exigencia, pero es la que evita repetir el incidente del 2026-08-07. Si hubiera que elegir una sola para no postergar, es esta.
+
+### Pendientes abiertos por la revisión adversarial (2026-08-08)
+
+No bloquean por sí solos, pero **el SQL de integridad mide menos de lo que parece** hasta que se cierren los tres primeros. Correr la línea base de producción (paso 4 del runbook) con estos huecos abiertos da una falsa tranquilidad.
+
+| ID | Qué falta | Por qué importa |
+|---|---|---|
+| REV-01 | **`session_version` con `increment()` atómico** en los 3 caminos de AUD-03 (hoy es read-modify-write sobre un valor leído antes del `bcrypt.hash`, ~300 ms de ventana) | Un login del atacante durante esa ventana sobrevive al reseteo de contraseña — el escenario exacto que AUD-03 dice cerrar. `loginService:42` ya usa `increment()`. Mismo patrón pendiente en `store.auth.service.ts:186` |
+| REV-02 | **El check 1 del SQL es ciego para productos con talles** — que son casi todo el catálogo. `adjustStock` escribe la fila del talle **o** la del producto, nunca ambas, así que un producto con talles no tiene ningún movimiento con `catalog_product_size_id IS NULL` y el `JOIN` lo descarta entero | Devuelve 0 filas y parece sano. Además, por el `ON DELETE SET NULL`, movimientos de talles borrados quedan con `size_id NULL` y generan falsos positivos |
+| REV-03 | **Faltan 3 invariantes en el SQL**: (a) `catalog_products.stock_quantity` vs. `SUM(talles)`, (b) `stock_reserved` vs. la suma de ítems de pedidos `pending_payment` sin confirmar ni restaurar, (c) doble asiento de caja por el mismo pedido (`GROUP BY reference_type, reference_id HAVING COUNT(*) > 1` con `reversal_of_id IS NULL AND status='active'`) | (a) y (b) son los detectores directos de AUD-15. (c) es la única verificación de la idempotencia sobre la que descansa todo el módulo de caja, y hoy no existe: un doble posteo deja el saldo coherente con la suma de asientos y el check 4 pasa |
+| REV-04 | **Los tests de AUD-03 cubren 1 de los 3 caminos corregidos.** Falta `resetPasswordService` (el que el propio fix llama "el caso más importante") y `updateUser` | Revertir esas dos líneas deja la suite en verde |
+| REV-05 | Faltan: verificar el status del request de ataque en AUD-01, el caso `billing` en AUD-02, y el `WHERE order_number IS NOT NULL` del check 11 (MySQL agrupa los NULL juntos → falso positivo) | Higiene de la red de regresión |
+| REV-06 | **El SQL siempre sale con código 0**: no puede fallar un paso del runbook ni un pipeline, y el check 14 (`admins_activos`) contradice el criterio de lectura de su cabecera — 0 es catastrófico ahí, no sano | Como smoke test post-despliegue hoy es una lectura visual de 16 bloques |
+| REV-07 | **El sistema soporta una sola sesión concurrente por usuario** (`loginService` incrementa `session_version` en cada login): loguearse en el celular expulsa la sesión de la PC. No es un bug, pero no está documentado en ninguna parte | Decisión funcional relevante para 4 roles operativos; conviene que sea explícita y no un descubrimiento del primer día |
 
 ---
 
@@ -372,7 +422,8 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 | `src/services/stock.service.ts` | AUD-02 — whitelist de campos en `updateStockItem` |
 | `src/services/user.service.ts` | AUD-03 — `session_version++` en `changeUserPassword` y `updateUser` |
 | `src/services/auth.service.ts` | AUD-03 — `session_version++` en `resetPasswordService` |
-| `src/__tests__/api/audit-preprod-regressions.test.ts` | **nuevo** — 4 tests de regresión |
+| `src/services/catalog.service.ts` | AUD-15 — `saveProductSizes` pasa de *destroy+recreate* a upsert por `size_name`, con guarda 409 sobre talles reservados |
+| `src/__tests__/api/audit-preprod-regressions.test.ts` | **nuevo** — 8 tests de regresión (4 originales + 4 de AUD-15) |
 | `documentos/auditoria-integridad-preprod.sql` | **nuevo** — 15 diagnósticos de solo lectura |
 | `documentos/AUDITORIA_INTEGRAL_PREPRODUCCION_2026-08-08.md` | **nuevo** — este informe |
 
@@ -381,9 +432,14 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 |---|---|
 | `public/.htaccess` | AUD-06 — cabeceras de seguridad y caché, con guardas `<IfModule>` |
 
-**Riesgo de regresión: bajo.** Los tres cambios del backend restringen lo que se acepta, no cambian ningún contrato de API usado por el frontend, y la suite completa pasó de 289 a 293 tests sin una sola falla. El cambio del `.htaccess` es el de mayor riesgo operativo por depender de la configuración del hosting — de ahí la condición C5.
+**Riesgo de regresión: bajo, con una excepción.** Los cambios de AUD-01/02/03 restringen lo que se acepta y no cambian ningún contrato de API. **AUD-15 sí cambia el contrato**: `PUT /catalog/products/:id/sizes` puede devolver 409 y 400 donde antes siempre devolvía 200 — ver condición **C8**. La suite completa pasó de 289 a **297 tests** sin una sola falla. El `.htaccess` sigue siendo el de mayor riesgo operativo por depender del hosting (condición C5).
 
-**Nada fue commiteado ni desplegado.** Los cambios quedan en el working tree para su revisión.
+**Estado en git (actualizado).** Todo está commiteado en la rama **`auditoriapreprod`** de ambos repos, sin push ni despliegue:
+
+| Repo | Commits |
+|---|---|
+| `backIndians` | `c264e86` docs de caja · `d66d443` AUD-01/02/03 + tests · `da63336` informe + SQL · `a1e2df3` AUD-15 + tests |
+| `frontIndians` | `21cf03c` AUD-06 (`.htaccess`) |
 
 ---
 
@@ -391,7 +447,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 
 - [x] Typecheck backend y frontend sin errores
 - [x] Build de producción del frontend correcto
-- [x] Suite backend completa en verde (45 suites / 293 tests)
+- [x] Suite backend completa en verde (45 suites / 297 tests)
 - [x] Suite frontend en verde (47 tests)
 - [x] Migraciones aplicadas desde cero sin error
 - [x] Esquema migrado y esquema del ORM sin divergencias de columnas
@@ -403,7 +459,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 - [x] Idempotencia verificada en checkout, webhook y asientos de caja
 - [x] Sin inyección SQL
 - [x] Envíos a AFIP con gate en los tres puntos de salida
-- [x] Los 3 hallazgos P1 corregidos y con test de regresión
+- [x] Los 4 hallazgos P1 corregidos y con test de regresión (incluye AUD-15)
 - [x] Correcciones previas de auditorías anteriores confirmadas como reales
 - [ ] `MP_WEBHOOK_SECRET` configurado en producción — **condición C1**
 - [ ] Cuentas de caja de la tienda verificadas en producción — **condición C2**
