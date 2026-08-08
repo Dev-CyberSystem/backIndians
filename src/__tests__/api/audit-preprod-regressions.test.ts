@@ -16,7 +16,7 @@
  */
 import jwt from 'jsonwebtoken';
 import { api, API, loginAdmin, loginAs, auth } from './helpers';
-import { StoreCustomer, StoreAddress, StockItem, StockMovement } from '../../models';
+import { StoreCustomer, StoreAddress, StockItem, StockMovement, User, PasswordResetToken } from '../../models';
 import { CatalogProductSize } from '../../models/CatalogProductSize';
 
 const storeToken = (id: number, email: string) =>
@@ -44,16 +44,23 @@ describe('AUD-01 — direcciones de la tienda: sin escritura cruzada entre compr
     expect(created.status).toBe(200);
     const addrId = created.body.data.id;
 
-    await api()
+    const attack = await api()
       .post(`${API}/store/me/addresses`)
       .set('Authorization', `Bearer ${storeToken(attacker.id, attacker.email)}`)
       .send({
         id: addrId, street: 'Guarida del atacante 666', city: 'Tucuman',
         customer_id: victim.id, is_default: true,
       });
+    // El status se verifica a propósito (REV-05): sin esto, el test también
+    // pasaría si el endpoint empezara a tirar 500 — la dirección no se movería
+    // porque no se ejecutaría nada, y el "verde" no significaría nada.
+    expect(attack.status).toBe(200);
 
     const after = await StoreAddress.findByPk(addrId);
     expect(after?.customer_id).toBe(attacker.id);
+    // Los campos legítimos del mismo request SÍ se aplicaron: el whitelist
+    // filtra `customer_id`, no descarta la edición entera.
+    expect(after?.street).toBe('Guarida del atacante 666');
 
     // Y la víctima no tiene ninguna dirección ajena en su libreta.
     const victimAddresses = await StoreAddress.count({ where: { customer_id: victim.id } });
@@ -78,6 +85,26 @@ describe('AUD-02 — stock de materiales: sólo se mueve por asientos', () => {
 
     await item.reload();
     expect(Number(item.current_quantity)).toBe(10);
+    expect(await StockMovement.count({ where: { stock_item_id: item.id } })).toBe(0);
+  });
+
+  it('tampoco puede billing, que también llega a la ruta', async () => {
+    // REV-05: `authorize('admin','billing')` en stock.routes.ts — el hallazgo
+    // era alcanzable por los dos roles y sólo se probaba uno.
+    const token = await loginAs('billing');
+    const item = await StockItem.create({
+      name: `AUD02 billing ${Date.now()}`, unit: 'unidad',
+      current_quantity: 42, min_quantity: 0, active: true,
+    });
+
+    const res = await api()
+      .put(`${API}/stock/${item.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: item.name, current_quantity: 1 });
+    expect(res.status).toBe(200);
+
+    await item.reload();
+    expect(Number(item.current_quantity)).toBe(42);
     expect(await StockMovement.count({ where: { stock_item_id: item.id } })).toBe(0);
   });
 
@@ -135,6 +162,101 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
     // La contraseña nueva sí permite entrar de nuevo.
     const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!' });
     expect(relogin.status).toBe(200);
+  });
+
+  /*
+   * REV-04: el fix tocó TRES caminos y sólo se probaba uno. Los dos de abajo
+   * cubren los que faltaban. El de `resetPasswordService` es el más importante
+   * de los tres — quien pide un reset suele hacerlo porque sospecha que le
+   * tomaron la cuenta.
+   */
+  it('PUT /users/:id con password nueva también revoca las sesiones', async () => {
+    const admin = await loginAdmin();
+    const email = `aud03-put+${Date.now()}@test.local`;
+    const create = await api()
+      .post(`${API}/users`)
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ name: 'AUD PUT', email, password: 'Abc123!', role: 'seller' });
+    expect([200, 201]).toContain(create.status);
+    const userId = create.body.data.id;
+
+    const login = await api().post(`${API}/auth/login`).send({ email, password: 'Abc123!' });
+    expect(login.status).toBe(200);
+    const oldRefresh = login.body.data.refreshToken ?? login.body.data.refresh_token;
+
+    const upd = await api()
+      .put(`${API}/users/${userId}`)
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ name: 'AUD PUT', password: 'Xyz789!' });
+    expect(upd.status).toBe(200);
+
+    const refreshed = await api().post(`${API}/auth/refresh`).send({ refreshToken: oldRefresh });
+    expect(refreshed.status).toBe(401);
+
+    const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!' });
+    expect(relogin.status).toBe(200);
+  });
+
+  it('el reset por token (olvidé mi contraseña) también revoca las sesiones', async () => {
+    const admin = await loginAdmin();
+    const email = `aud03-reset+${Date.now()}@test.local`;
+    const create = await api()
+      .post(`${API}/users`)
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ name: 'AUD Reset Token', email, password: 'Abc123!', role: 'seller' });
+    expect([200, 201]).toContain(create.status);
+    const userId = create.body.data.id;
+
+    const login = await api().post(`${API}/auth/login`).send({ email, password: 'Abc123!' });
+    expect(login.status).toBe(200);
+    const oldRefresh = login.body.data.refreshToken ?? login.body.data.refresh_token;
+
+    // Se crea el token directo: el camino por mail no es determinístico en test.
+    const token = `aud03-reset-token-${Date.now()}`;
+    await PasswordResetToken.create({
+      user_id: userId,
+      token,
+      expires_at: new Date(Date.now() + 60 * 60 * 1000),
+      used: false,
+    });
+
+    const reset = await api()
+      .post(`${API}/auth/reset-password`)
+      .send({ token, newPassword: 'Xyz789!' });
+    expect(reset.status).toBe(200);
+
+    const refreshed = await api().post(`${API}/auth/refresh`).send({ refreshToken: oldRefresh });
+    expect(refreshed.status).toBe(401);
+
+    const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!' });
+    expect(relogin.status).toBe(200);
+  });
+
+  it('el incremento de session_version es atómico, no read-modify-write', async () => {
+    // REV-01: `session_version = <leído antes del bcrypt> + 1` perdía el
+    // incremento de un login concurrente. Con `increment()` (SQL `+ 1`), dos
+    // cambios de contraseña simultáneos avanzan la versión DOS veces.
+    const admin = await loginAdmin();
+    const email = `aud03-race+${Date.now()}@test.local`;
+    const create = await api()
+      .post(`${API}/users`)
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ name: 'AUD Race', email, password: 'Abc123!', role: 'seller' });
+    expect([200, 201]).toContain(create.status);
+    const userId = create.body.data.id;
+
+    const before = (await User.findByPk(userId))!.session_version as number;
+
+    await Promise.all([
+      api().patch(`${API}/users/${userId}/password`)
+        .set('Authorization', `Bearer ${admin}`).send({ password: 'Xyz789!' }),
+      api().patch(`${API}/users/${userId}/password`)
+        .set('Authorization', `Bearer ${admin}`).send({ password: 'Qwe456!' }),
+    ]);
+
+    const after = (await User.findByPk(userId))!.session_version as number;
+    // Con read-modify-write ambas escribían `before + 1` y esto daba 1.
+    expect(after - before).toBe(2);
   });
 });
 

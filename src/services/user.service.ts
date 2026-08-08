@@ -185,11 +185,16 @@ export async function updateUser(
   if (input.active !== undefined) updateData.active = input.active;
   if (input.password) {
     (updateData as any).password_hash = await bcrypt.hash(input.password, 12);
-    // Ver `changeUserPassword` (AUD-03): cambiar la clave revoca las sesiones.
-    (updateData as any).session_version = (user.session_version as number) + 1;
   }
 
   await user.update(updateData);
+
+  // Ver `changeUserPassword` (AUD-03 / REV-01): cambiar la clave revoca las
+  // sesiones, y el incremento va DESPUÉS del update y con `increment` (SQL
+  // atómico), no con el valor leído al principio de la función.
+  if (input.password) {
+    await user.increment('session_version');
+  }
 
   const updated = await User.findByPk(id, {
     attributes: { exclude: ['password_hash'] },
@@ -223,9 +228,17 @@ export async function changeUserPassword(id: number, newPassword: string): Promi
   // del cambio seguían sirviendo, así que cambiar la clave de una cuenta
   // comprometida no echaba al atacante. `authenticate` y `refreshTokenService`
   // comparan session_version contra el de la DB, así que incrementarlo invalida
-  // todo lo emitido antes. Mismo criterio que la tienda
-  // (`storeResetPasswordService`) y que `loginService`.
-  await user.update({ password_hash, session_version: (user.session_version as number) + 1 });
+  // todo lo emitido antes.
+  //
+  // `increment` y NO `session_version: user.session_version + 1` (REV-01): ese
+  // valor se leyó ANTES del `bcrypt.hash`, que con costo 12 tarda ~300 ms. Si
+  // el atacante loguea durante esa ventana, `loginService` incrementa la
+  // versión y emite un token con la nueva; el read-modify-write la pisaría con
+  // el mismo número y el token del atacante sobreviviría al cambio de clave,
+  // que es exactamente lo que este fix viene a evitar. `increment` resuelve el
+  // `+1` en SQL, así que no puede perder el incremento del login.
+  await user.update({ password_hash });
+  await user.increment('session_version');
 }
 
 /**

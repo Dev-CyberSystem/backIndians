@@ -182,9 +182,15 @@ export async function storeResetPasswordService(token: string, newPassword: stri
   customer.password_hash = await bcrypt.hash(newPassword, 12);
   customer.verification_token = null;
   customer.token_expires_at = null;
-  // Revoca todas las sesiones/refresh tokens previos tras cambiar la contraseña.
-  customer.session_version = (customer.session_version ?? 0) + 1;
   await customer.save();
+
+  // Revoca todas las sesiones/refresh tokens previos tras cambiar la contraseña.
+  // `increment` (SQL atómico) y no `session_version = leído + 1` (REV-01): acá
+  // el riesgo es menor que en el sistema — `storeLoginService` NO incrementa la
+  // versión al loguear (la tienda permite sesiones concurrentes a propósito),
+  // así que no hay un login que pueda perderse. Queda igual por consistencia
+  // con `changeUserPassword` y porque dos resets concurrentes sí se pisarían.
+  await customer.increment('session_version');
 }
 
 export async function storeGetProfileService(customerId: number) {
