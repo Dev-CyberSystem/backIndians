@@ -18,7 +18,7 @@
 
 ### Estado general
 
-El sistema está considerablemente mejor preparado de lo que suele estar un proyecto en esta etapa. Los caminos donde se juega el dinero — cálculo de precios, checkout, reserva y descuento de stock, asientos de caja — están construidos con los patrones correctos y **verificados por 293 tests automatizados que pasan en verde**. Las migraciones corren desde cero sin un solo error y el esquema que producen coincide columna por columna con el que genera el ORM.
+El sistema está considerablemente mejor preparado de lo que suele estar un proyecto en esta etapa. Los caminos donde se juega el dinero — cálculo de precios, checkout, reserva y descuento de stock, asientos de caja — están construidos con los patrones correctos y **verificados por 301 tests automatizados que pasan en verde**. Las migraciones corren desde cero sin un solo error y el esquema que producen coincide columna por columna con el que genera el ORM.
 
 La auditoría encontró **4 defectos P1 reales**: tres de *mass assignment* (campos sensibles que llegaban del cliente y se escribían sin filtrar) y uno de pérdida de reservas de stock (**AUD-15**, encontrado en la revisión posterior a la primera entrega). **Los cuatro fueron demostrados fallando, corregidos y cubiertos con tests de regresión que ahora pasan.** No quedó ningún P0 ni P1 abierto.
 
@@ -61,12 +61,12 @@ Además, hoy nadie se entera automáticamente si el sistema falla. Conviene reso
 | Typecheck backend | `npx tsc --noEmit` | local | ✅ **0 errores** | — |
 | Typecheck + build frontend | `npm run build` | local | ✅ **exit 0**, 34.6 s | — |
 | Tests backend (línea base) | `npm run test:full` | MySQL local | ✅ **44 suites / 289 tests** | — |
-| Tests backend (post-corrección) | `npm run test:full` | MySQL local | ✅ **45 suites / 293 tests** | — |
+| Tests backend (post-corrección) | `npm run test:full` | MySQL local | ✅ **45 suites / 301 tests** | — |
 | Tests frontend | `npm test` (Vitest) | local | ✅ **4 archivos / 47 tests** | — |
 | Migraciones desde cero | `DB_NAME=textil_audit_fresh sequelize-cli db:migrate` | base descartable | ✅ **todas aplicadas, exit 0** | — |
 | Comparación esquema migrado vs. `sync()` | script ad-hoc | local | ✅ **0 columnas de diferencia** | — |
 | Backup + restauración | `mysqldump` → base nueva | base descartable | ✅ **50/50 tablas, filas idénticas** | — |
-| Integridad de datos (15 chequeos) | `auditoria-integridad-preprod.sql` | local | ✅ sin inconsistencias reales | — |
+| Integridad de datos (**28 chequeos**, v2) | `auditoria-integridad-preprod.sql` | local | ✅ 4 checks con anomalías, **las 4 explicadas** (ver 6.5) | — |
 | Lint frontend | `npm run lint` | local | ⚠️ **160 errores** (ver 6.4) | No |
 
 > Las bases `textil_audit_fresh` y `textil_restore_test` se crearon para la auditoría y **se eliminaron al terminar**. El dump temporal también.
@@ -91,7 +91,7 @@ diferencias de columnas:       ninguna
 
 ## 3. Hallazgos corregidos durante la auditoría
 
-Los tres se detectaron leyendo código, **se demostraron con un test que falló**, se corrigieron, y el mismo test ahora pasa.
+Los cuatro se detectaron leyendo código, **se demostraron con un test que falló**, se corrigieron, y el mismo test ahora pasa.
 
 ---
 
@@ -255,6 +255,7 @@ Parecía un riesgo de "pasa en dev, falla en producción". `order.service.ts:465
 | AUD-12 | P3 | El refresh token vive en `localStorage` (7 días staff / 30 días tienda): un XSS lo expondría. No se encontró ningún XSS, y el único `dangerouslySetInnerHTML` está correctamente escapado | M |
 | AUD-13 | P3 | `railway.toml` corre `npm run migrate` en cada arranque. Correcto con **una sola** réplica; con dos o más, dos procesos podrían migrar a la vez | S |
 | AUD-14 | P3 | Timestamps `NOT NULL` en migraciones y nullables bajo `sync()` (98 columnas). Producción es más estricta que desarrollo; sin impacto detectado | M |
+| AUD-16 | P3 | **`catalog_products.stock_quantity` / `.stock_reserved` son campos muertos para los productos con talles**: nadie los mantiene sincronizados con la suma de sus talles y difieren desde el alta. No abre ningún vector — el checkout exige talle cuando el producto tiene talles (`store.service.ts:700`) y la vitrina filtra por talle — pero es un campo que dice una cosa y significa otra, y ya causó un falso positivo al escribir el SQL de integridad | M |
 
 ---
 
@@ -313,7 +314,7 @@ No lo cuento como bloqueante porque typecheck y build pasan y los tests están e
 - Esquema migrado vs. `sync()`: **0 columnas de diferencia** en las 50 tablas compartidas. Es el resultado más tranquilizador de toda la auditoría, porque es el riesgo que `CLAUDE.md` marca como crítico.
 - Diferencias residuales: la tabla `products` (AUD-07), `order_items.color` (AUD-08) y nullabilidad de timestamps (AUD-14).
 - Pool configurado con criterio (`max: 10`, `idle: 10s` muy por debajo del `wait_timeout` de MySQL, `enableKeepAlive`) — decisiones que evitan entregar sockets muertos.
-- 15 chequeos de integridad de solo lectura, entregados en `documentos/auditoria-integridad-preprod.sql`: **sin inconsistencias reales**.
+- **28 chequeos** de integridad de solo lectura en `documentos/auditoria-integridad-preprod.sql` (v2, reescrito en la revisión). Corrido contra la base de desarrollo: 4 checks con anomalías, **las cuatro explicadas y ninguna un bug abierto** — 99 pedidos pagados sin caja (cuentas sin configurar en local, condición C2), 11 materiales con saldo inicial y sin movimiento (seed), 5 pedidos cancelados sin restituir (artefacto que fabrica `reconcile-payments.test.ts`), y 1 producto con la reserva perdida, que es **el daño real de AUD-15** dejado en la base al correr los tests contra el código sin corregir. El check 06 detectando ese caso en datos reales es la mejor validación que tuvo el script.
 
 ### 6.6. Observabilidad — **PARCIAL**
 
@@ -399,17 +400,22 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 
 ### Pendientes abiertos por la revisión adversarial (2026-08-08)
 
-No bloquean por sí solos, pero **el SQL de integridad mide menos de lo que parece** hasta que se cierren los tres primeros. Correr la línea base de producción (paso 4 del runbook) con estos huecos abiertos da una falsa tranquilidad.
-
-| ID | Qué falta | Por qué importa |
+| ID | Qué era | Estado |
 |---|---|---|
-| REV-01 | **`session_version` con `increment()` atómico** en los 3 caminos de AUD-03 (hoy es read-modify-write sobre un valor leído antes del `bcrypt.hash`, ~300 ms de ventana) | Un login del atacante durante esa ventana sobrevive al reseteo de contraseña — el escenario exacto que AUD-03 dice cerrar. `loginService:42` ya usa `increment()`. Mismo patrón pendiente en `store.auth.service.ts:186` |
-| REV-02 | **El check 1 del SQL es ciego para productos con talles** — que son casi todo el catálogo. `adjustStock` escribe la fila del talle **o** la del producto, nunca ambas, así que un producto con talles no tiene ningún movimiento con `catalog_product_size_id IS NULL` y el `JOIN` lo descarta entero | Devuelve 0 filas y parece sano. Además, por el `ON DELETE SET NULL`, movimientos de talles borrados quedan con `size_id NULL` y generan falsos positivos |
-| REV-03 | **Faltan 3 invariantes en el SQL**: (a) `catalog_products.stock_quantity` vs. `SUM(talles)`, (b) `stock_reserved` vs. la suma de ítems de pedidos `pending_payment` sin confirmar ni restaurar, (c) doble asiento de caja por el mismo pedido (`GROUP BY reference_type, reference_id HAVING COUNT(*) > 1` con `reversal_of_id IS NULL AND status='active'`) | (a) y (b) son los detectores directos de AUD-15. (c) es la única verificación de la idempotencia sobre la que descansa todo el módulo de caja, y hoy no existe: un doble posteo deja el saldo coherente con la suma de asientos y el check 4 pasa |
-| REV-04 | **Los tests de AUD-03 cubren 1 de los 3 caminos corregidos.** Falta `resetPasswordService` (el que el propio fix llama "el caso más importante") y `updateUser` | Revertir esas dos líneas deja la suite en verde |
-| REV-05 | Faltan: verificar el status del request de ataque en AUD-01, el caso `billing` en AUD-02, y el `WHERE order_number IS NOT NULL` del check 11 (MySQL agrupa los NULL juntos → falso positivo) | Higiene de la red de regresión |
-| REV-06 | **El SQL siempre sale con código 0**: no puede fallar un paso del runbook ni un pipeline, y el check 14 (`admins_activos`) contradice el criterio de lectura de su cabecera — 0 es catastrófico ahí, no sano | Como smoke test post-despliegue hoy es una lectura visual de 16 bloques |
-| REV-07 | **El sistema soporta una sola sesión concurrente por usuario** (`loginService` incrementa `session_version` en cada login): loguearse en el celular expulsa la sesión de la PC. No es un bug, pero no está documentado en ninguna parte | Decisión funcional relevante para 4 roles operativos; conviene que sea explícita y no un descubrimiento del primer día |
+| REV-01 | **`session_version` con `increment()` atómico** en los 3 caminos de AUD-03: era read-modify-write sobre un valor leído antes del `bcrypt.hash` (~300 ms de ventana), así que un login del atacante durante esa ventana sobrevivía al reseteo — el escenario exacto que AUD-03 dice cerrar | ✅ **Cerrado.** Los 3 caminos + `storeResetPasswordService` usan `increment()`, con un test de concurrencia que falla contra el código anterior |
+| REV-02 | **El check 1 era ciego para los productos con talles** — casi todo el catálogo. `adjustStock` escribe la fila del talle **o** la del producto, nunca ambas, así que el `JOIN` los descartaba enteros y devolvía 0 filas pareciendo sano | ✅ **Cerrado.** Check 01 (productos sin talles) + check 02 (por talle) |
+| REV-03 | Faltaban las invariantes que más importan: reservas vs. pedidos pendientes, doble asiento de caja, encadenamiento del ledger, pedidos sin ítems, coherencia de las reversiones | ✅ **Cerrado.** Checks 03, 06, 07, 09, 14, 15, 16, 18, 22, 24 |
+| REV-04 | **Los tests de AUD-03 cubrían 1 de los 3 caminos corregidos** | ✅ **Cerrado.** `PUT /users/:id` y el reset por token tienen test propio |
+| REV-05 | AUD-01 no verificaba el status del request de ataque; AUD-02 no probaba `billing`; el check de duplicados agrupaba todos los `NULL` juntos | ✅ **Cerrado** |
+| REV-06 | **El SQL no servía como smoke test automatizable**, y el check de administradores activos contradecía el criterio de lectura de su propia cabecera | ✅ **Cerrado.** Criterio único (`anomalias = 0`), tabla resumen, veredicto `INTEGRIDAD OK` / `INTEGRIDAD FALLA` grepeable, y el one-liner de shell para el exit code |
+| REV-07 | **El sistema soporta una sola sesión concurrente por usuario** (`loginService` incrementa `session_version` en cada login): loguearse en el celular expulsa la sesión de la PC. La tienda, en cambio, sí permite sesiones concurrentes — la asimetría no parece deliberada | ⬜ **Abierto.** No es un bug, es una decisión funcional que conviene hacer explícita antes de que la descubra un usuario el primer día |
+
+> **Los dos falsos positivos que sólo aparecieron al ejecutar el script.** Vale registrarlos, porque son la razón por la que un diagnóstico de integridad hay que correrlo antes de entregarlo y no sólo escribirlo:
+>
+> - El check de doble asiento incluía `invoice` y `catalog_invoice`, y daba **20 falsas alarmas**: una factura puede tener varios cobros parciales, cada uno con su propio asiento — lo documenta `reverseAllForReference` en el mismo código. Quedó restringido a `store_order`, donde `cash_recorded_at` sí garantiza uno solo.
+> - Dos checks comparaban `catalog_products.stock_quantity` contra la suma de sus talles y daban **14 falsas alarmas**: no es una invariante del sistema (ver AUD-16). Se reemplazaron por reservas huérfanas y consistencia de cupones.
+>
+> Un script que grita 34 veces sin motivo es un script que nadie vuelve a mirar.
 
 ---
 
@@ -423,8 +429,8 @@ No bloquean por sí solos, pero **el SQL de integridad mide menos de lo que pare
 | `src/services/user.service.ts` | AUD-03 — `session_version++` en `changeUserPassword` y `updateUser` |
 | `src/services/auth.service.ts` | AUD-03 — `session_version++` en `resetPasswordService` |
 | `src/services/catalog.service.ts` | AUD-15 — `saveProductSizes` pasa de *destroy+recreate* a upsert por `size_name`, con guarda 409 sobre talles reservados |
-| `src/__tests__/api/audit-preprod-regressions.test.ts` | **nuevo** — 8 tests de regresión (4 originales + 4 de AUD-15) |
-| `documentos/auditoria-integridad-preprod.sql` | **nuevo** — 15 diagnósticos de solo lectura |
+| `src/__tests__/api/audit-preprod-regressions.test.ts` | **nuevo** — 12 tests de regresión (AUD-01/02/03/15 + REV-01/04/05) |
+| `documentos/auditoria-integridad-preprod.sql` | **nuevo** — 28 diagnósticos de solo lectura (v2: criterio único, tabla resumen y veredicto grepeable) |
 | `documentos/AUDITORIA_INTEGRAL_PREPRODUCCION_2026-08-08.md` | **nuevo** — este informe |
 
 **frontIndians**
@@ -432,7 +438,7 @@ No bloquean por sí solos, pero **el SQL de integridad mide menos de lo que pare
 |---|---|
 | `public/.htaccess` | AUD-06 — cabeceras de seguridad y caché, con guardas `<IfModule>` |
 
-**Riesgo de regresión: bajo, con una excepción.** Los cambios de AUD-01/02/03 restringen lo que se acepta y no cambian ningún contrato de API. **AUD-15 sí cambia el contrato**: `PUT /catalog/products/:id/sizes` puede devolver 409 y 400 donde antes siempre devolvía 200 — ver condición **C8**. La suite completa pasó de 289 a **297 tests** sin una sola falla. El `.htaccess` sigue siendo el de mayor riesgo operativo por depender del hosting (condición C5).
+**Riesgo de regresión: bajo, con una excepción.** Los cambios de AUD-01/02/03 restringen lo que se acepta y no cambian ningún contrato de API. **AUD-15 sí cambia el contrato**: `PUT /catalog/products/:id/sizes` puede devolver 409 y 400 donde antes siempre devolvía 200 — ver condición **C8**. La suite completa pasó de 289 a **301 tests** sin una sola falla. El `.htaccess` sigue siendo el de mayor riesgo operativo por depender del hosting (condición C5).
 
 **Estado en git (actualizado).** Todo está commiteado en la rama **`auditoriapreprod`** de ambos repos, sin push ni despliegue:
 
@@ -447,7 +453,7 @@ No bloquean por sí solos, pero **el SQL de integridad mide menos de lo que pare
 
 - [x] Typecheck backend y frontend sin errores
 - [x] Build de producción del frontend correcto
-- [x] Suite backend completa en verde (45 suites / 297 tests)
+- [x] Suite backend completa en verde (45 suites / 301 tests)
 - [x] Suite frontend en verde (47 tests)
 - [x] Migraciones aplicadas desde cero sin error
 - [x] Esquema migrado y esquema del ORM sin divergencias de columnas
