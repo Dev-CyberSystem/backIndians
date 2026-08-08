@@ -393,10 +393,9 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 | **C5** | Probar el `.htaccess` nuevo en el hosting real **antes** del release | Dev | La home y una ruta profunda (ej. `/tienda/producto/1`) cargan con 200; `curl -I` muestra `X-Content-Type-Options` |
 | **C6** | Decidir explícitamente si se activa HSTS (queda fuera a propósito, ver AUD-06) | Dueño / Dev | Decisión registrada; si es afirmativa, se agrega y se prueba en staging |
 | **C7** | Definir un monitoreo mínimo: al menos una alerta por caída del servicio y otra por tasa de error 5xx | DevOps | Provocar un error controlado y verificar que llega el aviso |
+| **C8** | ✅ **CERRADA.** El frontend descartaba el mensaje del backend y, peor, en la edición guardaba los datos **antes** que los talles: un 409 dejaba el producto actualizado a medias. Corregido: se muestra el mensaje real y los talles van primero | Dev | ✅ Verificado en navegador real — `frontIndians/e2e/tests/catalog-sizes.spec.ts` |
 
-| **C8** | ✅ **CERRADA.** El frontend descartaba el mensaje del backend (`onError: () => toast.error('Error al guardar el producto')`) y, peor, en la edición guardaba los datos **antes** que los talles: un 409 dejaba el producto actualizado a medias. Corregido: se muestra el mensaje real y los talles van primero | Dev | ✅ Verificado en navegador real — `e2e/tests/catalog-sizes.spec.ts` |
-
-> C7 es la más floja de las siete en cuanto a exigencia, pero es la que evita repetir el incidente del 2026-08-07. Si hubiera que elegir una sola para no postergar, es esta.
+> **De las 8, C8 es la única cerrada; las otras 7 son todas de entorno productivo y ninguna se puede verificar desde acá.** C7 es la más floja en cuanto a exigencia, pero es la que evita repetir el incidente del 2026-08-07: si hubiera que elegir una sola para no postergar, es esa.
 
 ### Pendientes abiertos por la revisión adversarial (2026-08-08)
 
