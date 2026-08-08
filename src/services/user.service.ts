@@ -185,6 +185,8 @@ export async function updateUser(
   if (input.active !== undefined) updateData.active = input.active;
   if (input.password) {
     (updateData as any).password_hash = await bcrypt.hash(input.password, 12);
+    // Ver `changeUserPassword` (AUD-03): cambiar la clave revoca las sesiones.
+    (updateData as any).session_version = (user.session_version as number) + 1;
   }
 
   await user.update(updateData);
@@ -216,7 +218,14 @@ export async function changeUserPassword(id: number, newPassword: string): Promi
   const user = await User.findByPk(id);
   if (!user) throw new AppError('Usuario no encontrado', 404);
   const password_hash = await bcrypt.hash(newPassword, 12);
-  await user.update({ password_hash });
+  // Cambiar la contraseña REVOCA las sesiones abiertas (AUD-03): sin esto, el
+  // access token (15 min) y sobre todo el refresh token (7 días) emitidos antes
+  // del cambio seguían sirviendo, así que cambiar la clave de una cuenta
+  // comprometida no echaba al atacante. `authenticate` y `refreshTokenService`
+  // comparan session_version contra el de la DB, así que incrementarlo invalida
+  // todo lo emitido antes. Mismo criterio que la tienda
+  // (`storeResetPasswordService`) y que `loginService`.
+  await user.update({ password_hash, session_version: (user.session_version as number) + 1 });
 }
 
 /**

@@ -228,14 +228,31 @@ export async function storeUpsertAddressService(
     await StoreAddress.update({ is_default: false }, { where: { customer_id: customerId } });
   }
 
+  // Whitelist explícita, NUNCA `addr.update(data)` con el body crudo (AUD-01 /
+  // mismo criterio que `updateAccount` en cash.service.ts): la ruta
+  // `POST /store/me/addresses` no tiene validadores y Sequelize aplica
+  // cualquier atributo que venga en el objeto. Con el body crudo, un
+  // `{ id: <propia>, customer_id: <ajeno> }` movía la dirección del atacante a
+  // la cuenta de otro comprador (escritura cruzada entre clientes), y un `id`
+  // inyectado podía pisar otra fila. `customer_id` sale SIEMPRE del token.
+  const fields = {
+    label:      data.label,
+    street:     data.street,
+    city:       data.city,
+    state:      data.state,
+    zip_code:   data.zip_code,
+    country:    data.country,
+    is_default: data.is_default,
+  };
+
   if (data.id) {
     const addr = await StoreAddress.findOne({ where: { id: data.id, customer_id: customerId } });
     if (!addr) throw new AppError('Dirección no encontrada', 404);
-    await addr.update(data);
+    await addr.update(fields);
     return addr;
   }
 
-  return StoreAddress.create({ ...data, customer_id: customerId });
+  return StoreAddress.create({ ...fields, customer_id: customerId });
 }
 
 export async function storeDeleteAddressService(customerId: number, addressId: number) {

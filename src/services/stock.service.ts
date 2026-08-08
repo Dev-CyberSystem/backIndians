@@ -130,7 +130,22 @@ export async function updateStockItem(
 ) {
   const item = await StockItem.findByPk(id);
   if (!item) throw new AppError('Material no encontrado', 404);
-  await item.update(input);
+
+  // Whitelist explícita, NUNCA `item.update(input)` con el body crudo (AUD-02):
+  // el tipo TypeScript de `input` no filtra nada en runtime — el controlador
+  // pasa `req.body` tal cual y los validadores de la ruta no descartan los
+  // campos no declarados. Un `PUT /stock/:id {"current_quantity": 999999}`
+  // reescribía el stock del material sin generar ningún `stock_movements`,
+  // rompiendo la invariante STOCK = INICIAL + INGRESOS − EGRESOS y dejando el
+  // cambio fuera de la auditoría. El stock sólo se mueve por `createMovement`.
+  const patch: Record<string, unknown> = {};
+  if (input.name !== undefined)         patch.name         = input.name;
+  if (input.category_id !== undefined)  patch.category_id  = input.category_id;
+  if (input.unit !== undefined)         patch.unit         = input.unit;
+  if (input.min_quantity !== undefined) patch.min_quantity = input.min_quantity;
+  if (input.description !== undefined)  patch.description  = input.description;
+
+  await item.update(patch);
   return getStockItem(id);
 }
 
