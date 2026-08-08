@@ -392,7 +392,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 | **C4** | Confirmar que Railway corre **una sola réplica** del backend mientras se aplican migraciones | DevOps | Panel de Railway: réplicas = 1 durante el deploy |
 | **C5** | Probar el `.htaccess` nuevo en el hosting real **antes** del release | Dev | La home y una ruta profunda (ej. `/tienda/producto/1`) cargan con 200; `curl -I` muestra `X-Content-Type-Options` |
 | **C6** | Decidir explícitamente si se activa HSTS (queda fuera a propósito, ver AUD-06) | Dueño / Dev | Decisión registrada; si es afirmativa, se agrega y se prueba en staging |
-| **C7** | Definir un monitoreo mínimo: al menos una alerta por caída del servicio y otra por tasa de error 5xx | DevOps | Provocar un error controlado y verificar que llega el aviso |
+| **C7** | 🟡 **CÓDIGO LISTO, FALTA CONFIGURAR.** `/health` ahora verifica la base y devuelve 503 si no responde (antes decía `ok` sin tocar MySQL, así que un monitor externo habría visto verde con la base caída). Detector interno de 5xx sostenidos con avisos por mail y WhatsApp. **Falta dar de alta el watchdog externo (UptimeRobot) y CallMeBot** — guía paso a paso en `documentos/ALERTAS_Y_MONITOREO.md` | DevOps | Pausar el servicio en Railway y confirmar que llegan mail y WhatsApp |
 | **C8** | ✅ **CERRADA.** El frontend descartaba el mensaje del backend y, peor, en la edición guardaba los datos **antes** que los talles: un 409 dejaba el producto actualizado a medias. Corregido: se muestra el mensaje real y los talles van primero | Dev | ✅ Verificado en navegador real — `frontIndians/e2e/tests/catalog-sizes.spec.ts` |
 
 > **De las 8, C8 es la única cerrada; las otras 7 son todas de entorno productivo y ninguna se puede verificar desde acá.** C7 es la más floja en cuanto a exigencia, pero es la que evita repetir el incidente del 2026-08-07: si hubiera que elegir una sola para no postergar, es esa.
@@ -452,7 +452,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 
 - [x] Typecheck backend y frontend sin errores
 - [x] Build de producción del frontend correcto
-- [x] Suite backend completa en verde (45 suites / 301 tests)
+- [x] Suite backend completa en verde (46 suites / 305 tests)
 - [x] Suite frontend en verde (47 tests)
 - [x] Migraciones aplicadas desde cero sin error
 - [x] Esquema migrado y esquema del ORM sin divergencias de columnas
@@ -473,7 +473,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 - [ ] `.htaccess` probado en el hosting real — **condición C5**
 - [x] Frontend muestra el error nuevo de talles — **condición C8**
 - [ ] Decisión sobre HSTS — **condición C6**
-- [ ] Monitoreo y alertas mínimas — **condición C7**
+- [~] Monitoreo y alertas mínimas — **condición C7** (código listo y testeado; falta el alta en UptimeRobot + CallMeBot)
 - [ ] Lint del frontend en verde — backlog, no bloquea
 - [!] Pruebas de carga y E2E de navegador — **no ejecutadas en esta auditoría** (ver limitaciones)
 
