@@ -255,7 +255,7 @@ Parecía un riesgo de "pasa en dev, falla en producción". `order.service.ts:465
 | AUD-12 | P3 | El refresh token vive en `localStorage` (7 días staff / 30 días tienda): un XSS lo expondría. No se encontró ningún XSS, y el único `dangerouslySetInnerHTML` está correctamente escapado | M |
 | AUD-13 | P3 | `railway.toml` corre `npm run migrate` en cada arranque. Correcto con **una sola** réplica; con dos o más, dos procesos podrían migrar a la vez | S |
 | AUD-14 | P3 | Timestamps `NOT NULL` en migraciones y nullables bajo `sync()` (98 columnas). Producción es más estricta que desarrollo; sin impacto detectado | M |
-| AUD-16 | P3 | **`catalog_products.stock_quantity` / `.stock_reserved` son campos muertos para los productos con talles**: nadie los mantiene sincronizados con la suma de sus talles y difieren desde el alta. No abre ningún vector — el checkout exige talle cuando el producto tiene talles (`store.service.ts:700`) y la vitrina filtra por talle — pero es un campo que dice una cosa y significa otra, y ya causó un falso positivo al escribir el SQL de integridad | M |
+| AUD-16 | P3 | **`catalog_products.stock_quantity` / `.stock_reserved` se desincronizan de la suma de sus talles.** El panel los escribe como la suma al guardar el producto (`CatalogPage.tsx:647`), pero a partir de ahí ninguna venta los toca: el ledger mueve la fila del talle y nunca la del producto, así que divergen con la primera compra. No abre ningún vector — el checkout exige talle cuando el producto tiene talles (`store.service.ts:700`) y la vitrina filtra por talle — pero es un campo que dice una cosa y significa otra, y ya causó un falso positivo al escribir el SQL de integridad | M |
 
 ---
 
@@ -394,7 +394,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 | **C6** | Decidir explícitamente si se activa HSTS (queda fuera a propósito, ver AUD-06) | Dueño / Dev | Decisión registrada; si es afirmativa, se agrega y se prueba en staging |
 | **C7** | Definir un monitoreo mínimo: al menos una alerta por caída del servicio y otra por tasa de error 5xx | DevOps | Provocar un error controlado y verificar que llega el aviso |
 
-| **C8** | El frontend debe **mostrar el mensaje de error** del 409/400 nuevo de `PUT /catalog/products/:id/sizes` (AUD-15). Si hoy asume 200, el admin ve un guardado que en realidad falló | Dev | Editar los talles de un producto con un pedido pendiente e intentar quitar ese talle: el mensaje del backend tiene que llegar a la pantalla |
+| **C8** | ✅ **CERRADA.** El frontend descartaba el mensaje del backend (`onError: () => toast.error('Error al guardar el producto')`) y, peor, en la edición guardaba los datos **antes** que los talles: un 409 dejaba el producto actualizado a medias. Corregido: se muestra el mensaje real y los talles van primero | Dev | ✅ Verificado en navegador real — `e2e/tests/catalog-sizes.spec.ts` |
 
 > C7 es la más floja de las siete en cuanto a exigencia, pero es la que evita repetir el incidente del 2026-08-07. Si hubiera que elegir una sola para no postergar, es esta.
 
@@ -472,6 +472,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 - [ ] Backup productivo restaurado y comprobado — **condición C3**
 - [ ] Una sola réplica durante las migraciones — **condición C4**
 - [ ] `.htaccess` probado en el hosting real — **condición C5**
+- [x] Frontend muestra el error nuevo de talles — **condición C8**
 - [ ] Decisión sobre HSTS — **condición C6**
 - [ ] Monitoreo y alertas mínimas — **condición C7**
 - [ ] Lint del frontend en verde — backlog, no bloquea
@@ -483,7 +484,11 @@ Para que quede claro qué **no** cubre este informe:
 
 - **No se probó nada contra producción.** Todo corrió en local. C1, C2, C3, C4 y C5 son verificables sólo en el entorno real.
 - **No se ejecutaron pruebas de carga** (`autocannon` está en el repo pero medir en local no representa a Railway).
-- **No se corrieron los E2E de Playwright** de `e2e/`; la cobertura de flujos vino de las 45 suites de API.
+- **Los E2E de Playwright sí se corrieron** (revisión del 2026-08-08, proyecto `chromium`): **23 de 25 en verde**. Los 2 fallos son ajenos a los cambios de esta auditoría y se verificaron como preexistentes revirtiendo el cambio del frontend:
+  - `customer-flows › un comprador puede iniciar sesión` — **falso fallo por falta de datos**: los compradores de prueba no estaban en la base porque `seed:store-customers` es un script aparte que `npm run test:full` no ejecuta. Corriéndolo, la suite pasa entera. Conviene que el README de `e2e/` lo diga.
+  - `seo › categoría por path` — depende de que exista la categoría `futbol` con productos en la base de desarrollo. Falla igual sin ningún cambio aplicado.
+
+> ⚠️ **`e2e/` no está bajo control de versiones.** La carpeta vive en la raíz `indians/`, que no es un repo git, y ninguno de los dos subrepos la trackea. Toda la batería de Playwright — caja, tienda, SEO, usuarios, facturación, y el `catalog-sizes.spec.ts` nuevo de la condición C8 — existe **sólo en esta máquina**: sin historia, sin respaldo y sin forma de que otra persona la corra. Es el activo de testing menos protegido del proyecto. Decidir dónde versionarla (subrepo propio, o dentro de `frontIndians`) debería entrar al backlog antes que cualquier E2E nuevo.
 - **No se auditó el módulo de proveedores/remitos** porque no existe en el código — es una diferencia de alcance respecto de la lista del pedido, no un faltante.
 - **La integración con Andreani sigue sin empezar**, consistente con lo documentado.
 
