@@ -488,7 +488,13 @@ Para que quede claro qué **no** cubre este informe:
   - `customer-flows › un comprador puede iniciar sesión` — **falso fallo por falta de datos**: los compradores de prueba no estaban en la base porque `seed:store-customers` es un script aparte que `npm run test:full` no ejecuta. Corriéndolo, la suite pasa entera. Conviene que el README de `e2e/` lo diga.
   - `seo › categoría por path` — depende de que exista la categoría `futbol` con productos en la base de desarrollo. Falla igual sin ningún cambio aplicado.
 
-> ⚠️ **`e2e/` no está bajo control de versiones.** La carpeta vive en la raíz `indians/`, que no es un repo git, y ninguno de los dos subrepos la trackea. Toda la batería de Playwright — caja, tienda, SEO, usuarios, facturación, y el `catalog-sizes.spec.ts` nuevo de la condición C8 — existe **sólo en esta máquina**: sin historia, sin respaldo y sin forma de que otra persona la corra. Es el activo de testing menos protegido del proyecto. Decidir dónde versionarla (subrepo propio, o dentro de `frontIndians`) debería entrar al backlog antes que cualquier E2E nuevo.
+> ✅ **`e2e/` ya está versionada.** Estaba en la raíz `indians/`, que no es un repo git, así que ninguno de los dos subrepos la trackeaba: toda la batería de Playwright existía **sólo en una máquina**, sin historia ni respaldo. Movida a **`frontIndians/e2e/`** y commiteada (`ebd7e7b`), con su `package.json` propio para no mezclar Playwright con las dependencias del front. Se corre con `npm run test:e2e` desde `frontIndians`.
+>
+> Al mudarla aparecieron dos cosas que había que resolver y una que conviene saber:
+> - Vitest levantaba los `*.spec.ts` de Playwright (su `include` por defecto los tomaba) y ESLint los linteaba: ambos excluidos.
+> - **Bug preexistente en `users.spec.ts`**: el guard `browserName !== 'chromium'` nunca saltaba nada, porque el proyecto `mobile` es un Pixel 7 que **también corre sobre Chrome**. El alta de usuario se ejecutaba dos veces —con su envío de mail real incluido— y la corrida de `mobile` fallaba por timeout. Ahora filtra por el fixture `isMobile`.
+>
+> ⚠️ **Queda el mismo problema, sin resolver, con `docs/project-brain/` y el `CLAUDE.md` de la raíz**: tampoco los trackea ningún repo. Es más grave que el de `e2e/`, porque `CLAUDE.md` declara la lectura del cerebro documental como paso obligatorio antes de implementar cualquier tarea — y ese cerebro hoy existe en una sola máquina. Requiere una decisión sobre dónde moverlo.
 - **No se auditó el módulo de proveedores/remitos** porque no existe en el código — es una diferencia de alcance respecto de la lista del pedido, no un faltante.
 - **La integración con Andreani sigue sin empezar**, consistente con lo documentado.
 
