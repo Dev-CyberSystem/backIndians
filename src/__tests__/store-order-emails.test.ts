@@ -5,6 +5,11 @@
  * plantilla (la integración con la DB se prueba en api/store-tracking.test.ts).
  */
 
+// El SDK está mockeado (nada sale a la red), pero `mailGuard` corta los envíos
+// bajo Jest y los dominios de prueba. Esta variable deja pasar la llamada hasta
+// el mock para poder inspeccionar el payload; sólo tiene efecto bajo Jest.
+process.env.MAIL_TEST_DELIVER = '1';
+
 const mockSend = jest.fn().mockResolvedValue({ data: { id: 'test' }, error: null });
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({ emails: { send: mockSend } })),

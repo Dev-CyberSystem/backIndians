@@ -146,7 +146,18 @@ type SummaryResult = {
 // ── Helpers de período ────────────────────────────────────────────────────────
 
 function parsePeriod(period = 'last6'): { dateFrom: string; dateTo: string; periodLabel: string } {
-  const now = new Date();
+  // Fecha de NEGOCIO (UTC−3), no la hora local del proceso. Los asientos se
+  // fechan con `businessDate()`, pero este cálculo usaba `new Date()` con los
+  // getters locales: en Railway el proceso corre en UTC, así que entre las
+  // 21:00 y las 23:59 de Argentina el rango del reporte se corría un día
+  // respecto de la fecha con la que se guardan los movimientos. El resultado
+  // era un reporte que, de noche, incluía o excluía el día equivocado —
+  // sobre todo en los bordes de mes, donde el período "mes actual" podía
+  // mostrar el mes que no era.
+  //
+  // Se construye a mediodía para quedar lejos de los bordes del día al
+  // aplicarle los getters locales.
+  const now = new Date(`${businessDate()}T12:00:00`);
   const pad = (n: number) => String(n).padStart(2, '0');
   const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const dateTo = fmt(now);

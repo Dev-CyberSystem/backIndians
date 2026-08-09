@@ -1,5 +1,6 @@
 import { api, API, loginAs, auth } from './helpers';
 import { CashAuditEvent } from '../../models/CashAuditEvent';
+import { businessDate } from '../../utils/helpers';
 
 /*
  * Auditoría inmutable del módulo de caja (Fase 1 del plan de corrección —
@@ -8,7 +9,12 @@ import { CashAuditEvent } from '../../models/CashAuditEvent';
  * código interno, y que la consulta esté restringida a admin.
  */
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// `businessDate()` y NO `toISOString()` (que devuelve la fecha en UTC): entre
+// las 21:00 y las 23:59 de Argentina, UTC ya está en el día siguiente, así que
+// el movimiento se creaba con fecha de MAÑANA mientras el reporte lo buscaba
+// hasta HOY — y el test fallaba todas las noches. Es la misma fecha de negocio
+// que usa el backend para fechar los asientos.
+const TODAY = businessDate();
 
 describe('Auditoría de caja — Fase 1', () => {
   let admin: string;

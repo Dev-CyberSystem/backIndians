@@ -1,5 +1,6 @@
 import { api, API, loginAs, auth } from './helpers';
 import { CashTransaction } from '../../models/CashTransaction';
+import { businessDate } from '../../utils/helpers';
 
 /*
  * Inmutabilidad y reversión de movimientos de caja (Fase 2 del plan de
@@ -11,7 +12,12 @@ import { CashTransaction } from '../../models/CashTransaction';
  * PUT/DELETE eliminados de la API, idempotencia secuencial y concurrente.
  */
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// `businessDate()` y NO `toISOString()` (que devuelve la fecha en UTC): entre
+// las 21:00 y las 23:59 de Argentina, UTC ya está en el día siguiente, así que
+// el movimiento se creaba con fecha de MAÑANA mientras el reporte lo buscaba
+// hasta HOY — y el test fallaba todas las noches. Es la misma fecha de negocio
+// que usa el backend para fechar los asientos.
+const TODAY = businessDate();
 
 describe('Reversión e inmutabilidad de caja — Fase 2', () => {
   let admin: string;

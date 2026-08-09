@@ -11,6 +11,7 @@ import { FabricType } from '../src/models/FabricType';
 import { SizeChart } from '../src/models/SizeChart';
 import bcrypt from 'bcryptjs';
 import type { UserRole } from '../src/types';
+import { seedSystemData } from './system-data';
 
 // findOrCreate no actualiza un registro existente: si el usuario ya estaba en la
 // DB con otro hash/rol, el seed quedaba desfasado (login fallaba). Este helper
@@ -213,6 +214,12 @@ async function seed() {
   }
 
   console.log(`✅ ${talles.length} tallas cargadas`);
+
+  // Filas de SISTEMA que crean las migraciones de datos. En dev se usa
+  // `sync()` y las migraciones no se re-ejecutan, así que sin esto una base
+  // vaciada queda sin la categoría "Ventas tienda online" y ningún pedido
+  // pagado puede generar su asiento en caja. Ver `seeders/system-data.ts`.
+  await seedSystemData();
 
   console.log('\n🎉 Seeders completados exitosamente');
   console.log('\nCredenciales de acceso:');

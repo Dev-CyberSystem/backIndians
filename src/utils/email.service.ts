@@ -1,11 +1,32 @@
 import { Resend } from 'resend';
 import { generateInvoicePdf, type InvoiceData } from './store.pdf';
 import { escapeHtml } from './escapeHtml';
+import { guardedSend } from './mailGuard';
 import { emailWrapper } from './mailer';
 import { formatPriceNumber } from './money';
 import type { StoreOrderStatus } from '../models/StoreOrder';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resendClient = new Resend(process.env.RESEND_API_KEY);
+
+/**
+ * Fachada sobre el cliente de Resend que aplica `mailGuard` antes de entregar
+ * (ver `mailGuard.ts`). Todos los envíos de la tienda pasan por acá, así que la
+ * guarda no depende de que cada punto de envío se acuerde de aplicarla: es la
+ * diferencia entre una regla y una convención.
+ */
+const resend = {
+  emails: {
+    send: async (payload: Parameters<typeof resendClient.emails.send>[0]) => {
+      const to = (payload as { to: string | string[] }).to;
+      const subject = (payload as { subject?: string }).subject ?? '(sin asunto)';
+      let result: Awaited<ReturnType<typeof resendClient.emails.send>> | undefined;
+      await guardedSend(to, subject, async () => {
+        result = await resendClient.emails.send(payload);
+      });
+      return result ?? { data: null, error: null };
+    },
+  },
+};
 const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indians.com.ar';
 const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
 
