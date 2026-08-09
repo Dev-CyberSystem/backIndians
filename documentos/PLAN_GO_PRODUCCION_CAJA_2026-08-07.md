@@ -4,6 +4,7 @@
 **Origen:** cierra los bloqueantes de `VERIFICACION_FINAL_CAJA_PRODUCCION_2026-08-07.md`
 **Ramas:** `auditoriacaja` en ambos repos (`backIndians` `916a486`, `frontIndians` `e839743`)
 **Estado de partida:** las 5 correcciones de la verificación final están aplicadas y validadas, **sin commitear**
+**Estado final (2026-08-07):** ✅ **GO declarado y ejecutado en producción.** Las 6 fases están cerradas — ver el detalle de cada una y el cierre de despliegue en la Fase 5. Riesgos residuales aceptados documentados al final de este archivo; pendiente sin relación con caja: cerrar `DEC-014` (secreto real de MercadoPago).
 
 ---
 
@@ -198,19 +199,45 @@ Las tres puertas que quedaron sin cerrar en la verificación final.
 
 ---
 
-### Fase 5 — Despliegue
+### Fase 5 — Despliegue ✅ HECHA (2026-08-07)
 
-Ejecutar el plan de la **sección L** del informe de verificación, con estos agregados propios de la Fase 2:
+Ejecutada la sección **L** del informe de verificación, con los agregados propios de la Fase 2. Resultado real de cada punto:
 
-| # | Agregado sobre el plan original |
-|---|---|
-| 5.0 | **Precheck bloqueante:** `SELECT COUNT(*) FROM invoice_payments` y `FROM catalog_invoice_payments` en producción. Si hay filas, decidir antes de migrar: borrarlas (como en desarrollo) o cambiar la migración. **No aplicar la migración a ciegas** |
-| 5.1 | Los prechecks incluyen verificar que `store_cash_account_id` y `store_bank_account_id` estén configurados — ahora reciben plata de dos orígenes (tienda **y** cobranzas). Sin eso, las cobranzas se registran pero no se asientan: no rompe nada, pero deja conciliación acumulada |
-| 5.2 | El smoke test incluye **cobrar una factura de prueba en efectivo** y verificar que el movimiento aparece en `/cash` |
-| 5.3 | El monitoreo incluye los warnings nuevos de cuenta sin configurar en el circuito de cobranzas |
-| 5.4 | Si la Fase 3.6 no se hizo, **el rollback sigue dependiendo del backup**: dejarlo explícito en el runbook, no descubrirlo el día del incidente |
+| # | Agregado sobre el plan original | Resultado |
+|---|---|---|
+| 5.0 | **Precheck bloqueante:** `SELECT COUNT(*) FROM invoice_payments` y `FROM catalog_invoice_payments` en producción | ✅ Ambas en 0 — migración `NOT NULL` aplicada sin riesgo, no hizo falta borrar nada |
+| 5.1 | Prechecks: `store_cash_account_id` / `store_bank_account_id` configurados | ✅ No estaban configurados; se mapearon a `Caja Principal` (id=1, cash) y `Banco` (id=3, bank) tras el deploy del backend (la key `store_bank_account_id` no existía en el código previo a esta Fase, no se podía configurar antes) |
+| 5.2 | Smoke test: cobrar una factura de prueba en efectivo y verificar que aparece en `/cash` | ⚠️ **Omitido a propósito en producción** (decisión explícita del usuario) — hubiera consumido numeración real de pedido/factura. Se verificó en su lugar: (a) E2E contra dev con Playwright real en navegador (`invoice-collections.spec.ts`, ✅ pasa), y (b) `cash-integrity-check.ts` contra producción con sus 23 checks en verde |
+| 5.3 | Monitoreo: warnings de cuenta sin configurar en cobranzas | Ver sección "Monitoreo (primeras 48h)" más abajo |
+| 5.4 | Rollback dependiente del backup si 3.6 no se hizo | 3.6 no se hizo — el rollback de esta Fase sigue dependiendo exclusivamente del backup tomado en 5.1b (ver abajo), documentado explícitamente, no es un descubrimiento pendiente |
 
-**Esfuerzo: S (medio día + ventana de despliegue).**
+**Cronología real de la ejecución** (todo vía `railway run` / API real, sin leer nunca `.env*` ni `Users.txt`):
+
+1. **Incidente previo no relacionado**: al iniciar el despliegue se encontró el backend de producción caído (crash-loop por `MP_WEBHOOK_SECRET` ausente, más de un día caído). Resuelto como medida de emergencia documentada en `DEC-014` (`08-DECISIONS.md`) antes de continuar — ver ese documento para el detalle completo y los pendientes que deja abiertos.
+2. **Backup**: `mysqldump --single-transaction --routines --triggers` de producción (131.565 bytes, 48 tablas). Verificado restaurándolo en una base descartable local (`textil_backup_test`) y comparando counts de tablas clave antes de borrarla.
+3. **Precheck de solo lectura**: `invoice_payments=0`, `catalog_invoice_payments=0`, 3 `cash_accounts` (`Caja Principal` id=1 balance -3.450.000, `Caja Chica` id=2 balance 0, `Banco` id=3 balance 0), categoría de sistema `Ventas tienda online` presente, 2 `cash_transactions` totales en toda la producción.
+4. **Backend**: merge de `auditoriacaja` → `master` (14 commits, sin conflictos, hotfix del incidente sobrevivió el merge), `tsc --noEmit` y `npm run build` en verde, push a `origin/master` → Railway migró (`090`-`095`) y desplegó automáticamente. Verificado con tráfico real: `/health` 200, `/cash/summary` sin token 401, `cash-integrity-check.ts` corrido contra producción vía `MYSQL_URL="$MYSQL_PUBLIC_URL"` → **23/23 checks en verde**, las 3 cuentas cuadran con su libro de movimientos.
+5. **Settings**: `store_cash_account_id=1` y `store_bank_account_id=3` configurados vía `PUT /settings` real (JWT propio firmado con el `JWT_SECRET` inyectado, nunca una password de usuario).
+6. **Smoke test de 8 puntos contra producción** (cuenta/categoría QA descartables, luego desactivadas): `GET /cash/summary` 200 con saldos intactos, alta 201, reversión 201 con badge "Revertido", `PATCH` sobre revertido → 400 (`CASH-MUT-003`), `PUT` de `current_balance` bloqueado (`CASH-MA-001`), `seller` → 403, y las 3 cuentas reales sin ningún cambio de saldo al terminar. **8/8 en verde.**
+7. **Frontend**: merge de `auditoriacaja` → `master` (fast-forward, 10 commits, sin conflictos), `tsc --noEmit` limpio, `lint` con la misma cantidad de errores pre-existentes que antes del merge (172→171, no introduce nuevos), `npm run build` + `npm run prerender` + deploy FTP a Donweb (`deploy-ftp.mjs`, sube `dist/` completo sin borrar archivos remotos huérfanos — no destructivo). Verificado sirviendo el build nuevo: hash de `index-*.js` en `https://sistema.indians.com.ar/` idéntico al del build local, `/login` y `/cash` responden 200.
+8. **Verificación funcional en navegador** (contra dev, con el mismo código ya en producción): Playwright real en Chrome confirmó los 4 comportamientos de UI de caja (movimiento revertido y contraasiento bloquean edición, categoría filtra por tipo, reversión parcial sigue editable) y el selector "Medio de pago" en el cobro de facturas — capturas en `e2e/test-results/`.
+
+**Esfuerzo real: ~1 día** (incluyó el incidente no relacionado, que no estaba presupuestado).
+
+#### Monitoreo (primeras 48h desde el despliegue — 2026-08-07 a 2026-08-09)
+
+No hay dashboard dedicado: el monitoreo es manual, vía `railway logs` y el script de integridad. Qué mirar:
+
+1. **Logs de error en Railway** (`railway logs` o el panel web), buscando:
+   - `startup.envValidation.temporary` — el warning esperado de `MP_WEBHOOK_SECRET` (ver `DEC-014`); si aparece más de una vez por deploy algo anda raro con el arranque.
+   - Cualquier error 500 en rutas `/cash/*`, `/invoices/*/payments` o `/catalog/invoices/*/payments` — son las rutas nuevas de esta Fase.
+   - `ForeignKeyConstraintError` sin capturar (debería salir siempre como 400 genérico tras el fix de `CASH-VAL-006`; un 500 ahí sería una regresión).
+   - Cuentas sin configurar en el circuito de cobranzas: al cobrar una factura sin `store_cash_account_id`/`store_bank_account_id` configurado, el pago igual se registra pero **no** se asienta en caja (comportamiento best-effort, `BR-CASH-008`) y queda un log de advertencia — si aparece repetido, es señal de que alguien desconfiguró el setting, no un bug.
+2. **Integridad de caja**: correr `npx ts-node --project tsconfig.seed.json scripts/cash-integrity-check.ts` contra producción (vía `railway run`, igual que en el despliegue) al menos una vez por día durante estas 48h. Debe seguir en 23/23 — cualquier check en rojo es prioridad alta.
+3. **Reconciliación económica**: comparar manualmente 2-3 cobros reales de facturas contra su reflejo en `/cash` (que el monto y medio de pago coincidan) durante los primeros días de uso real, ya que el smoke test de facturas no se corrió contra producción (5.2).
+4. **Cierre del incidente previo** (no es de esta Fase, pero comparte ventana): `DEC-014` deja pendiente configurar el `MP_WEBHOOK_SECRET` real en Railway y revertir el chequeo de arranque a fatal — mientras no se haga, los webhooks de MercadoPago siguen rechazándose (fail-closed, no afecta caja pero sí a la confirmación automática de pagos de tienda).
+
+Si algo de esto falla: el runbook de rollback está en la sección **L** del informe de verificación y depende del backup tomado en el paso 5.1b de esta Fase (`backup-pre-caja-20260807-1339.sql`, guardado localmente — no en el repo).
 
 ---
 

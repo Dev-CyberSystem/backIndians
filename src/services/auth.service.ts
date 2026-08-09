@@ -156,6 +156,12 @@ export async function resetPasswordService(
 
   const password_hash = await bcrypt.hash(newPassword, 12);
 
+  // Ver `changeUserPassword` (AUD-03): el reset de contraseña tiene que revocar
+  // las sesiones previas. Es el caso más importante de los dos — quien pide un
+  // reset suele hacerlo justamente porque sospecha que le tomaron la cuenta, y
+  // por eso mismo es donde más importa que el incremento sea atómico (REV-01):
+  // el atacante puede estar logueándose durante los ~300 ms del bcrypt.
   await user.update({ password_hash });
+  await user.increment('session_version');
   await resetToken.update({ used: true });
 }

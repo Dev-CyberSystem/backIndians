@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ValidationError, UniqueConstraintError, ForeignKeyConstraintError } from 'sequelize';
 import { logger } from '../utils/logger';
+import { recordServerError } from '../utils/errorRateMonitor';
 import type { LogContext } from '../types/logging';
 
 // Error personalizado con código HTTP y, opcionalmente, código/tipo de negocio.
@@ -121,6 +122,7 @@ export function errorHandler(
     // 4xx = error de negocio/cliente (WARN); 5xx = falla real (ERROR).
     if (err.statusCode >= 500) {
       logger.error(operationName, err, ctx);
+      recordServerError({ method: req.method, url: req.originalUrl, message: err.message });
     } else {
       logger.warn(operationName, { ...ctx, message: err.message, meta: { ...ctx.meta, code: err.code } });
     }
@@ -134,6 +136,9 @@ export function errorHandler(
 
   // Error genérico inesperado — se registra completo (con stack fuera de prod).
   logger.error('unhandledError', err, ctx);
+  // Alimenta el detector de 5xx sostenidos (C7): no se espera a propósito, para
+  // no demorar la respuesta al cliente por mandar un aviso.
+  recordServerError({ method: req.method, url: req.originalUrl, message: err.message });
   res.status(500).json({
     success: false,
     message:

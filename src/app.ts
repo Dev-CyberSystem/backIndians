@@ -8,6 +8,8 @@ import { errorHandler } from './middlewares/errorHandler';
 import { requestContext } from './middlewares/requestContext';
 import { generalLimiter } from './middlewares/rateLimit';
 import { router as apiRouter } from './routes/index';
+import { sequelize } from './config/db';
+import { logger } from './utils/logger';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 
@@ -68,9 +70,53 @@ app.use(requestContext);
 // límite, más estricto). Se desactiva bajo test/carga con RATE_LIMIT_DISABLED=1.
 app.use('/api/v1', generalLimiter, apiRouter);
 
-// Health check
-app.get('/health', (_req, res) => {
-  res.json({ success: true, data: { status: 'ok' } });
+/**
+ * Health check — lo consume el watchdog externo que avisa si el sistema se cae
+ * (condición C7 de la auditoría de preproducción).
+ *
+ * Verifica la BASE, no sólo que el proceso esté vivo: antes respondía
+ * `{status:'ok'}` sin tocar MySQL, así que si la base se caía y Node seguía en
+ * pie el monitor veía verde mientras el sistema estaba inutilizable. Un health
+ * check que no puede fallar no sirve para monitorear nada.
+ *
+ * Devuelve **503** cuando la base no responde, que es lo que cualquier monitor
+ * externo (UptimeRobot y similares) interpreta como caída.
+ *
+ * `SELECT 1` con timeout corto: la idea es detectar "la base no contesta", no
+ * medir su rendimiento; sin timeout, un pool agotado dejaría la request colgada
+ * hasta que el monitor corte por su cuenta y el motivo real se pierda.
+ */
+app.get('/health', async (_req, res) => {
+  const started = Date.now();
+  try {
+    await Promise.race([
+      sequelize.query('SELECT 1'),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout de 5s consultando la base')), 5_000)
+      ),
+    ]);
+    res.json({
+      success: true,
+      data: {
+        status: 'ok',
+        database: 'ok',
+        uptime_seconds: Math.round(process.uptime()),
+        response_ms: Date.now() - started,
+      },
+    });
+  } catch (err) {
+    logger.error('health.databaseUnreachable', err);
+    res.status(503).json({
+      success: false,
+      data: {
+        status: 'error',
+        database: 'unreachable',
+        uptime_seconds: Math.round(process.uptime()),
+        response_ms: Date.now() - started,
+      },
+      message: 'La base de datos no responde',
+    });
+  }
 });
 
 // ─── Manejo de errores (debe ir al final) ────────────────────────────────────

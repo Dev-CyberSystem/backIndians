@@ -177,25 +177,90 @@ export async function updateProduct(
   return getProduct(id);
 }
 
+/**
+ * Reemplaza el juego de talles de un producto.
+ *
+ * NO borra y recrea (AUD-15). Hacerlo perdía `stock_reserved` — la columna no
+ * se copiaba al recrear, así que volvía a 0 — con tres consecuencias reales:
+ *
+ *  1. Las reservas vivas de pedidos en `pending_payment` desaparecían y las
+ *     mismas unidades se podían vender de nuevo.
+ *  2. Al acreditarse el pago, `confirmStoreOrderStock` descuenta la reserva
+ *     (`delta: -quantity` sobre `stock_reserved`) y `adjustStock` lanza 400 si
+ *     el resultado queda negativo: el pedido pagado quedaba imposible de
+ *     confirmar, con la plata ya cobrada.
+ *  3. La FK de `catalog_stock_movements.catalog_product_size_id` es
+ *     `ON DELETE SET NULL`: borrar el talle dejaba todos sus movimientos
+ *     históricos sin referencia, indistinguibles de movimientos de producto.
+ *
+ * En su lugar: los talles que siguen se actualizan in place (conservan `id`,
+ * `stock_reserved` y todas las FKs que los apuntan), los nuevos se crean, y los
+ * que desaparecen se borran **sólo si no tienen reservas vivas** — si las
+ * tienen, la operación entera se rechaza con 409 en vez de romper en silencio.
+ */
 export async function saveProductSizes(productId: number, sizes: SizeInput[]): Promise<CatalogProductSize[]> {
   const product = await CatalogProduct.findByPk(productId);
   if (!product) throw new AppError('Producto no encontrado', 404);
 
+  // Dos talles con el mismo nombre harían ambiguo el emparejamiento por nombre
+  // (y ya eran un dato inválido antes, sólo que se guardaban igual).
+  const names = sizes.map((s) => s.size_name);
+  const duplicated = names.find((n, i) => names.indexOf(n) !== i);
+  if (duplicated) {
+    throw new AppError(`El talle "${duplicated}" está repetido en la lista`, 400);
+  }
+
   const t = await sequelize.transaction();
   try {
-    // Eliminar los talles existentes y recrear
-    await CatalogProductSize.destroy({ where: { product_id: productId }, transaction: t });
+    // Lock de las filas existentes: sin esto, un checkout concurrente podría
+    // reservar sobre un talle que estamos por borrar entre el chequeo y el
+    // DELETE, y la reserva se perdería igual.
+    const existing = await CatalogProductSize.findAll({
+      where: { product_id: productId },
+      lock: Transaction.LOCK.UPDATE,
+      transaction: t,
+    });
+    const byName = new Map(existing.map((s) => [s.size_name, s]));
+    const incoming = new Set(names);
 
-    if (sizes.length) {
-      await CatalogProductSize.bulkCreate(
-        sizes.map((s, i) => ({
-          product_id: productId,
-          size_name: s.size_name,
-          stock_quantity: s.stock_quantity,
-          sort_order: s.sort_order ?? i,
-        })),
-        { transaction: t }
+    const toDelete = existing.filter((s) => !incoming.has(s.size_name));
+    const reserved = toDelete.filter((s) => Number(s.stock_reserved) > 0);
+    if (reserved.length) {
+      throw new AppError(
+        `No se puede eliminar ${reserved.length === 1 ? 'el talle' : 'los talles'} ` +
+          `${reserved.map((s) => `"${s.size_name}"`).join(', ')}: ` +
+          `${reserved.length === 1 ? 'tiene' : 'tienen'} stock reservado por pedidos pendientes de pago. ` +
+          `Esperá a que esos pedidos se paguen o se cancelen antes de quitar el talle.`,
+        409
       );
+    }
+
+    for (const [i, s] of sizes.entries()) {
+      const current = byName.get(s.size_name);
+      if (current) {
+        // `stock_reserved` NO se toca acá: sólo se mueve por el ledger.
+        await current.update(
+          { stock_quantity: s.stock_quantity, sort_order: s.sort_order ?? i },
+          { transaction: t }
+        );
+      } else {
+        await CatalogProductSize.create(
+          {
+            product_id: productId,
+            size_name: s.size_name,
+            stock_quantity: s.stock_quantity,
+            sort_order: s.sort_order ?? i,
+          },
+          { transaction: t }
+        );
+      }
+    }
+
+    if (toDelete.length) {
+      await CatalogProductSize.destroy({
+        where: { id: toDelete.map((s) => s.id) },
+        transaction: t,
+      });
     }
 
     await t.commit();
