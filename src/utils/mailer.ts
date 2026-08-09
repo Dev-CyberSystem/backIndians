@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { escapeHtml } from './escapeHtml';
+import { guardedSend } from './mailGuard';
 
 // Mismo proveedor (Resend) y dominio verificado que usa la tienda
 // (ver email.service.ts). Reutilizamos RESEND_API_KEY / RESEND_FROM_EMAIL.
@@ -19,10 +20,14 @@ interface MailOptions {
 }
 
 export async function sendMail({ to, subject, html }: MailOptions): Promise<void> {
-  const { error } = await resend.emails.send({ from: FROM, to, subject, html });
-  if (error) {
-    throw new Error(`Resend: ${error.name} — ${error.message}`);
-  }
+  // La guarda va ANTES del proveedor: ver `mailGuard.ts`. Un mail bloqueado no
+  // es un error — el llamador sigue como si se hubiera enviado.
+  await guardedSend(to, subject, async () => {
+    const { error } = await resend.emails.send({ from: FROM, to, subject, html });
+    if (error) {
+      throw new Error(`Resend: ${error.name} — ${error.message}`);
+    }
+  });
 }
 
 /**

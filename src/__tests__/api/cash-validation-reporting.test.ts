@@ -1,4 +1,5 @@
 import { api, API, loginAs, auth } from './helpers';
+import { businessDate } from '../../utils/helpers';
 
 /*
  * Correcciones P0 de la auditoría de verificación
@@ -15,7 +16,12 @@ import { api, API, loginAs, auth } from './helpers';
  * antes — por eso los 238 tests previos pasaban con ambos defectos vivos.
  */
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// `businessDate()` y NO `toISOString()` (que devuelve la fecha en UTC): entre
+// las 21:00 y las 23:59 de Argentina, UTC ya está en el día siguiente, así que
+// el movimiento se creaba con fecha de MAÑANA mientras el reporte lo buscaba
+// hasta HOY — y el test fallaba todas las noches. Es la misma fecha de negocio
+// que usa el backend para fechar los asientos.
+const TODAY = businessDate();
 
 describe('Validación de cuentas y contabilidad del resumen — P0 de verificación', () => {
   let admin: string;
