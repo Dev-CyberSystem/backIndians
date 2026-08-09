@@ -390,7 +390,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 | **C2** | **Reconfirmar** en **Configuración → Tienda online** que `store_cash_account_id` y `store_bank_account_id` siguen apuntando a cuentas reales y activas (quedaron en `1` y `3` el 2026-08-07) | Admin | Un pedido de prueba pagado en efectivo genera su asiento; el check 7 del SQL de integridad devuelve 0 filas |
 | **C3** | Backup completo de la base productiva **y restauración probada** en una base aparte | DevOps | Conteo de filas de las tablas críticas idéntico entre origen y restaurada (mismo método de la sección 2) |
 | **C4** | Confirmar que Railway corre **una sola réplica** del backend mientras se aplican migraciones | DevOps | Panel de Railway: réplicas = 1 durante el deploy |
-| **C5** | Probar el `.htaccess` nuevo en el hosting real **antes** del release | Dev | La home y una ruta profunda (ej. `/tienda/producto/1`) cargan con 200; `curl -I` muestra `X-Content-Type-Options` |
+| **C5** | ✅ **CERRADA** (2026-08-08, verificada en producción tras el deploy). Donweb tiene `mod_headers`: las 4 cabeceras están activas y el sitio no se rompió | Dev | ✅ `/login` 200, home 200, `/tienda/producto/1` 200, rutas de SPA 301→200 (redirección normal a *trailing slash*). `curl -I` devuelve `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y `Permissions-Policy`; assets con hash en `max-age=31536000, immutable` y HTML en `no-cache` |
 | **C6** | Decidir explícitamente si se activa HSTS (queda fuera a propósito, ver AUD-06) | Dueño / Dev | Decisión registrada; si es afirmativa, se agrega y se prueba en staging |
 | **C7** | 🟡 **CÓDIGO LISTO, FALTA CONFIGURAR.** `/health` ahora verifica la base y devuelve 503 si no responde (antes decía `ok` sin tocar MySQL, así que un monitor externo habría visto verde con la base caída). Detector interno de 5xx sostenidos con avisos por mail y WhatsApp. **Falta dar de alta el watchdog externo (UptimeRobot) y CallMeBot** — guía paso a paso en `documentos/ALERTAS_Y_MONITOREO.md` | DevOps | Pausar el servicio en Railway y confirmar que llegan mail y WhatsApp |
 | **C8** | ✅ **CERRADA.** El frontend descartaba el mensaje del backend y, peor, en la edición guardaba los datos **antes** que los talles: un 409 dejaba el producto actualizado a medias. Corregido: se muestra el mensaje real y los talles van primero | Dev | ✅ Verificado en navegador real — `frontIndians/e2e/tests/catalog-sizes.spec.ts` |
@@ -470,7 +470,7 @@ La corrección de C-5 se aplicó al stock de catálogo pero no al de materiales 
 - [ ] Cuentas de caja de la tienda verificadas en producción — **condición C2**
 - [ ] Backup productivo restaurado y comprobado — **condición C3**
 - [ ] Una sola réplica durante las migraciones — **condición C4**
-- [ ] `.htaccess` probado en el hosting real — **condición C5**
+- [x] `.htaccess` probado en el hosting real — **condición C5** ✅ verificado en producción
 - [x] Frontend muestra el error nuevo de talles — **condición C8**
 - [ ] Decisión sobre HSTS — **condición C6**
 - [~] Monitoreo y alertas mínimas — **condición C7** (código listo y testeado; falta el alta en UptimeRobot + CallMeBot)
