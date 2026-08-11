@@ -53,6 +53,12 @@
 **Fuente**: migración `20260624-046-production-control-states.js`, modelo `OrderChecklistCheck.ts` (índice también definido a nivel de modelo — ver riesgo de duplicación de índice en [05-DATABASE.md](05-DATABASE.md)).
 **Estado**: Vigente.
 
+### BR-ORDER-005 — El checklist de un control es un registro, no un requisito para avanzar
+**Descripción**: hasta el 2026-08-10, `updateOrder` (`order.service.ts`) exigía tildar el 100% de los ítems del checklist del control actual para avanzar al siguiente (error 400 `CHECKLIST_INCOMPLETE`). Se sacó ese bloqueo a pedido del cliente: hay ítems que no aplican según la prenda (ej. "Insumos: cierres" en una remera sin cierres), y obligaba a tildar en falso o a no poder avanzar. El checklist se puede seguir tildando ítem por ítem (queda registrado quién y cuándo, vía `OrderChecklistCheck`), pero ya no bloquea la transición de estado. Aplica a los 6 controles (`CONTROL_SEQUENCE` en `orderChecklists.ts`).
+**Módulo**: Controles de producción (4).
+**Fuente**: `backIndians/src/services/order.service.ts` (`updateOrder`), `backIndians/src/config/orderChecklists.ts`.
+**Estado**: Vigente desde 2026-08-11.
+
 ### BR-ORDER-004 — El vendedor opera con ficha técnica reducida
 **Descripción**: cuando el creador es rol `seller`, el frontend muestra un formulario restringido (tipo de prenda + talles + personalización), sin exponer precio ni campos técnicos completos.
 **Módulo**: Pedidos (3).

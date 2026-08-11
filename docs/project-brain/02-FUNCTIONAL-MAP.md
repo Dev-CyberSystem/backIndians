@@ -82,11 +82,11 @@
 
 ## 4. Controles de producción / checklist
 
-**Objetivo**: forzar que cada pedido pase por 6 controles de calidad, cada uno con una checklist de ítems obligatorios antes de avanzar.
+**Objetivo**: que cada pedido pase por 6 controles de calidad, cada uno con una checklist de ítems que queda como registro (quién tildó qué y cuándo). **Desde 2026-08-11, tildar el checklist NO es requisito para avanzar** (antes sí lo era) — hay ítems que no aplican según la prenda (ej. "insumos: cierres" en una remera sin cierres).
 
 **Usuarios**: `workshop` (tilda ítems, avanza estado), `admin` (también puede operar).
 
-**Flujo principal**: por cada estado de control, el taller tilda cada `item_key` del checklist definido (config estática en `src/config/orderChecklists.ts`, no en DB) → cuando están todos tildados, puede avanzar al siguiente control.
+**Flujo principal**: por cada estado de control, el taller puede tildar cada `item_key` del checklist definido (config estática en `src/config/orderChecklists.ts`, no en DB); avanzar al siguiente control no depende de cuántos ítems estén tildados.
 
 **Restricciones**: `OrderChecklistCheck` tiene unique compuesto `(order_id, status, item_key)` — no se puede tildar el mismo ítem dos veces para el mismo estado del mismo pedido.
 
