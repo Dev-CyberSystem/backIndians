@@ -2,8 +2,10 @@ import type { OrderStatus } from '../types';
 
 /**
  * Estados de control de producción (a partir de "revisión de taller") con su
- * checklist obligatorio. Para avanzar de un control al siguiente hay que tildar
- * TODOS sus ítems. Los ítems están fijos según el documento de control de calidad.
+ * checklist. Tildar los ítems queda registrado (quién y cuándo) pero NO es
+ * requisito para avanzar de un control al siguiente — hay ítems que no aplican
+ * según la prenda (ej. "insumos: cierres" en una remera sin cierres). Los ítems
+ * están fijos según el documento de control de calidad.
  *
  * El orden del array define la secuencia: cada control avanza al siguiente y, al
  * "observar", retrocede al anterior.

@@ -1,10 +1,11 @@
 import { api, API, loginAs, auth } from './helpers';
 
 /*
- * Pedidos de producción con el flujo de controles + checklist obligatorio.
- * Crea un pedido, lo lleva hasta el primer control, valida que NO se puede
- * avanzar sin completar el checklist, lo completa, avanza, y prueba la
- * observación (volver al control anterior). Historial y transiciones inválidas.
+ * Pedidos de producción con el flujo de controles + checklist de registro.
+ * Crea un pedido, lo lleva hasta el primer control, valida que el checklist
+ * registra quién tildó cada ítem pero NO bloquea el avance (hay ítems que no
+ * aplican según la prenda), y prueba la observación (volver al control
+ * anterior, que reinicia su checklist). Historial y transiciones inválidas.
  */
 
 describe('Pedidos de producción + checklist — API', () => {
@@ -37,7 +38,7 @@ describe('Pedidos de producción + checklist — API', () => {
     expect(id).toBeTruthy();
   });
 
-  it('llega al primer control y exige el checklist para avanzar', async () => {
+  it('el checklist registra quién tildó pero no bloquea el avance', async () => {
     const id = await createOrder();
 
     // pending → under_review → workshop_review → raw_material_control
@@ -52,18 +53,17 @@ describe('Pedidos de producción + checklist — API', () => {
     expect(cl.body.data.total).toBeGreaterThan(0);
     expect(cl.body.data.done).toBe(0);
 
-    // No se puede avanzar sin completar el checklist
-    const blocked = await setStatus(id, 'cutting_control');
-    expect(blocked.status).toBe(400);
+    // Tildar solo un ítem (el resto queda sin tildar, ej. "cierres" no aplica a esta prenda)
+    const firstItem = cl.body.data.items[0];
+    const tick = await api().post(`${API}/orders/${id}/checklist`).set(...auth(admin))
+      .send({ item_key: firstItem.key, checked: true });
+    expect(tick.status).toBe(200);
+    const tickedItem = tick.body.data.items.find((it: { key: string }) => it.key === firstItem.key);
+    expect(tickedItem.checked).toBe(true);
+    expect(tickedItem.checked_by).toBeTruthy();
+    expect(tickedItem.checked_at).toBeTruthy();
 
-    // Tildar todos los ítems
-    for (const item of cl.body.data.items) {
-      const r = await api().post(`${API}/orders/${id}/checklist`).set(...auth(admin))
-        .send({ item_key: item.key, checked: true });
-      expect(r.status).toBe(200);
-    }
-
-    // Ahora sí avanza
+    // Avanza igual, aunque el checklist esté incompleto
     const ok = await setStatus(id, 'cutting_control');
     expect(ok.status).toBe(200);
     expect(ok.body.data.status).toBe('cutting_control');

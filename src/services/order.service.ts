@@ -17,7 +17,7 @@ import {
 } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import {
-  ORDER_CHECKLISTS, isControlStatus, nextControlStatus, checklistKeys,
+  ORDER_CHECKLISTS, isControlStatus, checklistKeys,
 } from '../config/orderChecklists';
 import {
   OrderStatus, JwtPayload, SizesMap,
@@ -550,22 +550,9 @@ export async function updateOrder(
     const previousStatus = order.status as OrderStatus;
     validateStatusTransition(currentUser.role, previousStatus, status);
 
-    // Si es un AVANCE entre controles, exigir el checklist del control actual completo.
-    if (isControlStatus(previousStatus) && status === nextControlStatus(previousStatus)) {
-      const keys = checklistKeys(previousStatus);
-      const done = await OrderChecklistCheck.count({
-        where: { order_id: order.id, status: previousStatus },
-      });
-      if (done < keys.length) {
-        throw new AppError(
-          `Completá el checklist del control antes de avanzar (${done}/${keys.length} ítems).`,
-          400,
-          undefined,
-          { code: 'CHECKLIST_INCOMPLETE', type: 'BusinessRuleError' }
-        );
-      }
-    }
-
+    // El checklist de cada control es un registro (queda quién tildó qué y cuándo),
+    // no un requisito para avanzar: hay ítems que no aplican según la prenda
+    // (ej. "insumos: cierres" en una remera sin cierres).
     await order.update({ status });
 
     // Al entrar a un control, reiniciar sus tildes (arranca limpio: avance = vacío,
