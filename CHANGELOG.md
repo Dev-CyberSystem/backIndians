@@ -1,0 +1,44 @@
+# Changelog
+
+Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
+Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
+
+## v1.0.0 — 2026-08-19
+
+### backIndians (a20b676)
+
+- fix(release): no confundir renormalización de fin de línea con cambios reales
+- fix(release): git sin shell en Windows + reversión completa del release parcial
+- feat(release): flag --yes para confirmación no interactiva
+- feat(release): sistema de releases versionados con backup y rollback
+- Legales de tienda: constancia de aceptación y botón de arrepentimiento
+- fix(pedidos): el checklist de control ya no bloquea el avance de estado
+- fix(tests+mail): guarda de envio de mails, fragilidad horaria y reset de base
+- docs(auditoria): C5 cerrada — .htaccess verificado en produccion tras el deploy
+- feat(monitoreo): health con chequeo de base + alertas de 5xx por mail y WhatsApp (C7)
+- docs(auditoria): arreglar la fila C8 fuera de tabla y la ruta de e2e
+- chore(docs): versionar el cerebro documental y CLAUDE.md en backIndians
+- docs(auditoria): e2e ya versionada en frontIndians; queda docs/project-brain sin versionar
+- docs(auditoria): cerrar C8, corregir AUD-16 y registrar los E2E corridos
+- docs(auditoria): SQL de integridad v2 — 28 checks, criterio unico, ejecutado (REV-02/03/06)
+- fix(auth): session_version con increment atomico + tests faltantes (REV-01/04/05)
+- _(primer release: sólo se listan los últimos 15 commits)_
+
+### frontIndians (36dc6fc)
+
+- feat(release): publicar version.json y soportar deploy de snapshots
+- Textos legales de la tienda: T&C, privacidad, arrepentimiento y Data Fiscal
+- feat(tienda): tipografia de marca con placeholder Poppins mientras no haya licencia de Proxima Nova
+- fix(pedidos): el checklist de control ya no es obligatorio para avanzar
+- fix(tienda): actualizar categorías del menú a Hombre, Mujer, Niños, Fútbol, Vóley, Básquet y Running
+- fix(tienda): menú mobile muestra subcategorías al tocar la categoría
+- chore(e2e): versionar la bateria de Playwright dentro de frontIndians
+- fix(catalogo): mostrar el motivo real del error al guardar talles (C8)
+- fix(seguridad): cabeceras de seguridad y cache en .htaccess (AUD-06)
+- fix: no permitir agregar al carrito ni pagar productos con precio invalido
+- fix(a11y): label "Medio de pago" en los selectores de cobro + npm audit fix
+- feat(caja): UI de cobranza con medio de pago e Idempotency-Key (Fase 2)
+- fix(caja): rotular el criterio de neteo en las tarjetas del resumen
+- fix(caja): alinear la UI con las nuevas reglas de integridad del backend
+- fix(caja): reflejar en la UI las correcciones P0 de la auditoria
+- _(primer release: sólo se listan los últimos 15 commits)_
