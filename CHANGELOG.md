@@ -3,6 +3,27 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.0.1 — 2026-08-19
+
+### backIndians (6b9b2d6)
+
+- docs(project-brain): registrar el cierre de los hallazgos de la auditoría del 2026-08-19
+- fix(tienda): rechazar transferencia sin datos bancarios y cubrir la constancia de arrepentimiento
+- fix(seguridad): allowlist en settings públicos, contraseñas más largas, ensureSchema fuera de prod y alertas de jobs
+- docs: agregar los informes de auditoría del 18 y 19 de agosto y el prompt de corrección
+- fix(release): verificar de verdad los backups y sincerar la herramienta de SQL
+- fix(tests): devolver la suite a verde tras desactivar el pago en efectivo
+- Desactivar pago en efectivo en checkout de tienda online
+- docs(project-brain): registrar las mejoras posteriores y el drift resultante
+- feat(release): npm run prod, --from en rollback y detección de drift de commit
+- docs(project-brain): cerrar la sesión del sistema de releases con v1.0.0 en producción
+
+### frontIndians (d01bdcf)
+
+- fix(tienda): ocultar la transferencia bancaria cuando no hay datos cargados (B-02)
+- fix(seguridad): mínimo de contraseña a 10 caracteres, nanoid parchado y camino muerto de efectivo documentado
+- Desactivar pago en efectivo en checkout de tienda online
+
 ## v1.0.0 — 2026-08-19
 
 ### backIndians (a20b676)
