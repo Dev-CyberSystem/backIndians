@@ -18,7 +18,7 @@
 //
 // Flags: --dry-run, --skip-tests, --skip-backup, --branch=<rama>, --allow-dirty, --yes
 
-import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -50,18 +50,25 @@ const DRY = Boolean(flags['dry-run']);
 const EXPECTED_BRANCH = typeof flags.branch === 'string' ? flags.branch : 'master';
 
 /**
- * Red de seguridad del bump de versión.
+ * Red de seguridad del release parcial.
  *
- * Entre el bump y el tag hay pasos que pueden cortar el proceso de golpe (el
- * backup llama a `abort`, que hace process.exit). Si eso pasa, los package.json
- * quedan con una versión que no existe en ningún tag y el próximo intento
- * arranca de un estado mentiroso. Este handler los devuelve a su estado real.
+ * Entre el bump y el tag hay pasos que pueden cortar el proceso de golpe: el
+ * backup llama a `abort` (process.exit), y `tagRepos()` puede fallar a mitad
+ * de camino (pasó de verdad: un bug de escaping en Windows hizo fallar el
+ * `git commit` de backIndians DESPUÉS de que `git add` ya había stageado
+ * package.json y CHANGELOG.md). Sin este handler, un release fallido deja:
+ * el package.json con una versión que no existe en ningún tag, archivos
+ * stageados sin commitear, y un CHANGELOG.md a medio escribir que el
+ * próximo intento reescribiría duplicando la entrada arriba de sí misma.
  *
- * Restaura SÓLO el campo `version`, no el archivo entero: con `--allow-dirty`
- * puede haber cambios legítimos sin commitear en el package.json (un script
- * nuevo, una dependencia), y un `git checkout --` se los llevaría puestos.
+ * El package.json se restaura sólo en su campo `version`, no el archivo
+ * entero: con `--allow-dirty` puede haber cambios legítimos sin commitear
+ * (un script nuevo, una dependencia), y un `git checkout --` se los llevaría
+ * puestos.
  */
 const versionsBeforeBump = new Map();
+const changelogPath = path.join(BACK_DIR, 'CHANGELOG.md');
+let changelogBackup = null; // { existed, content } — se completa recién antes de escribirlo
 let releaseCompleted = false;
 
 process.on('exit', () => {
@@ -69,10 +76,18 @@ process.on('exit', () => {
   try {
     for (const [dir, previousVersion] of versionsBeforeBump) {
       setPackageVersion(dir, previousVersion);
+      git(dir, 'reset', '--', 'package.json'); // por si `tagRepos` alcanzó a stagearlo antes de fallar
     }
-    console.log('\n  Se revirtió el bump de versión: el release no llegó a completarse.');
+    if (changelogBackup) {
+      git(BACK_DIR, 'reset', '--', 'CHANGELOG.md');
+      if (changelogBackup.existed) writeFileSync(changelogPath, changelogBackup.content);
+      else if (existsSync(changelogPath)) unlinkSync(changelogPath);
+    }
+    console.log('\n  Se revirtió el release parcial (versión, changelog y staging): el release no llegó a completarse.');
   } catch {
-    console.error('\n  No se pudo revertir el bump de versión. Revisá `git diff package.json` en ambos repos.');
+    console.error(
+      '\n  No se pudo revertir el release parcial. Revisá `git status` y `git diff` en ambos repos antes de reintentar.'
+    );
   }
 });
 
@@ -238,7 +253,13 @@ export function updateChangelog(entry) {
     '',
   ].join('\n');
 
-  const previous = existsSync(file) ? readFileSync(file, 'utf8').replace(header, '').trimStart() : '';
+  const existed = existsSync(file);
+  const original = existed ? readFileSync(file, 'utf8') : null;
+  // Se registra ANTES de escribir: es lo que el handler de 'exit' usa para
+  // devolver el archivo a su estado real si el release no llega a completarse.
+  if (changelogBackup === null) changelogBackup = { existed, content: original };
+
+  const previous = existed ? original.replace(header, '').trimStart() : '';
   writeFileSync(file, `${header}\n${entry}\n${previous}`.trimEnd() + '\n');
 }
 

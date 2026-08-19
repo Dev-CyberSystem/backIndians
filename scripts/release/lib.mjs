@@ -57,13 +57,19 @@ export function abort(msg, hint) {
 /**
  * Corre un comando y devuelve su salida. Lanza si falla, salvo `allowFail`.
  *
- * `shell:true` en Windows es necesario para que `npm`/`git` resuelvan sus .cmd.
+ * `shell:true` en Windows hace falta para `npm`, que resuelve a `npm.cmd`
+ * (spawnSync no puede ejecutar un .cmd directamente). Pero pasar por cmd.exe
+ * tiene un costo: cmd.exe trata `()^&|<>%` como metacaracteres incluso dentro
+ * de argumentos ya citados, así que un mensaje de commit con paréntesis —como
+ * "chore(release): v1.0.0"— se parte en dos argumentos y rompe el comando.
+ * `git.exe` es un ejecutable real (no un .cmd), así que no necesita shell y
+ * `git()` fuerza `shell:false` explícitamente para esquivar ese problema.
  */
-export function run(cmd, args, { cwd, allowFail = false, silent = true, env } = {}) {
+export function run(cmd, args, { cwd, allowFail = false, silent = true, env, shell } = {}) {
   const res = spawnSync(cmd, args, {
     cwd,
     encoding: 'utf8',
-    shell: process.platform === 'win32',
+    shell: shell ?? process.platform === 'win32',
     stdio: silent ? 'pipe' : 'inherit',
     env: env ? { ...process.env, ...env } : process.env,
   });
@@ -77,18 +83,18 @@ export function run(cmd, args, { cwd, allowFail = false, silent = true, env } = 
 }
 
 /** Corre un comando mostrando su salida en vivo. Devuelve true si salió 0. */
-export function runLive(cmd, args, { cwd, env } = {}) {
+export function runLive(cmd, args, { cwd, env, shell } = {}) {
   const res = spawnSync(cmd, args, {
     cwd,
-    shell: process.platform === 'win32',
+    shell: shell ?? process.platform === 'win32',
     stdio: 'inherit',
     env: env ? { ...process.env, ...env } : process.env,
   });
   return res.status === 0;
 }
 
-/** Atajo para comandos git sobre un repo concreto. */
-export const git = (cwd, ...args) => run('git', args, { cwd }).stdout;
+/** Atajo para comandos git sobre un repo concreto. Sin shell: ver nota de arriba. */
+export const git = (cwd, ...args) => run('git', args, { cwd, shell: false }).stdout;
 
 // ─────────────────────────────── estado de los repos ──────────────────────────
 
