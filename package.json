@@ -29,7 +29,8 @@
     "release:status": "node scripts/release/status.mjs",
     "rollback": "node scripts/release/rollback.mjs",
     "db:backup": "node scripts/release/db-backup.mjs",
-    "db:restore": "node scripts/release/db-restore.mjs"
+    "db:restore": "node scripts/release/db-restore.mjs",
+    "db:exec": "node scripts/release/db-exec.mjs"
   },
   "engines": {
     "node": ">=20"
