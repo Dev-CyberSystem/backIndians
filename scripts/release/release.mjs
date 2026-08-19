@@ -102,6 +102,22 @@ function mutate(description, fn) {
 
 // ───────────────────────────── 1. estado de los repos ─────────────────────────
 
+/**
+ * Archivos con una diferencia de CONTENIDO real, sin commitear (staged o no).
+ *
+ * `git status --porcelain` no alcanza acá: en esta máquina (`core.autocrlf`)
+ * marca un archivo como modificado por pura renormalización de fin de línea
+ * aunque el contenido sea idéntico — pasó de verdad con el package.json del
+ * frontend y bloqueó un release que no tenía nada real sin commitear. `git
+ * diff --name-only` ya compara post-normalización, así que sólo lista lo que
+ * cambió de verdad.
+ */
+export function filesWithRealChanges(dir) {
+  const unstaged = git(dir, 'diff', '--name-only').split('\n').filter(Boolean);
+  const staged = git(dir, 'diff', '--cached', '--name-only').split('\n').filter(Boolean);
+  return [...new Set([...unstaged, ...staged])];
+}
+
 function checkRepos() {
   log.step('Verificando el estado de los repos');
   assertReposExist();
@@ -114,14 +130,13 @@ function checkRepos() {
       problems.push(`${repo.name} está en "${branch}" y no en "${EXPECTED_BRANCH}"`);
     }
 
-    // Cambios en archivos trackeados bloquean: entrarían al release sin commit.
-    // Los archivos sin trackear sólo avisan: no afectan lo que se va a deployar.
-    const status = git(repo.dir, 'status', '--porcelain');
-    const tracked = status.split('\n').filter((l) => l && !l.startsWith('??'));
-    const untracked = status.split('\n').filter((l) => l.startsWith('??'));
+    const untracked = git(repo.dir, 'status', '--porcelain')
+      .split('\n')
+      .filter((l) => l.startsWith('??'));
+    const changed = filesWithRealChanges(repo.dir);
 
-    if (tracked.length && !flags['allow-dirty']) {
-      problems.push(`${repo.name} tiene ${tracked.length} cambio(s) sin commitear`);
+    if (changed.length && !flags['allow-dirty']) {
+      problems.push(`${repo.name} tiene ${changed.length} cambio(s) sin commitear (${changed.slice(0, 3).join(', ')}${changed.length > 3 ? ', ...' : ''})`);
     }
     if (untracked.length) {
       log.warn(`${repo.name}: ${untracked.length} archivo(s) sin trackear (no entran al release)`);
