@@ -253,6 +253,32 @@
 **Fuente**: migración `20260804-069-store-orders-idempotency-key.js`, commits `5a44a12`/`04fdc6a`.
 **Estado**: Vigente. Ver `BR-INFRA-001` — hasta 2026-08-07 esta idempotencia **no funcionaba en un navegador real**, solo en tests de API.
 
+### BR-LEGAL-001 — Ninguna alta de cuenta ni compra se concreta sin constancia de aceptación
+**Descripción**: `POST /store/auth/register` y `POST /store/checkout` exigen `accept_terms` (booleano `true` o la cadena `'true'`); sin él responden 422. Al concretarse, se escribe **una fila por documento** en `legal_acceptances` (T&C y Privacidad) con la versión vigente, fecha, IP y user-agent. En el checkout la constancia se escribe **dentro de la misma transacción** que crea el pedido: no puede existir un pedido sin su constancia. En el alta de cuenta se escribe después de crear el cliente y, si falla, **no voltea el alta** (queda `legal.acceptance.failed` en el log).
+**Por qué importa**: el comprador invitado nunca pasa por el registro; si la aceptación se pidiera solo al crear cuenta, la mayoría de las compras quedaría sin respaldo ante un reclamo de Defensa del Consumidor.
+**Módulo**: Legales de tienda (11b) / Tienda (10).
+**Fuente**: `src/routes/store.routes.ts` (`acceptTermsRule`), `src/services/legal.service.ts`, `src/services/store.service.ts` (`createStoreOrder`), `src/services/store.auth.service.ts`.
+**Estado**: Vigente desde 2026-08-19. **Ojo al desplegar**: es un cambio de contrato de API — el frontend viejo contra el backend nuevo no puede comprar. Hay que desplegar backend y frontend juntos.
+
+### BR-LEGAL-002 — La versión del texto aceptado se estampa desde el backend
+**Descripción**: la versión vigente de cada documento vive en `backIndians/src/config/legalDocs.ts` y es la que se guarda en `legal_acceptances.version` — el cliente no la elige. Si un texto cambia **de fondo** (qué se cobra, cómo se devuelve, qué datos se tratan), hay que subir `version` y `effective_date` ahí y en el texto del frontend; las correcciones de redacción no suben versión.
+**Módulo**: Legales de tienda (11b).
+**Fuente**: `src/config/legalDocs.ts`, `GET /api/v1/store/legal`.
+**Estado**: Vigente.
+
+### BR-LEGAL-003 — El botón de arrepentimiento no puede exigir ningún trámite previo
+**Descripción**: `POST /store/legal/withdrawal` es público: sin login, sin captcha y sin verificación del pedido. El número de pedido es un dato **declarado**: si coincide con uno real se vincula (`store_order_id`), y si no coincide la solicitud se registra igual. La respuesta devuelve en el acto el código `ARR-AAAA-NNNNNN`, que además se manda por mail junto con el aviso interno al negocio.
+**Por qué así**: la Resolución 424/2020 (arts. 1 y 2) prohíbe exigir registración previa o cualquier otro trámite, y obliga a informar el código dentro de las 24 h. Un formulario que rechace por "no encontramos ese pedido" incumple.
+**Módulo**: Legales de tienda (11b).
+**Fuente**: `src/services/legal.service.ts` (`createWithdrawalRequest`), `src/routes/store.routes.ts`, tests `src/__tests__/api/legal.test.ts`.
+**Estado**: Vigente.
+
+### BR-LEGAL-004 — El derecho de revocación no aplica a prendas personalizadas
+**Descripción**: los 10 días corridos de arrepentimiento (art. 34 Ley 24.240, arts. 1110/1111 CCyCN) **no** se aplican a productos confeccionados según especificaciones del comprador o claramente personalizados (nombre, número, escudo, diseño a pedido), conforme al art. 1116 CCyCN. Esa excepción está informada en los T&C, en la página del botón de arrepentimiento y en el aviso destacado del checkout. La excepción **no** alcanza a la garantía legal por defectos de fabricación.
+**Módulo**: Legales de tienda (11b).
+**Fuente**: `frontIndians/src/pages/store/legal/TermsPage.tsx` (sección 10), `WithdrawalPage.tsx`.
+**Estado**: Vigente. Es una regla de negocio con efecto real: define qué devoluciones se pueden rechazar.
+
 ### BR-INFRA-001 — El header `Idempotency-Key` tiene que estar en `allowedHeaders` del CORS
 **Descripción**: cualquier endpoint que espere un header custom (`Idempotency-Key`, o el que sea a futuro) tiene que declararlo en `allowedHeaders` de la config de `cors()` en `app.ts` — si no, el preflight `OPTIONS` del navegador lo rechaza (`Access-Control-Allow-Headers` no lo incluye) y la request real **nunca sale**, sin que el backend vea nada ni loguee nada. Hasta el 2026-08-07, `allowedHeaders` solo tenía `['Content-Type', 'Authorization']`: el checkout de la tienda (`BR-STORE-001`, desde su introducción) y el cobro de facturas recién conectado a caja (`BR-CASH-016`/`017`) enviaban `Idempotency-Key` desde el frontend, pero el navegador bloqueaba silenciosamente la request antes de que llegara al servidor.
 **Por qué no se detectó antes**: los tests de API (supertest, tanto backend como los E2E "de API") no pasan por CORS de navegador — `request.post(...)` no dispara un preflight real. Solo un E2E real contra Chromium lo mostró (Fase 3 del plan de GO de caja).

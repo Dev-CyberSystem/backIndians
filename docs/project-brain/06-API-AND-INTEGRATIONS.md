@@ -44,7 +44,9 @@ CRUD de usuarios internos: `GET /`, `POST /`, `PUT /:id`, `PATCH /:id/toggle`, `
 ### `/store` — `store.routes.ts` (el más grande, mezcla público + comprador + admin)
 - **Público**: `/settings` (cache 60s), `/events` (SSE), auth de comprador (`register`, `verify-email`, `login`, `google`, `refresh`, `forgot/reset-password`), `/track`, `/trending`, `/products*`, `/coupons/validate`, `/checkout/quote`, `POST /checkout` (con `Idempotency-Key`, `checkoutLimiter`), `/payment/confirm`, `/orders/:orderNumber/status`, `/track/:token`, `POST /orders/:orderNumber/payment-proof`, `POST /webhook/mp` (`webhookLimiter`).
 - **Comprador autenticado** (`requireStoreAuth`): `/me`, `/me/addresses`, `/me/orders`, `/me/orders/:orderNumber/invoice`, `/tracking`, `/me/wishlist*`.
-- **Admin** (`authenticate` + `authorize('admin','billing')`): `/admin/orders*`, `/admin/returns*`, `/admin/coupons*`, `/admin/metrics`, `/admin/event-analytics`, `/admin/audience`, `/admin/abandoned-carts`.
+- **Legales, público**: `GET /legal` (versión vigente de cada texto, cache 300s), `POST /legal/withdrawal` (botón de arrepentimiento — `withdrawalLimiter` 10/h por IP, `optionalStoreAuth`, **sin captcha ni login a propósito**: Res. 424/2020).
+- **Admin** (`authenticate` + `authorize('admin','billing')`): `/admin/orders*`, `/admin/returns*`, `/admin/coupons*`, `/admin/metrics`, `/admin/event-analytics`, `/admin/audience`, `/admin/abandoned-carts`, `/admin/legal/withdrawals*` (listar, ver, `PATCH` estado/notas), `GET /admin/legal/acceptances` (constancias por email/cliente/pedido).
+- **Cambio de contrato (2026-08-19)**: `POST /auth/register` y `POST /checkout` ahora **exigen** `accept_terms: true` (422 si falta) — ver `BR-LEGAL-001`. Backend y frontend deben desplegarse juntos.
 
 ### `/` (raíz de `/api/v1`) — `afip.routes.ts` — todo `authorize('admin','billing')`
 `POST /invoices/:id/afip`, `POST /catalog/invoices/:id/afip`, `POST /store/orders/:id/afip`, `GET /afip/stats`.

@@ -49,6 +49,7 @@ describe('Idempotencia del checkout — API', () => {
       items: [{ catalog_product_id: productId, size_name: null, quantity: 3 }],
       shipping_type: 'pickup',
       payment_method: 'cash',
+      accept_terms: true,
     };
 
     const first = await api().post(`${API}/store/checkout`).set('Idempotency-Key', key).send(body);
@@ -76,6 +77,7 @@ describe('Idempotencia del checkout — API', () => {
       items: [{ catalog_product_id: productId, size_name: null, quantity: 4 }],
       shipping_type: 'pickup',
       payment_method: 'cash',
+      accept_terms: true,
     };
 
     const [r1, r2] = await Promise.all([
@@ -103,6 +105,7 @@ describe('Idempotencia del checkout — API', () => {
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
       shipping_type: 'pickup',
       payment_method: 'cash',
+      accept_terms: true,
     };
 
     const first = await api().post(`${API}/store/checkout`).send(body);

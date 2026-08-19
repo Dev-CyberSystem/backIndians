@@ -11,6 +11,8 @@ import { StoreOrderStatusHistory } from './StoreOrderStatusHistory';
 import { StoreReturn } from './StoreReturn';
 import { StoreReturnItem } from './StoreReturnItem';
 import { StoreCartReminder } from './StoreCartReminder';
+import { LegalAcceptance } from './LegalAcceptance';
+import { StoreWithdrawalRequest } from './StoreWithdrawalRequest';
 import { WebhookEvent } from './WebhookEvent';
 import { User } from './User';
 import { Client } from './Client';
@@ -222,6 +224,19 @@ StoreReturn.hasMany(StoreReturnItem, { foreignKey: 'store_return_id', as: 'items
 StoreReturnItem.belongsTo(StoreReturn, { foreignKey: 'store_return_id', as: 'return' });
 StoreReturnItem.belongsTo(StoreOrderItem, { foreignKey: 'store_order_item_id', as: 'orderItem' });
 
+// LegalAcceptance ↔ StoreCustomer / StoreOrder (constancia de aceptación de
+// T&C y Privacidad). Sin onDelete CASCADE a propósito: la constancia legal
+// tiene que sobrevivir a la baja de la cuenta o del pedido.
+StoreCustomer.hasMany(LegalAcceptance, { foreignKey: 'customer_id', as: 'legalAcceptances' });
+LegalAcceptance.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+StoreOrder.hasMany(LegalAcceptance, { foreignKey: 'store_order_id', as: 'legalAcceptances' });
+LegalAcceptance.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'order' });
+
+// StoreWithdrawalRequest ↔ StoreOrder / StoreCustomer / User (Res. 424/2020)
+StoreWithdrawalRequest.belongsTo(StoreOrder, { foreignKey: 'store_order_id', as: 'order' });
+StoreWithdrawalRequest.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
+StoreWithdrawalRequest.belongsTo(User, { foreignKey: 'resolved_by', as: 'resolver' });
+
 // StoreWishlist ↔ StoreCustomer
 StoreCustomer.hasMany(StoreWishlist, { foreignKey: 'customer_id', as: 'wishlist', onDelete: 'CASCADE' });
 StoreWishlist.belongsTo(StoreCustomer, { foreignKey: 'customer_id', as: 'customer' });
@@ -295,6 +310,8 @@ export {
   StoreOrderStatusHistory,
   StoreReturn,
   StoreReturnItem,
+  LegalAcceptance,
+  StoreWithdrawalRequest,
   StoreCartReminder,
   StoreWishlist,
   WebhookEvent,

@@ -75,6 +75,7 @@ describe('Ingreso en caja/banco al confirmar el pago de un pedido de tienda — 
   async function checkoutAndPay(paymentMethod: 'cash' | 'mercadopago' | 'bank_transfer', label: string) {
     const productId = await createTestProduct();
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: `Robot QA ${label}`,
       customerEmail: `qa-${label.toLowerCase().replace(/\s+/g, '-')}+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -110,6 +111,7 @@ describe('Ingreso en caja/banco al confirmar el pago de un pedido de tienda — 
   it('un pedido pagado por MercadoPago genera el ingreso en la cuenta BANCARIA, nunca en la de caja física (CASH-PAY-002)', async () => {
     const productId = await createTestProduct();
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA MercadoPago',
       customerEmail: `qa-mp+${Date.now()}@test.local`,
       customerPhone: '1100000000',

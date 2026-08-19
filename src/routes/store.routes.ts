@@ -16,8 +16,10 @@ import {
   paymentStatusLimiter,
   trackLimiter,
   webhookLimiter,
+  withdrawalLimiter,
 } from '../middlewares/rateLimit';
 import * as ctrl from '../controllers/store.controller';
+import * as legalCtrl from '../controllers/legal.controller';
 import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
 
 const router = Router();
@@ -28,10 +30,24 @@ const router = Router();
 // de llegar al service.
 const emailField = (f: string) => body(f).trim().isEmail().withMessage('Email inválido').isLength({ max: 254 }).normalizeEmail(EMAIL_NORMALIZE_OPTS);
 
+/**
+ * Regla compartida de aceptación: solo `true` booleano o la cadena 'true'
+ * (los formularios multipart mandan strings). Cualquier otra cosa —incluido
+ * `false` o el campo ausente— rechaza el request.
+ */
+const acceptTermsRule = (value: unknown) => {
+  if (value === true || value === 'true') return true;
+  throw new Error('Tenés que aceptar los Términos y Condiciones y la Política de Privacidad');
+};
+
 const registerValidators = [
   body('name').trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 120 }),
   emailField('email'),
   body('password').isString().isLength({ min: 6, max: 100 }).withMessage('La contraseña debe tener al menos 6 caracteres'),
+  // Aceptación de T&C y Privacidad: obligatoria y explícita (no puede venir
+  // pre-tildada desde el frontend ni inferirse). Es lo que después queda como
+  // constancia en `legal_acceptances`.
+  body('accept_terms').custom(acceptTermsRule),
   validate,
 ];
 
@@ -55,6 +71,18 @@ const checkoutValidators = [
   body('notes').optional({ nullable: true }).isString().isLength({ max: 1000 }),
   body('expected_total').optional().isFloat({ min: 0 }).withMessage('Total inválido'),
   header('idempotency-key').optional().isUUID().withMessage('Idempotency-Key inválida'),
+  // El comprador invitado nunca pasa por el registro: si la aceptación no se
+  // pide acá, de esa compra no queda ninguna constancia.
+  body('accept_terms').custom(acceptTermsRule),
+  validate,
+];
+
+const withdrawalValidators = [
+  body('customer_name').trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 120 }),
+  body('customer_email').trim().isEmail().withMessage('Email inválido').isLength({ max: 254 }),
+  body('customer_phone').optional({ nullable: true }).isString().isLength({ max: 40 }),
+  body('order_number').optional({ nullable: true }).isString().isLength({ max: 60 }),
+  body('reason').optional({ nullable: true }).isString().isLength({ max: 1000 }),
   validate,
 ];
 
@@ -101,6 +129,16 @@ const cache = (s: number) => (_req: import('express').Request, res: import('expr
 
 // ─── Settings públicas ───────────────────────────────────────────────────────
 router.get('/settings', cache(60), ctrl.getStoreSettings);
+
+// ─── Textos legales (público) ────────────────────────────────────────────────
+// Versión vigente de cada documento: el frontend la muestra junto al texto y
+// el backend la estampa en cada constancia de aceptación.
+router.get('/legal', cache(300), legalCtrl.getLegalDocuments);
+
+// Botón de arrepentimiento (Res. 424/2020): sin login, sin captcha y sin
+// ningún trámite previo — la resolución lo prohíbe expresamente. `optionalStoreAuth`
+// solo sirve para vincular la solicitud si el comprador está logueado.
+router.post('/legal/withdrawal', withdrawalLimiter, optionalStoreAuth, withdrawalValidators, legalCtrl.createWithdrawal);
 
 // ─── SSE: actualizaciones en tiempo real ────────────────────────────────────
 router.get('/events', ctrl.sseStoreEvents);
@@ -216,6 +254,19 @@ router.get('/admin/returns/:id', authenticate, authorize('admin', 'billing'), pa
 router.post('/admin/orders/:id/returns', authenticate, authorize('admin', 'billing'), createReturnValidators, ctrl.createReturn);
 router.patch('/admin/returns/:id/review', authenticate, authorize('admin', 'billing'), reviewReturnValidators, ctrl.reviewReturn);
 router.patch('/admin/returns/:id/refund', authenticate, authorize('admin', 'billing'), updateReturnRefundValidators, ctrl.updateReturnRefund);
+
+// ─── Admin: legales (arrepentimientos y constancias de aceptación) ──────────
+const updateWithdrawalValidators = [
+  param('id').isInt({ min: 1 }),
+  body('status').optional().isIn(['received', 'in_progress', 'resolved', 'rejected']).withMessage('Estado inválido'),
+  body('admin_notes').optional({ nullable: true }).isString().isLength({ max: 2000 }),
+  validate,
+];
+
+router.get('/admin/legal/withdrawals', authenticate, authorize('admin', 'billing'), legalCtrl.listWithdrawals);
+router.get('/admin/legal/withdrawals/:id', authenticate, authorize('admin', 'billing'), param('id').isInt({ min: 1 }), validate, legalCtrl.getWithdrawal);
+router.patch('/admin/legal/withdrawals/:id', authenticate, authorize('admin', 'billing'), updateWithdrawalValidators, legalCtrl.updateWithdrawal);
+router.get('/admin/legal/acceptances', authenticate, authorize('admin', 'billing'), legalCtrl.listAcceptances);
 
 // ─── Admin: cupones ───────────────────────────────────────────────────────────
 router.get('/admin/coupons', authenticate, authorize('admin', 'billing'), ctrl.listCoupons);

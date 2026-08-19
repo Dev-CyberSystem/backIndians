@@ -96,6 +96,7 @@ describe('Ledger de stock (catalog_stock_movements) — API', () => {
 
   it('el checkout de la tienda (efectivo) deja un movimiento reserve/store con store_order_id (2.1: reserva, no descuenta todavía)', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Ledger',
       customerEmail: `qa-ledger+${Date.now()}@test.local`,
       customerPhone: '1100000000',

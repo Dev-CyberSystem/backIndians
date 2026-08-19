@@ -78,6 +78,16 @@ export const paymentStatusLimiter = createLimiter('paymentStatus', 60_000, 120, 
  */
 export const webhookLimiter = createLimiter('webhook', 60_000, 30, { skip: rateLimitDisabled });
 
+/**
+ * Botón de arrepentimiento (Res. 424/2020): 10 solicitudes por hora por IP.
+ * El límite existe solo contra el spam automatizado — la resolución prohíbe
+ * ponerle trámites o barreras al consumidor, así que queda holgado a propósito
+ * (nadie se arrepiente de diez compras en una hora, pero un bot sí).
+ */
+export const withdrawalLimiter = createLimiter('withdrawal', 60 * 60_000, 10, {
+  skip: rateLimitDisabled,
+});
+
 /** Tracking de analítica (fire & forget, dispara en cada interacción): 240/min por IP. */
 export const trackLimiter = createLimiter('track', 60_000, 240, { skip: rateLimitDisabled });
 

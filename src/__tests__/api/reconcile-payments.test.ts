@@ -20,6 +20,7 @@ describe('Job de reconciliación de pagos — 1.8', () => {
     if (!target) throw new Error('Sin productos con stock — corré "npm run seed".');
 
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Reconcile',
       customerEmail: `qa-reconcile+${Date.now()}-${Math.random()}@test.local`,
       customerPhone: '1100000000',

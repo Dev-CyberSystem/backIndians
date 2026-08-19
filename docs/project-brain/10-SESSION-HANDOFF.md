@@ -4,59 +4,51 @@
 
 ---
 
-## Última actualización: 2026-08-08 — Auditoría integral de preproducción
+## Última actualización: 2026-08-19 — Textos legales de la tienda (cierra B-03 de la auditoría del 2026-08-18)
 
 ### Objetivo de la sesión
 
-Ejecutar una auditoría técnica, funcional, operativa y de seguridad de **todo** el sistema antes de la salida a producción de la semana que viene, con veredicto formal `GO` / `GO CONDICIONADO` / `NO-GO`.
+Escribir los textos legales exigidos por la normativa argentina de comercio electrónico y dejar **constancia registrada** de su aceptación. Ataca directamente el bloqueante **B-03** de la auditoría del 2026-08-18 ("sin política de privacidad, términos, botón de arrepentimiento ni Data Fiscal; el registro afirma que se aceptan términos inexistentes").
 
-**Veredicto emitido: `GO CONDICIONADO PARA PRODUCCIÓN`** (7 condiciones operativas, ninguna de código).
-
-Informe completo: **`backIndians/documentos/AUDITORIA_INTEGRAL_PREPRODUCCION_2026-08-08.md`**.
+Rama: **`feature/textos-legales`** en los dos repos (creada desde `master`).
 
 ### Qué se hizo
 
-1. **Puertas de calidad**: typecheck backend (0 errores), build de producción del frontend (exit 0), Vitest (47 tests), Jest backend (44 suites / 289 tests como línea base).
-2. **Migraciones desde cero** en base descartable (`textil_audit_fresh`): todas aplicadas sin error hasta la `095`.
-3. **Comparación esquema migrado vs. `sync()`**: script ad-hoc sobre las 50 tablas → **0 columnas de diferencia**. Es el riesgo que `CLAUDE.md` marca como crítico y está sano. Diferencias residuales menores documentadas como AUD-07/08/14.
-4. **Backup + restauración verificados** (`mysqldump` → base nueva → conteos idénticos en las tablas críticas). Valida el *procedimiento*; el backup productivo sigue sin probarse.
-5. **15 diagnósticos de integridad de solo lectura**, entregados en `backIndians/documentos/auditoria-integridad-preprod.sql`: sin inconsistencias reales.
-6. **Tres hallazgos P1 encontrados, demostrados fallando, corregidos y cubiertos con tests de regresión** (ver abajo).
-7. **Confrontación con auditorías previas**: se verificó que CASH-MA-001, CASH-MUT-001, CASH-VAL-004/005, C-5, C-6 y el gate de AFIP están efectivamente corregidos en el código de hoy.
+**Textos (frontend, `frontIndians/src/pages/store/legal/`)**
 
-### Correcciones aplicadas (sin commitear, quedan en el working tree)
+- `/tienda/legal/terminos` — Términos y Condiciones (19 secciones): identificación del titular (Res. 104/2005), precios en pesos con precio final (Decreto 274/2019), perfeccionamiento del contrato, envíos, **derecho de revocación a 10 días** con la excepción del art. 1116 CCyCN para prendas personalizadas, garantía legal (arts. 11-17 Ley 24.240), jurisdicción del **domicilio del consumidor** (art. 1109 CCyCN) y vías de reclamo (Ventanilla Única Federal).
+- `/tienda/legal/privacidad` — Política de Privacidad (Ley 25.326): qué datos, finalidad, carácter obligatorio/facultativo, destinatarios (MercadoPago, Google, Cloudflare, Resend, Cloudinary, correos, hosting), transferencia internacional (art. 12), plazos de respuesta de acceso/rectificación, y las dos leyendas textuales vigentes (art. 14 inc. 3 y la del órgano de control según **Resolución 14/2018 de la AAIP**, que derogó la Disposición 10/2008 — la leyenda vieja "DIRECCIÓN NACIONAL…" ya no corresponde).
+- `/tienda/legal/arrepentimiento` — botón de arrepentimiento con formulario real (Res. 424/2020): sin login, sin captcha, código `ARR-AAAA-NNNNNN` en pantalla y por mail. Link destacado en el footer de toda la tienda + alias `/tienda/arrepentimiento`.
+- **Data Fiscal (F. 960/D)**: componente en el footer que se muestra solo si está cargada la URL del QR de ARCA (`store_data_fiscal_url`, nueva clave de Settings, editable en Tienda online → Configuración).
+- Los datos del titular (razón social, CUIT, domicilio, condición IVA, contacto) **no están escritos en los textos**: salen de `company_*` en Settings.
 
-| ID | Sev. | Qué era | Archivo |
-|---|---|---|---|
-| **AUD-01** | P1 | Un comprador podía escribir una dirección en la cuenta de **otro** comprador (`customer_id` llegaba por el body y Sequelize lo aplicaba) | `store.auth.service.ts` |
-| **AUD-02** | P1 | `PUT /stock/:id` reescribía `current_quantity` **sin generar movimiento** — el mismo defecto que C-5, pero en el stock de materiales en vez del de catálogo | `stock.service.ts` |
-| **AUD-03** | P1 | Cambiar/resetear la contraseña de un usuario interno **no revocaba sus sesiones**: el refresh token de 7 días seguía sirviendo | `user.service.ts`, `auth.service.ts` |
-| **AUD-06** | P2 | El frontend estático se servía sin ninguna cabecera de seguridad (helmet sólo cubre la API) | `frontIndians/public/.htaccess` |
+**Constancia de aceptación (backend)**
 
-Tests de regresión nuevos: `backIndians/src/__tests__/api/audit-preprod-regressions.test.ts` (4 tests).
-**Suite completa post-corrección: 45 suites / 293 tests, todo en verde.**
+- Tablas nuevas `legal_acceptances` y `store_withdrawal_requests` + columnas `store_customers.terms_accepted_at` / `terms_version` (migraciones **096, 097, 098**; replicadas en `ensureSchema.ts` → `ensureLegalSchema()`, llamada desde `server.ts`).
+- `accept_terms` **obligatorio** en `POST /store/auth/register` y `POST /store/checkout`; en el checkout la constancia se escribe dentro de la transacción del pedido. Ver `BR-LEGAL-001` a `BR-LEGAL-004` en [03-BUSINESS-RULES.md](03-BUSINESS-RULES.md).
+- Panel: **Tienda online → Legales** (`/ecommerce/legal`) — gestión de arrepentimientos (estado + notas + vínculo al pedido) y búsqueda de constancias por email.
 
-### Condiciones para el `GO` (todas operativas, ninguna de código)
+### Validación
 
-`C1` configurar `MP_WEBHOOK_SECRET` y volver el chequeo a fatal (cierra `DEC-014`) · `C2` reconfirmar las cuentas de caja de la tienda · `C3` backup productivo **restaurado** y comprobado · `C4` una sola réplica durante las migraciones · `C5` probar el `.htaccess` nuevo en el hosting real · `C6` decidir sobre HSTS · `C7` monitoreo y alertas mínimas.
+- Backend: `tsc --noEmit` limpio · **Jest 48 suites / 325 tests en verde**, incluidas las 12 nuevas de `src/__tests__/api/legal.test.ts`.
+- Frontend: `tsc -b` limpio · Vitest 47/47 · `npm run build` OK · ESLint limpio en los archivos nuevos (el resto del repo sigue con los 168 errores preexistentes).
+- E2E: se agregó el paso de tildar la aceptación en los tres flujos que compran o se registran (`acceptLegalTerms` en `e2e/tests/utils.ts`). **No se corrió Playwright en esta sesión.**
+- Se corrigió `findPurchasable` (helper de tests) para descartar productos con precio inválido: un producto basura de otro test hacía fallar `purchase-flow` de forma intermitente.
 
-Detalle, responsable y prueba de cumplimiento de cada una: sección 9 del informe.
+### Riesgos y pendientes
 
-### Pendientes que quedan abiertos
+1. **Cambio de contrato de API**: backend y frontend tienen que desplegarse **juntos**. El frontend viejo contra el backend nuevo no puede comprar ni registrarse (422). Recordar que push a `master` del backend despliega solo en Railway.
+2. **Pendiente operativo del negocio, no de código**: cargar en Settings la razón social, CUIT, domicilio, condición IVA y email reales (hoy los textos muestran "—"), y pegar la URL del QR de Data Fiscal que genera ARCA. Sin eso, los textos están publicados pero incompletos frente a la Res. 104/2005 y la RG 4042-E.
+3. **A definir con un profesional**: inscripción de la base de datos ante la AAIP (art. 21 Ley 25.326, Res. 132/2018) y revisión de los textos por un abogado — lo entregado es un articulado completo y fundado en la normativa vigente, pero no reemplaza una revisión legal.
+4. **Cruce con S-01** (auditoría 2026-08-18: `/store/settings` expone las 75 claves): cuando se cierre con una allowlist, tienen que seguir siendo públicas `company_name`, `company_cuit`, `company_address`, `company_email`, `company_iva_condition` y `store_data_fiscal_url` — los textos legales las leen desde ahí.
+5. **L-01 sigue abierto**: la política de privacidad informa el derecho de supresión, pero no existe `DELETE /me` ni purga de `store_events`. Es la brecha más visible entre lo que el texto promete y lo que el sistema hace.
+6. Del resto de los bloqueantes de la auditoría, esta sesión **solo** cierra B-03. B-01 (productos de prueba), B-02 (transferencia sin CBU) y el resto siguen igual.
 
-- **`DEC-014` sigue sin cerrar** (es la condición C1). Mientras tanto los webhooks de MP se rechazan y los pagos de la tienda se acreditan por el job de reconciliación, con hasta ~10 min de demora. Verificado que en catálogo el webhook sólo escribe un campo informativo, así que el impacto ahí es mínimo.
-- **No hay alertas** (AUD-05). El job diario de inconsistencias sólo loguea. Es el hueco que explica el incidente del 2026-08-07.
-- **Lint del frontend: 160 errores preexistentes.** Ninguno es un bug de runtime (57 son de hot-reload, 48 de `any`), pero con ese ruido un error nuevo pasa desapercibido.
-- **La tabla `products` no tiene migración** (AUD-07): `GET /api/v1/products` daría 500 en una base migrada desde cero. El frontend no lo consume.
-- Backlog completo P2/P3 (AUD-04 a AUD-14): sección 5 del informe.
+### Cómo retomar
 
-### Advertencias para la siguiente sesión
-
-- **Nada fue commiteado ni desplegado.** Los cambios de las 4 correcciones están en el working tree de ambos repos, sin `git add`.
-- Las bases de auditoría (`textil_audit_fresh`, `textil_restore_test`) y el dump temporal **se eliminaron** al terminar. La base de desarrollo `textil_db` quedó sembrada y con los datos que dejó la suite.
-- **No se tocó producción** en ningún momento de esta auditoría.
-- No se corrieron los E2E de Playwright ni pruebas de carga — la cobertura de flujos vino de las 45 suites de API.
-- Se respetó la regla de no leer `.env*` ni `Users.txt`: la verificación de variables se hizo comprobando *presencia y longitud*, nunca imprimiendo valores.
+1. `git checkout feature/textos-legales` en ambos repos y revisar los textos con el titular del negocio antes de mergear.
+2. Cargar los datos fiscales en el panel (Configuración → empresa) y la URL de Data Fiscal, y recién ahí mergear y desplegar los dos repos juntos.
+3. Correr los E2E de Playwright contra el entorno local para validar el nuevo checkbox en el flujo real de navegador.
 
 ---
 

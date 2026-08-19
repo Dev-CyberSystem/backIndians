@@ -303,3 +303,38 @@ export async function ensureSchema(): Promise<void> {
     logger.error('ensureSchema.invoiceCollectionsCash', err, { meta: { fatal: false } });
   }
 }
+
+/**
+ * Constancia de aceptación de textos legales (migración 098).
+ *
+ * Las tablas nuevas (`legal_acceptances`, `store_withdrawal_requests`) las
+ * crea `sequelize.sync()` solo, pero las columnas nuevas sobre
+ * `store_customers` no: `sync()` sin `alter` no altera tablas existentes.
+ */
+export async function ensureLegalSchema(): Promise<void> {
+  const qi = sequelize.getQueryInterface();
+
+  try {
+    const storeCustomers = await qi.describeTable('store_customers');
+
+    if (!storeCustomers.terms_accepted_at) {
+      await qi.addColumn('store_customers', 'terms_accepted_at', {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_customers', column: 'terms_accepted_at' } });
+    }
+
+    if (!storeCustomers.terms_version) {
+      await qi.addColumn('store_customers', 'terms_version', {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        defaultValue: null,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_customers', column: 'terms_version' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.legalAcceptance', err, { meta: { fatal: false } });
+  }
+}

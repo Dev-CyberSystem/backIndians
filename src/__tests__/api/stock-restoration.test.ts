@@ -56,6 +56,7 @@ describe('Restitución de stock al cancelar — API', () => {
 
   it('cancelar un pedido en efectivo restituye stock y libera el cupón', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Restore',
       customerEmail: `qa-restore+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -117,6 +118,7 @@ describe('Restitución de stock al cancelar — API', () => {
 
   it('restoreStoreOrderStock es idempotente: llamarla dos veces no duplica la restitución', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Restore Idempotencia',
       customerEmail: `qa-restore-idem+${Date.now()}@test.local`,
       customerPhone: '1100000000',

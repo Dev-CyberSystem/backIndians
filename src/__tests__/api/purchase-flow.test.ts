@@ -18,6 +18,7 @@ describe('Flujo de compra — API (efectivo)', () => {
     const checkout = await api()
       .post(`${API}/store/checkout`)
       .send({
+      accept_terms: true,
         customerName: 'Robot QA',
         customerEmail: `qa+${Date.now()}@test.local`,
         customerPhone: '1100000000',

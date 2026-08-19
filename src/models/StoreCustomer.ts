@@ -23,6 +23,9 @@ export class StoreCustomer extends Model<
   declare phone: CreationOptional<string | null>;
   declare active: CreationOptional<boolean>;
   declare session_version: CreationOptional<number>;
+  /** Última aceptación de T&C/Privacidad (el detalle vive en `legal_acceptances`). */
+  declare terms_accepted_at: CreationOptional<Date | null>;
+  declare terms_version: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -41,6 +44,8 @@ StoreCustomer.init(
     phone: { type: DataTypes.STRING(50), allowNull: true },
     active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     session_version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    terms_accepted_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    terms_version: { type: DataTypes.STRING(20), allowNull: true, defaultValue: null },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },

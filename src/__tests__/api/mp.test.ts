@@ -20,6 +20,7 @@ describe('MercadoPago — API', () => {
     const res = await api()
       .post(`${API}/store/checkout`)
       .send({
+      accept_terms: true,
         customerName: 'Robot QA MP',
         customerEmail: `qa-mp+${Date.now()}@test.local`,
         customerPhone: '1100000000',
