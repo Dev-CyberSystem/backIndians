@@ -118,6 +118,8 @@ cd backIndians && npm run prod
 
 Compara el tag local con lo que reportan el `/health` del backend y el `/version.json` de los dos hostnames del frontend. Detecta los dos problemas silenciosos: **deploy a medias** (backend, sistema y tienda en versiones distintas) y **release sin deployar** (tag creado pero producción todavía en la versión anterior).
 
+También reporta si **`MP_WEBHOOK_SECRET` está cargado** en el proceso que corre (el booleano que expone `/health`, nunca el valor). Es el dato que antes obligaba a entrar a los logs de Railway a buscar la *ausencia* de una línea — ver [DEC-014](08-DECISIONS.md) para por qué esa forma de verificar mantuvo el problema abierto doce días. Si dice `NO está cargado`, los webhooks de MercadoPago se rechazan y los pagos sólo se acreditan por el job de conciliación, con hasta ~10 minutos de demora.
+
 El mismo reporte valida los **commits exactos**: detecta si un componente conserva el número `vX.Y.Z` en `package.json` pero fue desplegado desde un commit distinto al tag/snapshot de esa release. Además calcula el **objetivo de rollback seguro común**: la release anterior que tiene tag tanto en back como en front y que es menor a todo lo que está desplegado. También informa si existe el snapshot local del frontend y el backup previo al release productivo. Si falta visibilidad de algún componente, o todavía no existe una release anterior (por ejemplo mientras `v1.0.0` siga siendo la primera y única), no inventa un destino: lo marca como intervención manual.
 
 ## Rollback

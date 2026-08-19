@@ -86,9 +86,19 @@ app.use('/api/v1', generalLimiter, apiRouter);
  * `SELECT 1` con timeout corto: la idea es detectar "la base no contesta", no
  * medir su rendimiento; sin timeout, un pool agotado dejaría la request colgada
  * hasta que el monitor corte por su cuenta y el motivo real se pierda.
+ *
+ * `webhook_secret` informa si `MP_WEBHOOK_SECRET` está cargado en el proceso —
+ * **el booleano, nunca el valor**. Existe porque desde afuera no había forma de
+ * saberlo: `verifyWebhookSignature` devuelve `false` tanto si falta el secreto
+ * como si la firma es inválida (bien por seguridad, inútil para diagnosticar),
+ * así que la única evidencia era buscar la ausencia de una línea en los logs de
+ * Railway. Y "no encuentro el log" no es lo mismo que "el log no está". Con
+ * esto, `npm run prod` lo reporta de un vistazo, que es lo que hace falta antes
+ * de volver un chequeo de arranque a fatal.
  */
 app.get('/health', async (_req, res) => {
   const started = Date.now();
+  const webhookSecret = Boolean(process.env.MP_WEBHOOK_SECRET);
   try {
     await Promise.race([
       sequelize.query('SELECT 1'),
@@ -103,6 +113,7 @@ app.get('/health', async (_req, res) => {
         database: 'ok',
         version: APP_VERSION,
         commit: APP_COMMIT,
+        webhook_secret: webhookSecret,
         uptime_seconds: Math.round(process.uptime()),
         response_ms: Date.now() - started,
       },
@@ -116,6 +127,7 @@ app.get('/health', async (_req, res) => {
         database: 'unreachable',
         version: APP_VERSION,
         commit: APP_COMMIT,
+        webhook_secret: webhookSecret,
         uptime_seconds: Math.round(process.uptime()),
         response_ms: Date.now() - started,
       },

@@ -88,6 +88,19 @@ async function checkBackend() {
   } else {
     log.warn('El backend no reporta versión — está corriendo un build anterior a este sistema de releases.');
   }
+
+  // Estado del secreto del webhook de MercadoPago (nunca el valor). Sin él, MP
+  // no acredita pagos por webhook y todo cae en el job de conciliación, con
+  // hasta ~10 min de demora y sin ningún aviso. Es el dato que hacía falta
+  // mirar en los logs de Railway y que ahora se ve acá.
+  if (data.webhook_secret === true) {
+    log.ok('MP_WEBHOOK_SECRET cargado en el proceso.');
+  } else if (data.webhook_secret === false) {
+    log.fail('MP_WEBHOOK_SECRET NO está cargado — los webhooks de MercadoPago se rechazan.');
+    log.info('Los pagos sólo se acreditan por el job de conciliación (hasta ~10 min).');
+  } else {
+    log.warn('El backend no reporta webhook_secret — build anterior a esta verificación.');
+  }
   return data.version
     ? { version: `v${String(data.version).replace(/^v/, '')}`, commit: data.commit ? String(data.commit) : null }
     : null;
