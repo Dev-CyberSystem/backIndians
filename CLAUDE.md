@@ -40,6 +40,11 @@ cd frontIndians && npm run dev             # dev server
 npm test                                   # Vitest
 npm run lint                               # eslint
 npm run build                              # build de producción
+
+# Release a producción (ver docs/project-brain/11-RELEASE-Y-ROLLBACK.md)
+cd backIndians && npm run release          # valida ambos repos, backup de prod, tag vX.Y.Z en los dos
+npm run release:status                     # qué versión corre realmente en producción
+npm run rollback -- v1.2.3                 # volver atrás (frontend automático, backend y base guiados)
 ```
 
 Detalle completo (seeds, e2e, deploy) en `backIndians/docs/project-brain/07-DEVELOPMENT-GUIDE.md`.

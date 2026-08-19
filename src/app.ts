@@ -9,6 +9,7 @@ import { requestContext } from './middlewares/requestContext';
 import { generalLimiter } from './middlewares/rateLimit';
 import { router as apiRouter } from './routes/index';
 import { sequelize } from './config/db';
+import { APP_VERSION, APP_COMMIT } from './config/version';
 import { logger } from './utils/logger';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
@@ -100,6 +101,8 @@ app.get('/health', async (_req, res) => {
       data: {
         status: 'ok',
         database: 'ok',
+        version: APP_VERSION,
+        commit: APP_COMMIT,
         uptime_seconds: Math.round(process.uptime()),
         response_ms: Date.now() - started,
       },
@@ -111,6 +114,8 @@ app.get('/health', async (_req, res) => {
       data: {
         status: 'error',
         database: 'unreachable',
+        version: APP_VERSION,
+        commit: APP_COMMIT,
         uptime_seconds: Math.round(process.uptime()),
         response_ms: Date.now() - started,
       },

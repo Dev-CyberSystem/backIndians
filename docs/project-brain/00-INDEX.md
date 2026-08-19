@@ -1,6 +1,6 @@
 # 00 — Índice del cerebro documental (Indians)
 
-> Última actualización: **2026-08-05**
+> Última actualización: **2026-08-19** (se agregó 11-RELEASE-Y-ROLLBACK.md; el resto sigue siendo la fotografía del 2026-08-05)
 > Generado por auditoría completa del código real (no de intenciones ni de nombres de archivos). Ver metodología y limitaciones en cada documento.
 
 ## Estado general del proyecto (resumen de 1 párrafo)
@@ -21,6 +21,7 @@ Indians es un sistema de gestión textil (fábrica de indumentaria deportiva a p
 | [08-DECISIONS.md](08-DECISIONS.md) | Registro de decisiones técnicas/funcionales con motivo y alternativas descartadas (cuando están documentadas) | Antes de proponer revertir o cuestionar una decisión ya tomada |
 | [09-CURRENT-STATUS.md](09-CURRENT-STATUS.md) | Qué está terminado/parcial/pendiente, deuda técnica, riesgos, próximos pasos recomendados | Al planificar qué hacer a continuación |
 | [10-SESSION-HANDOFF.md](10-SESSION-HANDOFF.md) | Entrega entre sesiones: qué se hizo la última vez, qué falta, cómo retomar | Al empezar y al terminar cada sesión de trabajo importante |
+| [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md) | Cómo preparar un release versionado, deployarlo y volver atrás si falla (los tres planos del rollback: frontend, backend, base) | Antes de subir cualquier cosa a producción, y con urgencia cuando algo ya se rompió |
 
 ## Cómo usar este cerebro (regla operativa)
 

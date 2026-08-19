@@ -46,7 +46,9 @@ Ninguno detectado — ambos repos están con working tree limpio y la última se
 - **Habilitar AFIP en producción**: requiere acción externa al código (tramitar/cargar certificado real ante ARCA, configurar `afip_enabled=true` y datos fiscales de la empresa).
 - **Configurar `store_cash_account_id`**: acción de configuración de negocio, no de código.
 - **Rotar credenciales** mencionadas en `documentos/Users.txt` y en el comentario de `seeders/reset-admin-prod.ts` — señalado como riesgo en la auditoría de base de datos de esta sesión, pendiente de confirmación del usuario.
-- **CI/CD**: no existe ningún pipeline; las validaciones se corren manualmente.
+- **CI/CD**: no existe ningún pipeline en servidor. Desde el 2026-08-19 sí hay un **sistema de releases versionados**
+  (`npm run release` en backIndians) que corre las validaciones, saca backup de producción y tagea ambos repos;
+  las validaciones siguen ejecutándose en la máquina de quien releasea. Ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md).
 
 ## Deuda técnica anotada explícitamente (por el propio equipo, en `AUDITORIA_TIENDA_ONLINE_AVANCE.md`)
 
@@ -66,7 +68,9 @@ Ninguno detectado — ambos repos están con working tree limpio y la última se
 
 ## Riesgos
 
-- **Migraciones "down" en `db:migrate:status`**: el flujo de desarrollo normal usa `sync()`, no `sequelize-cli db:migrate` — las migraciones 059-066 podían figurar como no aplicadas aunque sus tablas ya existieran vía `sync()`/`ensureSchema`. El `startCommand` de producción en Railway sí corre `npm run migrate` en cada deploy; si alguna migración de ese rango no tiene guarda de idempotencia completa, hay riesgo de error en deploy. Verificar `db:migrate:status` contra la base de producción real antes de un próximo deploy grande.
+- **Migraciones "down" en `db:migrate:status`**: el flujo de desarrollo normal usa `sync()`, no `sequelize-cli db:migrate` — las migraciones 059-066 podían figurar como no aplicadas aunque sus tablas ya existieran vía `sync()`/`ensureSchema`. El `startCommand` de producción en Railway sí corre `npm run migrate` en cada deploy; si alguna migración de ese rango no tiene guarda de idempotencia completa, hay riesgo de error en deploy. Verificar `db:migrate:status` contra la base de producción real antes de un próximo deploy grande
+  (ahora disponible como `npm run migrate:status -- --env production`). Desde el 2026-08-19, `npm run release`
+  saca un backup de producción antes de cada release, así que este riesgo tiene red de contención.
 - **Credenciales en texto plano fuera de git pero en disco**: `frontIndians/.env.deploy` (FTP) y `backIndians/documentos/Users.txt` no están trackeados en git, pero existen en el filesystem local — bajo riesgo si la máquina está controlada, pero a tener en cuenta.
 - **Proveedor de hosting del frontend inconsistente en la documentación**: el script de deploy dice "Donweb" en comentarios pero el host real configurado es Ferozo (`a0130338.ferozo.com`) — no crítico, pero puede confundir a quien lea el código sin este dato.
 
