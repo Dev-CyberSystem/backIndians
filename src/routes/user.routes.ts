@@ -6,8 +6,19 @@ import { validate } from '../middlewares/validate';
 import * as ctrl from '../controllers/user.controller';
 import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
 
-const PWD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]])[A-Za-z\d@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]]{6,10}$/;
-const PWD_MSG   = 'La contraseña debe tener entre 6 y 10 caracteres, incluir letras, números y al menos un carácter especial (@ $ ! % * # ? & . _ - + / etc.)';
+// Mínimo 10 caracteres, máximo 128 (S-02 de la auditoría del 2026-08-19).
+//
+// El tope anterior era 10, contra 100 de los compradores de la tienda
+// (store.routes.ts): el administrador que mueve la caja no podía usar una
+// passphrase y el comprador sí. No había razón técnica — bcrypt corta a 72
+// bytes de todas formas.
+//
+// El login NO revalida contra este regex, así que las contraseñas existentes de
+// 6 a 10 caracteres siguen funcionando; el mínimo nuevo se exige sólo al crear
+// o cambiar una. Forzar la rotación de las actuales se evaluó y se descartó
+// (expulsaría a todos los usuarios); ver 08-DECISIONS.md.
+const PWD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]])[A-Za-z\d@$!%*#?&._\-+\/:;,()=~|<>{}^\[\]]{10,128}$/;
+const PWD_MSG   = 'La contraseña debe tener entre 10 y 128 caracteres, incluir letras, números y al menos un carácter especial (@ $ ! % * # ? & . _ - + / etc.)';
 
 const router = Router();
 

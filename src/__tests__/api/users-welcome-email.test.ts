@@ -21,14 +21,14 @@ describe('buildWelcomeEmail — plantilla', () => {
     name: 'Ada Lovelace',
     email: 'ada@indians.com',
     role: 'billing',
-    password: 'Secreta1!',
+    password: 'Secreta1!Larga',
     loginUrl: 'https://sistema.indians.com.ar/login',
   });
 
   it('incluye el nombre, email y la contraseña', () => {
     expect(html).toContain('Ada Lovelace');
     expect(html).toContain('ada@indians.com');
-    expect(html).toContain('Secreta1!');
+    expect(html).toContain('Secreta1!Larga');
   });
 
   it('traduce el rol a su etiqueta amigable', () => {
@@ -46,7 +46,7 @@ describe('buildWelcomeEmail — plantilla', () => {
       name: '<script>alert(1)</script>',
       email: 'x@y.com',
       role: 'seller',
-      password: 'Secreta1!',
+      password: 'Secreta1!Larga',
       loginUrl: 'https://x/login',
     });
     expect(evil).not.toContain('<script>alert(1)</script>');
@@ -77,7 +77,7 @@ describe('POST /users — dispara el mail de bienvenida', () => {
     const res = await api()
       .post(`${API}/users`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'QA Bienvenida', email, password: 'Secreta1!', role: 'seller' });
+      .send({ name: 'QA Bienvenida', email, password: 'Secreta1!Larga', role: 'seller' });
 
     expect(res.status).toBe(201);
     createdId = res.body?.data?.id;
@@ -92,7 +92,7 @@ describe('POST /users — dispara el mail de bienvenida', () => {
     expect(arg.to).toBe(email);
     expect(arg.subject).toMatch(/cuenta/i);
     expect(arg.html).toContain('QA Bienvenida');
-    expect(arg.html).toContain('Secreta1!');
+    expect(arg.html).toContain('Secreta1!Larga');
     expect(arg.html).toContain('Vendedor'); // etiqueta de 'seller'
   });
 
@@ -103,7 +103,7 @@ describe('POST /users — dispara el mail de bienvenida', () => {
     const res = await api()
       .post(`${API}/users`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'QA Falla Mail', email: email2, password: 'Secreta1!', role: 'workshop' });
+      .send({ name: 'QA Falla Mail', email: email2, password: 'Secreta1!Larga', role: 'workshop' });
 
     expect(res.status).toBe(201);
     // El usuario se crea igual, pero se informa y persiste el fallo con su motivo.
@@ -125,7 +125,7 @@ describe('POST /users — dispara el mail de bienvenida', () => {
     const created = await api()
       .post(`${API}/users`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'QA Reenvío', email: email3, password: 'Secreta1!', role: 'billing' });
+      .send({ name: 'QA Reenvío', email: email3, password: 'Secreta1!Larga', role: 'billing' });
     expect(created.status).toBe(201);
     expect(created.body.data.welcomeEmail.sent).toBe(false);
     const id = created.body.data.id as number;
@@ -146,7 +146,7 @@ describe('POST /users — dispara el mail de bienvenida', () => {
     const arg = (sendMail as jest.Mock).mock.calls[0][0];
     expect(arg.to).toBe(email3);
     // El mail lleva una contraseña temporal (distinta de la original).
-    expect(arg.html).not.toContain('Secreta1!');
+    expect(arg.html).not.toContain('Secreta1!Larga');
     expect(arg.html).toContain('Facturación'); // etiqueta de 'billing'
 
     await api().delete(`${API}/users/${id}`).set('Authorization', `Bearer ${token}`);
@@ -175,7 +175,7 @@ describe('DELETE /users — eliminación definitiva con verificación de relacio
     const res = await api()
       .post(`${API}/users`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'QA Borrar', email, password: 'Secreta1!', role });
+      .send({ name: 'QA Borrar', email, password: 'Secreta1!Larga', role });
     return res.body.data.id as number;
   };
 

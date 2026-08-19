@@ -136,11 +136,11 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
     const create = await api()
       .post(`${API}/users`)
       .set('Authorization', `Bearer ${admin}`)
-      .send({ name: 'AUD Reset', email, password: 'Abc123!', role: 'seller' });
+      .send({ name: 'AUD Reset', email, password: 'Abc123!Segura', role: 'seller' });
     expect([200, 201]).toContain(create.status);
     const userId = create.body.data.id;
 
-    const login = await api().post(`${API}/auth/login`).send({ email, password: 'Abc123!' });
+    const login = await api().post(`${API}/auth/login`).send({ email, password: 'Abc123!Segura' });
     expect(login.status).toBe(200);
     const oldRefresh = login.body.data.refreshToken ?? login.body.data.refresh_token;
     const oldAccess = login.body.data.accessToken ?? login.body.data.token;
@@ -149,7 +149,7 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
     const chg = await api()
       .patch(`${API}/users/${userId}/password`)
       .set('Authorization', `Bearer ${admin}`)
-      .send({ password: 'Xyz789!' });
+      .send({ password: 'Xyz789!Segura' });
     expect([200, 204]).toContain(chg.status);
 
     // Ni el refresh token (7 días) ni el access token (15 min) previos sirven.
@@ -160,7 +160,7 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
     expect(me.status).toBe(401);
 
     // La contraseña nueva sí permite entrar de nuevo.
-    const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!' });
+    const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!Segura' });
     expect(relogin.status).toBe(200);
   });
 
@@ -176,24 +176,24 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
     const create = await api()
       .post(`${API}/users`)
       .set('Authorization', `Bearer ${admin}`)
-      .send({ name: 'AUD PUT', email, password: 'Abc123!', role: 'seller' });
+      .send({ name: 'AUD PUT', email, password: 'Abc123!Segura', role: 'seller' });
     expect([200, 201]).toContain(create.status);
     const userId = create.body.data.id;
 
-    const login = await api().post(`${API}/auth/login`).send({ email, password: 'Abc123!' });
+    const login = await api().post(`${API}/auth/login`).send({ email, password: 'Abc123!Segura' });
     expect(login.status).toBe(200);
     const oldRefresh = login.body.data.refreshToken ?? login.body.data.refresh_token;
 
     const upd = await api()
       .put(`${API}/users/${userId}`)
       .set('Authorization', `Bearer ${admin}`)
-      .send({ name: 'AUD PUT', password: 'Xyz789!' });
+      .send({ name: 'AUD PUT', password: 'Xyz789!Segura' });
     expect(upd.status).toBe(200);
 
     const refreshed = await api().post(`${API}/auth/refresh`).send({ refreshToken: oldRefresh });
     expect(refreshed.status).toBe(401);
 
-    const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!' });
+    const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!Segura' });
     expect(relogin.status).toBe(200);
   });
 
@@ -203,11 +203,11 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
     const create = await api()
       .post(`${API}/users`)
       .set('Authorization', `Bearer ${admin}`)
-      .send({ name: 'AUD Reset Token', email, password: 'Abc123!', role: 'seller' });
+      .send({ name: 'AUD Reset Token', email, password: 'Abc123!Segura', role: 'seller' });
     expect([200, 201]).toContain(create.status);
     const userId = create.body.data.id;
 
-    const login = await api().post(`${API}/auth/login`).send({ email, password: 'Abc123!' });
+    const login = await api().post(`${API}/auth/login`).send({ email, password: 'Abc123!Segura' });
     expect(login.status).toBe(200);
     const oldRefresh = login.body.data.refreshToken ?? login.body.data.refresh_token;
 
@@ -222,13 +222,13 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
 
     const reset = await api()
       .post(`${API}/auth/reset-password`)
-      .send({ token, newPassword: 'Xyz789!' });
+      .send({ token, newPassword: 'Xyz789!Segura' });
     expect(reset.status).toBe(200);
 
     const refreshed = await api().post(`${API}/auth/refresh`).send({ refreshToken: oldRefresh });
     expect(refreshed.status).toBe(401);
 
-    const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!' });
+    const relogin = await api().post(`${API}/auth/login`).send({ email, password: 'Xyz789!Segura' });
     expect(relogin.status).toBe(200);
   });
 
@@ -241,7 +241,7 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
     const create = await api()
       .post(`${API}/users`)
       .set('Authorization', `Bearer ${admin}`)
-      .send({ name: 'AUD Race', email, password: 'Abc123!', role: 'seller' });
+      .send({ name: 'AUD Race', email, password: 'Abc123!Segura', role: 'seller' });
     expect([200, 201]).toContain(create.status);
     const userId = create.body.data.id;
 
@@ -249,9 +249,9 @@ describe('AUD-03 — cambiar la contraseña revoca las sesiones abiertas', () =>
 
     await Promise.all([
       api().patch(`${API}/users/${userId}/password`)
-        .set('Authorization', `Bearer ${admin}`).send({ password: 'Xyz789!' }),
+        .set('Authorization', `Bearer ${admin}`).send({ password: 'Xyz789!Segura' }),
       api().patch(`${API}/users/${userId}/password`)
-        .set('Authorization', `Bearer ${admin}`).send({ password: 'Qwe456!' }),
+        .set('Authorization', `Bearer ${admin}`).send({ password: 'Qwe456!Segura' }),
     ]);
 
     const after = (await User.findByPk(userId))!.session_version as number;

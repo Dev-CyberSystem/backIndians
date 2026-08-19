@@ -81,9 +81,21 @@ async function main() {
     await connectDB();
 
     // 1a. Asegurar columnas que agregan las migraciones sobre tablas existentes
-    //     (dev usa sync() y no altera tablas ya creadas)
-    await ensureSchema();
-    await ensureLegalSchema();
+    //     (dev usa sync() y no altera tablas ya creadas).
+    //
+    //     SOLO fuera de producción (A-01 de la auditoría del 2026-08-19). Las
+    //     dos funciones hacen DDL real —addColumn, removeIndex, addIndex,
+    //     changeColumn, ALTER de ENUM—, así que sin esta guarda cada reinicio
+    //     del contenedor productivo podía alterar el esquema sin dejar rastro
+    //     en SequelizeMeta. Producción usa migraciones formales (`npm run
+    //     migrate` corre en el startCommand); todo lo que estas funciones
+    //     parchean tiene su migración: 059, 063, 065, 066, 069, 091-095 y 098.
+    //     `config/db.ts` ya tenía la guarda equivalente para sync() — acá se
+    //     había replicado el patrón sin la guarda en vez de corregirlo.
+    if (process.env.NODE_ENV !== 'production') {
+      await ensureSchema();
+      await ensureLegalSchema();
+    }
 
     // 1b. Sembrar el maestro de ítems de costo (idempotente; necesario en dev
     //     donde se usa sync() en lugar de migraciones)

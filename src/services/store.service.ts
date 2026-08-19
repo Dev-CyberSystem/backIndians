@@ -28,7 +28,7 @@ import {
 } from '../utils/email.service';
 import { enqueueEmail } from '../utils/emailQueue';
 import { generateInvoicePdf } from '../utils/store.pdf';
-import { getAllSettings } from './settings.service';
+import { getAllSettings, PUBLIC_SETTING_KEYS } from './settings.service';
 import { recordLegalAcceptance } from './legal.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
@@ -333,10 +333,19 @@ export async function getStoreFilterOptions() {
   return cached('store:filter-options', 60_000, computeStoreFilterOptions);
 }
 
+/**
+ * Configuración que la tienda pública puede leer (S-01).
+ *
+ * Filtra por `PUBLIC_SETTING_KEYS` — allowlist explícita, no la tabla entera.
+ * Este endpoint no pide autenticación y se cachea 60s como `public`: todo lo
+ * que devuelve queda expuesto en internet y en cachés intermedias. Ver el
+ * comentario de `PUBLIC_SETTING_KEYS` en settings.service.ts antes de agregar
+ * o sacar una clave.
+ */
 export async function getPublicStoreSettings(): Promise<Record<string, string>> {
   // Cacheado 60s; se invalida cuando el admin guarda la configuración.
   return cached('store:settings', 60_000, async () => {
-    const rows = await Settings.findAll();
+    const rows = await Settings.findAll({ where: { key: PUBLIC_SETTING_KEYS } });
     return Object.fromEntries(rows.map((r) => [r.key, r.value ?? '']));
   });
 }

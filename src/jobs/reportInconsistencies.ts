@@ -4,6 +4,7 @@ import { StoreReturn } from '../models/StoreReturn';
 import { Invoice } from '../models/Invoice';
 import { CatalogInvoice } from '../models/CatalogInvoice';
 import { logger } from '../utils/logger';
+import { sendAlert } from '../utils/alerts';
 
 const DEFAULT_EXPIRY_HOURS = 48;
 function getExpiryHours(): number {
@@ -15,9 +16,20 @@ function getExpiryHours(): number {
  * Job diario de detección de inconsistencias (1.8 / C-8 parcial, ampliado en
  * 2.7 / C-7). Son estados que, dado el diseño actual, NUNCA deberían ocurrir
  * — es una red de seguridad para encontrar bugs, jobs caídos o ediciones
- * manuales de la base, no un flujo esperado. Solo loguea (ERROR, estructurado
- * y buscable); no hay todavía una bandeja de alertas de admin persistente
- * (ver B-7 de la auditoría) — queda para una fase posterior.
+ * manuales de la base, no un flujo esperado.
+ *
+ * Loguea cada hallazgo por separado (ERROR, estructurado y buscable) y, desde
+ * D-02 de la auditoría del 2026-08-19, además manda UNA alerta con el resumen
+ * cuando encontró algo. Antes sólo logueaba: el job podía detectar pedidos
+ * pagados sin asiento en caja a las 03:00 y nadie enterarse hasta que alguien
+ * abriera los logs de Railway por otro motivo — lo que anota
+ * `documentos/ALERTAS_Y_MONITOREO.md` como pendiente.
+ *
+ * Una sola alerta con todo, y no una por tipo, a propósito: seis mensajes de
+ * madrugada se ignoran en bloque; uno con el detalle se lee.
+ *
+ * Sigue sin haber una bandeja de alertas de admin persistente (ver B-7 de la
+ * auditoría) — queda para una fase posterior.
  */
 export async function reportDailyInconsistencies(): Promise<{
   cancelledWithoutRestock: number;
@@ -151,6 +163,30 @@ export async function reportDailyInconsistencies(): Promise<{
       new Error(`${approvedReturnsWithoutRefundUpdate.length} devolución(es) aprobada(s) hace más de 7 días sin actualizar el estado de reintegro`),
       { meta: { returnIds: approvedReturnsWithoutRefundUpdate.map((r) => r.id) } }
     );
+  }
+
+  const resumen: Array<[string, number]> = [
+    ['Pedidos cancelados sin restituir stock', cancelledWithoutRestock.length],
+    ['Pagos aprobados en MercadoPago sin acreditar en el pedido', approvedButPending.length],
+    ['Reservas de stock vencidas sin expirar (¿job expireStaleOrders caído?)', staleUnreleasedReservations.length],
+    ['Pedidos pagados sin asiento en caja/banco', paidWithoutCashEntry.length],
+    ['Comprobantes con envío a AFIP en error', afipErrors],
+    ['Devoluciones aprobadas hace +7 días sin estado de reintegro', approvedReturnsWithoutRefundUpdate.length],
+  ];
+  const encontradas = resumen.filter(([, cantidad]) => cantidad > 0);
+
+  if (encontradas.length > 0) {
+    const total = encontradas.reduce((acc, [, cantidad]) => acc + cantidad, 0);
+    await sendAlert({
+      key: 'inconsistencias-diarias',
+      severity: 'warning',
+      title: `${total} inconsistencia(s) detectadas en el control diario`,
+      detail:
+        `El control de las 03:00 encontró estados que no deberían ocurrir:\n\n` +
+        encontradas.map(([etiqueta, cantidad]) => `  - ${etiqueta}: ${cantidad}`).join('\n') +
+        `\n\nEl detalle (números de pedido, ids) está en los logs de Railway, ` +
+        `filtrando por "jobs.reportInconsistencies".`,
+    });
   }
 
   return {

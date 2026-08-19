@@ -17,7 +17,7 @@ export interface CompanySettings {
   invoice_default_type: string;
 }
 
-const VALID_KEYS: string[] = [
+export const VALID_KEYS: string[] = [
   // Empresa
   'company_name', 'company_address', 'company_cuit',
   'company_phone', 'company_email', 'company_website',
@@ -70,6 +70,75 @@ const VALID_KEYS: string[] = [
   // y transferencia — nunca deben mezclarse en la misma cuenta física.
   'store_cash_account_id',
   'store_bank_account_id',
+];
+
+/**
+ * Claves que `GET /api/v1/store/settings` puede devolver — endpoint PÚBLICO,
+ * sin autenticación y cacheado 60s como `public` (S-01 de la auditoría del
+ * 2026-08-19).
+ *
+ * Antes ese endpoint hacía `Settings.findAll()` sin `where` y publicaba las 75
+ * claves de la tabla. El problema no era el contenido de ese día: era que
+ * funcionaba como lista negra por omisión. Cualquier clave nueva que se
+ * agregara a VALID_KEYS —una credencial de courier, por ejemplo— quedaba
+ * publicada en internet sin que nadie tocara el endpoint.
+ *
+ * Por eso esta lista es explícita y se escribe entera, en vez de derivarse
+ * restando las sensibles: agregar una clave nueva a VALID_KEYS no la publica,
+ * hay que venir acá a decidirlo.
+ *
+ * CUIDADO al recortar: varias de estas claves SUENAN sensibles y tienen que
+ * seguir siendo públicas.
+ *   - `company_*` alimentan la identificación del titular en los textos
+ *     legales (`useLegalInfo.ts`); la Res. 104/2005 exige publicarla.
+ *   - `store_data_fiscal_url` es el QR de Data Fiscal de ARCA (RG 4004-E), que
+ *     por definición se muestra en el sitio.
+ *   - `bank_transfer_*` son los datos que el comprador necesita para poder
+ *     transferir (`StoreCheckoutFlowPages.tsx`, `StoreAccountPage.tsx`).
+ * Recortar de más rompe compliance, no solo funcionalidad.
+ *
+ * Lo que queda deliberadamente AFUERA (configuración interna, sin ningún
+ * consumidor en la tienda): `company_website`, `company_activity_start`,
+ * `invoice_*`, `afip_*`, `store_cash_account_id`, `store_bank_account_id`.
+ */
+export const PUBLIC_SETTING_KEYS: string[] = [
+  // Identificación del titular — la exigen los textos legales de la tienda
+  'company_name', 'company_cuit', 'company_address',
+  'company_email', 'company_phone', 'company_iva_condition',
+  // Tienda — general
+  'store_name', 'store_description', 'store_active',
+  'store_logo_url', 'store_footer_logo_url', 'store_banner_url', 'store_primary_color',
+  'store_whatsapp', 'store_instagram', 'store_facebook',
+  // Tienda — envíos (el checkout los muestra antes de pedir la dirección)
+  'shipping_cost', 'free_shipping_min', 'store_pickup_address',
+  // Tienda — landing hero
+  'store_hero_title', 'store_hero_subtitle', 'store_hero_cta',
+  'store_hero_badge',
+  'store_hero_image_url', 'store_hero_image_2_url', 'store_hero_image_3_url',
+  'store_hero_image_mobile_url', 'store_hero_image_2_mobile_url', 'store_hero_image_3_mobile_url',
+  // Tienda — landing secciones
+  'store_announcement', 'store_marquee',
+  'store_categories_title', 'store_featured_title', 'store_featured_subtitle',
+  // Tienda — spotlight
+  'store_spotlight_1_image', 'store_spotlight_1_title', 'store_spotlight_1_subtitle', 'store_spotlight_1_link',
+  'store_spotlight_2_image', 'store_spotlight_2_title', 'store_spotlight_2_subtitle', 'store_spotlight_2_link',
+  'store_spotlight_3_image', 'store_spotlight_3_title', 'store_spotlight_3_subtitle', 'store_spotlight_3_link',
+  // Tienda — carrusel de banners
+  'store_carousel_1_image', 'store_carousel_1_image_mobile', 'store_carousel_1_link',
+  'store_carousel_2_image', 'store_carousel_2_image_mobile', 'store_carousel_2_link',
+  'store_carousel_3_image', 'store_carousel_3_image_mobile', 'store_carousel_3_link',
+  'store_carousel_4_image', 'store_carousel_4_image_mobile', 'store_carousel_4_link',
+  // Tienda — banner promo y barra de promociones
+  'store_promo_image_url', 'store_promo_title', 'store_promo_subtitle', 'store_promo_cta',
+  'store_promo_pills',
+  // Tienda — datos para transferir (sin esto el comprador no puede pagar)
+  'bank_transfer_cbu', 'bank_transfer_alias', 'bank_transfer_holder',
+  // Tienda — chatbot de atención
+  'store_chatbot_enabled', 'store_chatbot_greeting',
+  // Tienda — seguimiento de pedidos
+  'tracking_link_expiry_days',
+  // Tienda — Data Fiscal de ARCA (RG 4004-E): se publica por obligación
+  'store_data_fiscal_url',
 ];
 
 export async function getAllSettings(): Promise<Record<string, string>> {
