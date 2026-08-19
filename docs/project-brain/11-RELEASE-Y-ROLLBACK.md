@@ -13,6 +13,19 @@ Antes de esto, "subir a producción" era: pushear a `master` (Railway deploya so
 
 El sistema de releases resuelve las tres cosas.
 
+## Regla permanente: todo cambio en `src/` sale por `npm run release`
+
+**`git push origin master` queda reservado para documentación.** No es una recomendación de estilo.
+
+El 2026-08-19 a la mañana se terminó de construir este sistema; el primer cambio de la tarde (`4714458`) lo esquivó por completo — sin tag, sin bump, sin backup y sin pasar por la validación. Ese commit cambiaba un contrato de API, rompía 59 tests y modificaba el comportamiento de cobro de la tienda, y llegó a producción sin que nadie lo notara. `npm run release` corre la suite antes de tagear: habría frenado el push.
+
+Las consecuencias no fueron sólo los tests rojos:
+
+- **El número de versión dejó de identificar código.** Los tres componentes declaraban `v1.0.0` y ninguno era el commit del tag.
+- **El rollback dejó de servir.** El snapshot de frontend guardado para `v1.0.0` era el commit `36dc6fc` mientras producción corría `9f91f57`: un `npm run rollback -- v1.0.0` habría republicado un frontend que todavía ofrecía el pago en efectivo — reintroduciendo en silencio un cambio de negocio.
+
+"Es un cambio chico" es exactamente el caso que nadie mira. Ver [DEC-018](08-DECISIONS.md).
+
 ## Modelo mental: el rollback tiene tres planos
 
 Confundirlos es la forma habitual de empeorar una caída. De más fácil a más difícil de revertir:
@@ -165,6 +178,33 @@ npm run db:restore -- <archivo>    # restaura sobre la base de desarrollo
 
 Un backup que nunca se restauró es una hipótesis, no un respaldo. Conviene hacerlo cada tanto.
 
+## Verificación automática del backup (desde 2026-08-19)
+
+`db:backup` ya no se conforma con que el archivo exista y pese algo. Después de escribirlo, `scripts/release/verify-dump.cjs` comprueba tres cosas y, si alguna falla, **borra el archivo y aborta**:
+
+1. el **gzip descomprime entero** (un dump cortado lanza `Z_BUF_ERROR`);
+2. el SQL termina con el **trailer `-- Dump completed on`**, que `mysqldump` escribe recién al final;
+3. la **cantidad de tablas** llega al piso esperado (`BACKUP_MIN_TABLES`, default 40).
+
+Además avisa —sin abortar— si el backup nuevo trae menos tablas que el anterior sano.
+
+**Por qué**: el 2026-08-19 el backup tomado específicamente para poder deshacer el `TRUNCATE` de ~40 tablas productivas quedó **truncado** —descomprimía 142 KB, cortaba a mitad de un `INSERT` de `store_events` y le faltaban 9 tablas, entre ellas `store_orders` y `users`— y el script lo dio por bueno. Los tres controles que tenía no alcanzaban: cuando `mysqldump` muere, su stdout se cierra y el `pipeline` resuelve **limpio**; el proceso no devolvió un código distinto de cero; y el archivo superó el piso de tamaño. El modo de falla es el peor posible —archivo presente, con nombre correcto y tamaño plausible, inservible— porque nadie lo mira hasta que lo necesita.
+
+Un backup roto que se conserva es peor que ninguno: `db:restore` y `rollback` lo listan como válido y alguien confía en él justo cuando más importa.
+
+La lógica de verificación tiene tests propios (`src/__tests__/unit/verify-dump.test.ts`), que corren contra archivos truncados a propósito — sin base de datos real.
+
+## Correr SQL contra producción: `npm run db:exec`
+
+```bash
+npm run db:exec -- ruta/al/archivo.sql          # pide confirmación si toca datos
+npm run db:exec -- ruta/al/archivo.sql --yes    # no interactivo
+```
+
+Se llamaba `db:query` y su encabezado decía *"SOLO LECTURA"* sin nada que lo restringiera — fue la herramienta con la que se ejecutó el `TRUNCATE` de ~40 tablas productivas. Ahora el nombre dice la verdad y, cuando el `.sql` contiene DDL/DML, **muestra las sentencias detectadas y la base destino y exige escribir el nombre de la base** para seguir. Ver [DEC-017](08-DECISIONS.md).
+
+La detección ignora comentarios y literales de texto a propósito: un aviso que salta en falso entrena a confirmar sin leer.
+
 ## Qué queda fuera de git a propósito
 
 | Ruta | Por qué |
@@ -181,6 +221,8 @@ Los snapshots del frontend viven **sólo en la máquina que releaseó**. Si el r
 - **El backup se toma en el momento del release, no del deploy**. Si pasan horas entre uno y otro, el backup no refleja el estado real previo al deploy. Para deploys diferidos conviene correr `npm run db:backup` justo antes de pushear.
 - **`test:full` resetea la base de desarrollo local** (corre los seeders). Es lo esperado, pero conviene saberlo antes de releasear con datos locales que importen.
 - **El rollback de frontend depende del snapshot local** (ver arriba).
+- **"Íntegro" no es "restaurable"**: la verificación comprueba que el dump descomprime completo y cierra bien, no que restaure sin errores. Para eso está `db:restore` contra la base local (arriba).
+- **Los backups viven sólo en esta máquina** (`backIndians/.releases/db/`, gitignored, dentro de una carpeta de OneDrive). Un borrado sincronizado se los lleva a todos. Falta una copia fuera del equipo (hallazgo R-07).
 
 ## Gotchas de Windows ya resueltos (por si reaparecen en una máquina distinta)
 

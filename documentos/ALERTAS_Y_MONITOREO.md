@@ -136,8 +136,8 @@ Cubierto por `src/__tests__/api/alerts.test.ts` (4 tests: umbral, no-disparo por
 
 Para que quede explícito y no se confunda con una cobertura que no existe:
 
-- **Plata que no llega a la caja** (pedido pagado sin asiento, webhook de MP rechazado) → hoy sólo queda en el log y en el job diario de inconsistencias. Se decidió dejarlo afuera de esta tanda; el detector ya existe (`auditoria-integridad-preprod.sql`, checks 14 a 18), falta conectarlo a `sendAlert`.
-- **Jobs programados que fallan** → se loguean, no avisan. Misma situación: enganchar `sendAlert` en los `catch` de `scheduler.ts` es un cambio chico.
+- ~~**Jobs programados que fallan** → se loguean, no avisan.~~ **RESUELTO el 2026-08-19** (hallazgo D-02): los tres jobs pasan por `runScheduledJob` (`src/jobs/scheduler.ts`), que alerta con una `key` propia por job —para que el cooldown corra por separado— e incluye en el mensaje el impacto concreto de que ese job no corra. Importa sobre todo `reconcilePayments`: con el webhook de MercadoPago deshabilitado es el único camino por el que se acreditan los pagos. Cubierto por `src/__tests__/api/job-alerts.test.ts`.
+- ~~**Plata que no llega a la caja** → sólo queda en el log y en el job diario de inconsistencias.~~ **PARCIALMENTE RESUELTO el 2026-08-19**: `reportDailyInconsistencies` ahora manda **una** alerta con el resumen cuando encuentra algo (incluye "pedidos pagados sin asiento en caja/banco"). Una sola y no seis, a propósito: seis mensajes de madrugada se ignoran en bloque. **Sigue faltando** conectar los checks 14 a 18 de `auditoria-integridad-preprod.sql`, que son más finos que lo que mira el job.
 - **Degradación de rendimiento** (el sistema responde, pero lento).
 - **Certificado SSL por vencer** → UptimeRobot lo avisa en sus planes pagos.
 

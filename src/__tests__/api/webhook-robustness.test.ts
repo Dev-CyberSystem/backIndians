@@ -9,7 +9,7 @@ import { logger } from '../../utils/logger';
  * Robustez de webhooks (1.5 / A-7, casos 13/14/15 de la auditoría). Simula
  * respuestas de MercadoPago con jest.spyOn sobre getPaymentInfo (no hay
  * mock del SDK en el repo todavía) para no depender de pagos reales.
- * Crea pedidos propios en efectivo y les aplica un webhook simulado —
+ * Crea pedidos propios por transferencia y les aplica un webhook simulado —
  * handleStoreWebhook no distingue el payment_method original del pedido.
  */
 
@@ -46,7 +46,7 @@ describe('Robustez de webhooks de MercadoPago — 1.5', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(201);
     const order = checkout.body.data.order;

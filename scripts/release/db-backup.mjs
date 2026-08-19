@@ -10,11 +10,15 @@
 // Uso:
 //   node scripts/release/db-backup.mjs [--tag=v1.4.0] [--schema-only]
 //
+// Al terminar, el archivo se verifica (gzip íntegro + trailer de mysqldump +
+// cantidad de tablas, ver verify-dump.mjs). Si algo no cierra, se borra y el
+// comando aborta: no se conserva un backup en el que no se puede confiar.
+//
 // Credenciales: `MYSQL_PUBLIC_URL` (la misma variable que usa el entorno de
 // producción de config/sequelize.js; la pública funciona desde afuera de
 // Railway). Ponela en `backIndians/.env.release` — ese archivo NO se commitea.
 
-import { createWriteStream, existsSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
@@ -31,6 +35,7 @@ import {
   parseArgs,
   stamp,
 } from './lib.mjs';
+import { resolveMinTables, verifyDump } from './verify-dump.cjs';
 
 /**
  * Piso de tamaño para considerar creíble un dump comprimido. El esquema solo de
@@ -38,6 +43,32 @@ import {
  * dump vacío o truncado, no una base chica.
  */
 const MIN_VALID_BACKUP_BYTES = 1024;
+
+/**
+ * Devuelve el backup completo anterior más reciente (excluyendo el que se acaba
+ * de escribir), para poder avisar si el nuevo trae menos tablas. Un dump que
+ * pasa el piso pero volcó menos tablas que el de ayer casi siempre significa
+ * que algo se rompió del lado del servidor.
+ */
+async function previousBackupTableCount(currentFile) {
+  let candidates;
+  try {
+    candidates = readdirSync(BACKUP_DIR)
+      .filter((f) => f.endsWith('.sql.gz') && !f.endsWith('-schema.sql.gz'))
+      .map((f) => path.join(BACKUP_DIR, f))
+      .filter((f) => f !== currentFile)
+      .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  } catch {
+    return null;
+  }
+  for (const file of candidates) {
+    const result = await verifyDump(file);
+    // Sólo sirve como referencia un backup que además esté sano: comparar
+    // contra uno roto (como el pre-limpieza del 2026-08-19) no dice nada.
+    if (result.ok) return { file, tables: result.tables };
+  }
+  return null;
+}
 
 /** Ubicaciones habituales de mysqldump en Windows, además del PATH. */
 const MYSQLDUMP_CANDIDATES = [
@@ -209,12 +240,37 @@ export async function backupDatabase({ tag, schemaOnly = false } = {}) {
     );
   }
 
+  // R-01: el tamaño no alcanza. El backup pre-limpieza del 2026-08-19 pesaba
+  // 23 KB, superaba el piso de arriba y estaba cortado a mitad de un INSERT,
+  // sin 9 tablas (`store_orders`, `users`, …). Estas tres comprobaciones —gzip
+  // completo, trailer de mysqldump y cantidad de tablas— son las que lo habrían
+  // detectado. Ver scripts/release/verify-dump.mjs.
+  const minTables = resolveMinTables();
+  const check = await verifyDump(outFile, { minTables });
+  if (!check.ok) {
+    unlinkSync(outFile);
+    abort(
+      `El backup quedó incompleto y se descartó:
+   - ${check.problems.join('\n   - ')}`,
+      'Un backup roto que se conserva es peor que ninguno: db:restore y rollback lo listarían como válido. ' +
+        'Revisá la conexión con Railway y volvé a correrlo antes de deployar o de tocar datos.'
+    );
+  }
+
+  const previous = await previousBackupTableCount(outFile);
+  if (previous && check.tables < previous.tables) {
+    log.warn(
+      `Este backup trae ${check.tables} tablas y el anterior (${path.basename(previous.file)}) traía ` +
+        `${previous.tables}. No es un error, pero revisá que la diferencia sea esperada.`
+    );
+  }
+
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  log.ok(`Backup listo: ${(size / 1024 / 1024).toFixed(2)} MB en ${seconds}s`);
+  log.ok(`Backup listo y verificado: ${(size / 1024 / 1024).toFixed(2)} MB, ${check.tables} tablas, en ${seconds}s`);
   log.info(outFile);
   if (stderr.trim()) log.info(`avisos de mysqldump: ${stderr.trim().split('\n')[0]}`);
 
-  return { file: outFile, size };
+  return { file: outFile, size, tables: check.tables };
 }
 
 // Ejecutable directo: `node scripts/release/db-backup.mjs`.

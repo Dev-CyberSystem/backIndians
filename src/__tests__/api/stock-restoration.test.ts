@@ -14,7 +14,7 @@ import { restoreStoreOrderStock } from '../../services/store.service';
  * checkout ya no descuenta stock_quantity real — solo reserva
  * (stock_reserved). El descuento definitivo ocurre al confirmarse el pago
  * (acá, marcando el pedido "paid" a mano, como haría un admin con un pedido
- * en efectivo). Este archivo prueba el camino "se confirmó el pago y después
+ * por transferencia). Este archivo prueba el camino "se confirmó el pago y después
  * se cancela" (restitución real) — el camino "se cancela antes de pagar"
  * (liberar la reserva) tiene su propio archivo, stock-reservation.test.ts.
  */
@@ -54,7 +54,7 @@ describe('Restitución de stock al cancelar — API', () => {
     expect(couponId).toBeTruthy();
   });
 
-  it('cancelar un pedido en efectivo restituye stock y libera el cupón', async () => {
+  it('cancelar un pedido por transferencia restituye stock y libera el cupón', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
       customerName: 'Robot QA Restore',
@@ -62,7 +62,7 @@ describe('Restitución de stock al cancelar — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 4 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
       coupon_code: couponCode,
     });
     expect(checkout.status).toBe(201);
@@ -78,7 +78,7 @@ describe('Restitución de stock al cancelar — API', () => {
     const couponAfterCheckout = await StoreCoupon.findByPk(couponId);
     expect(couponAfterCheckout!.used_count).toBe(1);
 
-    // Confirmar el pago (admin marca "Pagado" a mano, como con efectivo) —
+    // Confirmar el pago (admin marca "Pagado" a mano, como con transferencia) —
     // ahí recién se descuenta stock_quantity real (2.1).
     const markPaid = await api()
       .patch(`${API}/store/admin/orders/${orderId}/status`)
@@ -124,7 +124,7 @@ describe('Restitución de stock al cancelar — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(201);
     const order = checkout.body.data?.order ?? checkout.body.data;

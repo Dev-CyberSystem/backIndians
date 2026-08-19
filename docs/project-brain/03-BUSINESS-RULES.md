@@ -322,6 +322,26 @@
 **Fuente**: `backIndians/src/services/mercadopago.service.ts`, commit `5ea6ef2` (1.1), hallazgo C-3.
 **Estado**: Vigente.
 
+### BR-STORE-009 — El checkout de la tienda no acepta pago en efectivo (desactivación temporal)
+**Descripción**: `POST /store/checkout` sólo acepta `mercadopago` y `bank_transfer`; `'cash'` devuelve **422**. La desactivación es temporal y el manejo de `'cash'` sigue vivo en el resto del sistema para los **pedidos históricos**: su asiento sigue yendo a `store_cash_account_id` (nunca a la cuenta bancaria, ver `BR-CASH-...`/`CASH-PAY-002`) y siguen sin expirar automáticamente (`BR-STORE-004` excluye efectivo a propósito: implica pago/retiro en persona, no es un pago online abandonado).
+**Módulo**: Tienda (10).
+**Fuente**: `backIndians/src/routes/store.routes.ts` (`checkoutValidators`), commit `4714458`; contrato fijado por `src/__tests__/api/store-payment-methods.test.ts`. Decisión [DEC-015](08-DECISIONS.md).
+**Cómo revertirla**: primero el validador del backend, después `PAYMENT_OPTIONS` en `frontIndians/src/pages/store/StoreCheckoutPage.tsx`, y actualizar ese test en el mismo cambio. Tocar un solo lado deja la UI y el validador desincronizados sin que nada avise.
+**Estado**: Vigente (temporal).
+
+### BR-STORE-010 — La transferencia bancaria no se ofrece ni se acepta sin CBU o alias configurados
+**Descripción**: si `bank_transfer_cbu` y `bank_transfer_alias` están ambos vacíos, el checkout **rechaza con 400** un pedido con `payment_method: 'bank_transfer'`, y el frontend no ofrece la opción. Alcanza con uno de los dos: el titular solo no sirve, no se puede transferir a un nombre. Si eso deja **cero** medios de pago disponibles, la tienda avisa que no puede procesar pagos y deshabilita el botón de confirmar. La validación del backend corre **antes** de calcular totales, para no reservar stock de un pedido que se va a rechazar.
+**Módulo**: Tienda (10).
+**Fuente**: `hasBankTransferConfigured` en `backIndians/src/services/store.service.ts` y su gemelo en `frontIndians/src/pages/store/StoreCheckoutPage.tsx` (los dos predicados tienen que quedar iguales). Hallazgo B-02, decisión [DEC-016](08-DECISIONS.md).
+**Estado**: Vigente.
+
+### BR-STORE-011 — El endpoint público de settings sólo devuelve una allowlist explícita
+**Descripción**: `GET /store/settings` es público, sin autenticación y cacheado 60s como `public`. Devuelve **sólo** las claves de `PUBLIC_SETTING_KEYS` (`settings.service.ts`), no la tabla entera. Quedan afuera `afip_*`, `store_cash_account_id`, `store_bank_account_id`, `invoice_*`, `company_website` y `company_activity_start`. Siguen públicas —por obligación normativa, no por descuido— las `company_*` que identifican al titular en los textos legales (Res. 104/2005), `store_data_fiscal_url` (RG 4004-E) y `bank_transfer_*` (sin ellas el comprador no puede transferir).
+**Módulo**: Tienda (10) / Configuración.
+**Fuente**: `backIndians/src/services/settings.service.ts` (`PUBLIC_SETTING_KEYS`), `store.service.ts` (`getPublicStoreSettings`). Hallazgo S-01. Test de regresión: `src/__tests__/api/store-public-settings.test.ts`.
+**Por qué es una allowlist y no una lista de exclusiones**: antes hacía `Settings.findAll()` sin `where` y publicaba las 75 claves. El defecto no era el contenido: agregar una clave nueva a `VALID_KEYS` —una credencial de courier, por ejemplo— la publicaba en internet sin que nadie tocara el endpoint.
+**Estado**: Vigente.
+
 ### BR-STORE-008 — Todos los precios de la tienda son en pesos argentinos (ARS), sin soporte multi-moneda
 **Descripción**: la moneda está hardcodeada tanto al mostrar precios como al crear la preferencia de pago de MercadoPago.
 **Módulo**: Tienda (10).

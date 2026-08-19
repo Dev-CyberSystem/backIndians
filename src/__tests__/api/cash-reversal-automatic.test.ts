@@ -13,34 +13,39 @@ import { CashTransaction } from '../../models/CashTransaction';
  * mismo pedido (dos contraasientos, ninguno omitido — la razón de que la
  * marca de idempotencia viva en `store_returns` y no solo en `store_orders`),
  * y el caso "no hace nada" cuando nunca hubo ingreso registrado.
+ *
+ * Usa transferencia bancaria (y, por lo tanto, `store_bank_account_id`) porque
+ * el checkout de la tienda dejó de aceptar 'cash'. La reversión es la misma
+ * para cualquier medio de pago: lo que cambia es la cuenta destino del asiento,
+ * no la lógica del contraasiento.
  */
 
 describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 4', () => {
   let admin: string;
   let clientId: number;
-  let cashAccountId: number;
-  let originalCashAccountSetting: string | undefined;
+  let bankAccountId: number;
+  let originalBankAccountSetting: string | undefined;
 
   beforeAll(async () => {
     admin = await loginAs('admin');
     const clients = await api().get(`${API}/clients`).set(...auth(admin));
     clientId = (clients.body.data?.rows ?? clients.body.data)[0].id;
 
-    const cashAcc = await api().post(`${API}/cash/accounts`).set(...auth(admin))
-      .send({ name: `Caja QA Fase4 ${Date.now()}`, type: 'cash' });
-    cashAccountId = cashAcc.body.data.id;
+    const bankAcc = await api().post(`${API}/cash/accounts`).set(...auth(admin))
+      .send({ name: `Banco QA Fase4 ${Date.now()}`, type: 'bank' });
+    bankAccountId = bankAcc.body.data.id;
 
     const currentSettings = await api().get(`${API}/settings`).set(...auth(admin));
-    originalCashAccountSetting = currentSettings.body.data?.store_cash_account_id;
+    originalBankAccountSetting = currentSettings.body.data?.store_bank_account_id;
 
     await api().put(`${API}/settings`).set(...auth(admin)).send({
-      store_cash_account_id: String(cashAccountId),
+      store_bank_account_id: String(bankAccountId),
     });
   });
 
   afterAll(async () => {
     await api().put(`${API}/settings`).set(...auth(admin)).send({
-      store_cash_account_id: originalCashAccountSetting ?? '',
+      store_bank_account_id: originalBankAccountSetting ?? '',
     });
   });
 
@@ -72,7 +77,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(201);
     const order = checkout.body.data.order ?? checkout.body.data;
@@ -90,15 +95,15 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
   // ── Cancelación ────────────────────────────────────────────────────────────
 
   it('cancelar un pedido pagado revierte el ingreso por el total — el saldo vuelve al valor previo a la venta', async () => {
-    const before = await accountBalance(cashAccountId);
+    const before = await accountBalance(bankAccountId);
     const { orderId, total } = await createPaidOrder(4000, 'Cancelacion');
-    expect(await accountBalance(cashAccountId)).toBe(before + total);
+    expect(await accountBalance(bankAccountId)).toBe(before + total);
 
     const cancel = await api().patch(`${API}/store/admin/orders/${orderId}/status`).set(...auth(admin))
       .send({ status: 'cancelled' });
     expect(cancel.status).toBe(200);
 
-    expect(await accountBalance(cashAccountId)).toBe(before); // vuelve exacto al valor previo a la venta
+    expect(await accountBalance(bankAccountId)).toBe(before); // vuelve exacto al valor previo a la venta
 
     const original = await CashTransaction.findOne({
       where: { reference_type: 'store_order', reference_id: orderId, reversal_of_id: null },
@@ -115,16 +120,16 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
 
   it('cancelar un pedido pagado dos veces (reintento) no duplica el contraasiento — idempotente por cash_reversed_at', async () => {
     const { orderId, total } = await createPaidOrder(2500, 'CancelacionDoble');
-    const before = await accountBalance(cashAccountId);
+    const before = await accountBalance(bankAccountId);
 
     await api().patch(`${API}/store/admin/orders/${orderId}/status`).set(...auth(admin)).send({ status: 'cancelled' });
-    expect(await accountBalance(cashAccountId)).toBe(before - total);
+    expect(await accountBalance(bankAccountId)).toBe(before - total);
 
     // Reintento del mismo cambio de estado (statusChanged=false, no debería tocar nada de nuevo).
     const retry = await api().patch(`${API}/store/admin/orders/${orderId}/status`).set(...auth(admin))
       .send({ status: 'cancelled' });
     expect(retry.status).toBe(200);
-    expect(await accountBalance(cashAccountId)).toBe(before - total); // sin cambios
+    expect(await accountBalance(bankAccountId)).toBe(before - total); // sin cambios
 
     const reversals = await CashTransaction.count({
       where: {
@@ -148,7 +153,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
       customerPhone: '1100000000',
       items: [{ catalog_product_id: product.body.data.id, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     const orderId = checkout.body.data.order.id;
 
@@ -171,10 +176,10 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
   }
 
   it('una devolución marcada como reintegrada revierte solo el monto devuelto (parcial), no el total', async () => {
-    const before = await accountBalance(cashAccountId);
+    const before = await accountBalance(bankAccountId);
     const { orderId, orderItemId, total } = await createPaidOrder(10000, 'DevolucionParcial');
     await deliverOrder(orderId);
-    expect(await accountBalance(cashAccountId)).toBe(before + total);
+    expect(await accountBalance(bankAccountId)).toBe(before + total);
 
     const created = await api().post(`${API}/store/admin/orders/${orderId}/returns`).set(...auth(admin))
       .send({ items: [{ store_order_item_id: orderItemId, quantity: 1 }] });
@@ -184,7 +189,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
       .send({ refund_status: 'refunded', refunded_amount: 3000 }); // parcial, no el total de 10000
     expect(refund.status).toBe(200);
 
-    expect(await accountBalance(cashAccountId)).toBe(before + total - 3000);
+    expect(await accountBalance(bankAccountId)).toBe(before + total - 3000);
 
     const original = await CashTransaction.findOne({
       where: { reference_type: 'store_order', reference_id: orderId, reversal_of_id: null },
@@ -196,11 +201,11 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
   });
 
   it('dos devoluciones parciales sobre el mismo pedido generan dos contraasientos, ninguno omitido', async () => {
-    const before = await accountBalance(cashAccountId);
+    const before = await accountBalance(bankAccountId);
     // Compra 2 unidades para poder devolver en dos tandas separadas (dos StoreReturn distintos).
     const { orderId, orderItemId, total } = await createPaidOrder(4500, 'DosDevoluciones', 2);
     await deliverOrder(orderId);
-    expect(await accountBalance(cashAccountId)).toBe(before + total); // total = 9000 (2 x 4500)
+    expect(await accountBalance(bankAccountId)).toBe(before + total); // total = 9000 (2 x 4500)
 
     const created1 = await api().post(`${API}/store/admin/orders/${orderId}/returns`).set(...auth(admin))
       .send({ items: [{ store_order_item_id: orderItemId, quantity: 1 }] });
@@ -210,7 +215,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
     const refund1 = await api().patch(`${API}/store/admin/returns/${returnId1}/refund`).set(...auth(admin))
       .send({ refund_status: 'refunded', refunded_amount: 2000 });
     expect(refund1.status).toBe(200);
-    expect(await accountBalance(cashAccountId)).toBe(before + total - 2000);
+    expect(await accountBalance(bankAccountId)).toBe(before + total - 2000);
 
     // `createStoreReturn` solo acepta pedidos en 'delivered' — tras la primera devolución
     // el pedido quedó en 'returned'. El propio flujo de estados permite reingresar a
@@ -227,7 +232,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
       .send({ refund_status: 'refunded', refunded_amount: 1500 });
     expect(refund2.status).toBe(200);
 
-    expect(await accountBalance(cashAccountId)).toBe(before + total - 2000 - 1500);
+    expect(await accountBalance(bankAccountId)).toBe(before + total - 2000 - 1500);
 
     const original = await CashTransaction.findOne({
       where: { reference_type: 'store_order', reference_id: orderId, reversal_of_id: null },
@@ -237,7 +242,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
   });
 
   it('un segundo reintegro sobre la MISMA devolución no duplica el contraasiento — idempotente por cash_reversed_at de la devolución', async () => {
-    const before = await accountBalance(cashAccountId);
+    const before = await accountBalance(bankAccountId);
     const { orderId, orderItemId, total } = await createPaidOrder(6000, 'ReintegroDoble');
     await deliverOrder(orderId);
 
@@ -247,13 +252,13 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
 
     await api().patch(`${API}/store/admin/returns/${returnId}/refund`).set(...auth(admin))
       .send({ refund_status: 'refunded', refunded_amount: 6000 });
-    expect(await accountBalance(cashAccountId)).toBe(before + total - 6000);
+    expect(await accountBalance(bankAccountId)).toBe(before + total - 6000);
 
     // Reintento (p. ej. doble click del admin) con el mismo refund_status.
     const retry = await api().patch(`${API}/store/admin/returns/${returnId}/refund`).set(...auth(admin))
       .send({ refund_status: 'refunded', refunded_amount: 6000 });
     expect(retry.status).toBe(200);
-    expect(await accountBalance(cashAccountId)).toBe(before + total - 6000); // sin cambios
+    expect(await accountBalance(bankAccountId)).toBe(before + total - 6000); // sin cambios
 
     const original = await CashTransaction.findOne({
       where: { reference_type: 'store_order', reference_id: orderId, reversal_of_id: null },
@@ -265,7 +270,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
   // ── CASH-REF-003: la caja nunca veta el registro de la devolución ────────
 
   it('un reintegro MAYOR al total del pedido se registra igual, revirtiendo solo lo que la caja puede absorber', async () => {
-    const before = await accountBalance(cashAccountId);
+    const before = await accountBalance(bankAccountId);
     const { orderId, orderItemId, total } = await createPaidOrder(5000, 'ReintegroExcedido');
     await deliverOrder(orderId);
 
@@ -283,7 +288,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
 
     // En caja se revierte el asiento completo ($5000), no $9000: el desvío
     // queda logueado para conciliación, pero no impide registrar el hecho.
-    expect(await accountBalance(cashAccountId)).toBe(before + total - total);
+    expect(await accountBalance(bankAccountId)).toBe(before + total - total);
   });
 
   it('dos devoluciones que juntas superan el total del pedido se registran ambas', async () => {
@@ -307,7 +312,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
   });
 
   it('un reintegro de $0 se registra sin intentar ningún contraasiento', async () => {
-    const before = await accountBalance(cashAccountId);
+    const before = await accountBalance(bankAccountId);
     const { orderId, orderItemId, total } = await createPaidOrder(3500, 'ReintegroCero');
     await deliverOrder(orderId);
 
@@ -320,7 +325,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
     expect(Number(res.body.data.refunded_amount)).toBe(0);
 
     // Sin reintegro real no hay nada que revertir: el ingreso queda intacto.
-    expect(await accountBalance(cashAccountId)).toBe(before + total);
+    expect(await accountBalance(bankAccountId)).toBe(before + total);
   });
 
   it('el monto reintegrado es obligatorio para marcar el reintegro como realizado', async () => {

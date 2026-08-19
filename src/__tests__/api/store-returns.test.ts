@@ -38,7 +38,7 @@ describe('Devoluciones con revisión — 2.4', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     const orderId = checkout.body.data.order.id;
 
@@ -155,7 +155,7 @@ describe('Devoluciones con revisión — 2.4', () => {
       accept_terms: true,
       customerName: 'Robot QA No Entregado', customerEmail: `qa-noentregado+${Date.now()}@test.local`,
       customerPhone: '1100000000', items: [{ catalog_product_id: product.body.data.id, size_name: null, quantity: 1 }],
-      shipping_type: 'pickup', payment_method: 'cash',
+      shipping_type: 'pickup', payment_method: 'bank_transfer',
     });
     const orderId = checkout.body.data.order.id;
     const detail = await api().get(`${API}/store/admin/orders/${orderId}`).set(...auth(admin));

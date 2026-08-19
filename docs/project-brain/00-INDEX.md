@@ -1,6 +1,6 @@
 # 00 — Índice del cerebro documental (Indians)
 
-> Última actualización: **2026-08-19** (se agregó 11-RELEASE-Y-ROLLBACK.md; el resto sigue siendo la fotografía del 2026-08-05)
+> Última actualización: **2026-08-19 (tarde)** — cierre de los hallazgos de la auditoría de panel: se actualizaron 03, 06, 07, 08 (DEC-015 a DEC-018), 09 (sección nueva al principio), 10 y 11. El resto sigue siendo la fotografía del 2026-08-05.
 > Generado por auditoría completa del código real (no de intenciones ni de nombres de archivos). Ver metodología y limitaciones en cada documento.
 
 ## Estado general del proyecto (resumen de 1 párrafo)

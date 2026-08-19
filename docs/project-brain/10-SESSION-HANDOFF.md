@@ -4,7 +4,58 @@
 
 ---
 
-## Última actualización: 2026-08-19 — Sistema de releases implementado y v1.0.0 en producción
+## Última actualización: 2026-08-19 (tarde) — Cierre de los hallazgos de la auditoría de panel
+
+### Objetivo de la sesión
+
+Ejecutar el prompt de corrección de `documentos/AUDITORIA_PANEL_SEIS_ROLES_2026-08-19.md`: devolver la suite a verde, cerrar los hallazgos de seguridad y compliance que son de código, y dejar el proyecto en condiciones de releasear `v1.0.1` con rollback real.
+
+### Contexto: por qué existía este trabajo
+
+El sistema de releases se terminó esa misma mañana (ver el handoff anterior, más abajo) y el primer cambio de la tarde lo esquivó: el commit `4714458` sacó `'cash'` del validador de `payment_method` del checkout, **rompió 17 suites / 59 tests**, y llegó a producción por push directo a `master`. De ahí salió la regla de [DEC-018](08-DECISIONS.md).
+
+### Qué se hizo
+
+Cuatro bloques, cada uno con su commit en la rama `fix/auditoria-2026-08-19` de ambos repos.
+
+**Bloque 1 — suite a verde (R-02).** 14 archivos con reemplazo directo `'cash'` → `'bank_transfer'`. Tres no eran mecánicos:
+- `cash-reversal-automatic`: pasa a cuenta bancaria (la reversión es la misma para cualquier medio; lo que cambia es la cuenta destino).
+- `store-cash-income` y `expire-stale-orders`: **conservan** la cobertura de efectivo armando el pedido como lo que hoy es en la realidad — un pedido histórico: entra por el checkout con un método aceptado y se le fija `payment_method = 'cash'` en la fila. Las dos reglas que prueban (efectivo va SIEMPRE a `store_cash_account_id`; efectivo no expira) siguen vivas en el código.
+- Nuevo `store-payment-methods.test.ts`: fija el contrato que el commit original cambió sin test.
+
+**Bloque 2 — capacidad de rollback.** `verify-dump.cjs` + `sql-safety.cjs` (los dos en `.cjs` a propósito, para que los consuman igual los scripts ESM del release y Jest sin flags). `db-backup.mjs` verifica el dump y aborta borrándolo si no cierra. `db-query.mjs` → `db-exec.mjs` con confirmación explícita ([DEC-017](08-DECISIONS.md)). Se commiteó `prod-cleanup-2026-08-19.sql` **tal cual se ejecutó**.
+
+**Bloque 3 — seguridad.** `PUBLIC_SETTING_KEYS` (S-01), contraseñas `{10,128}` (S-02), `ensureSchema` detrás de `NODE_ENV` (A-01), `runScheduledJob` con alertas por job (D-02), `npm audit fix` parcial (S-04).
+
+**Bloque 4 — compliance de tienda.** Guarda de transferencia sin datos bancarios en back y front (B-02, [DEC-016](08-DECISIONS.md)) y cobertura de la constancia de arrepentimiento.
+
+### Dos cosas del informe que NO coincidían con el código real
+
+Vale registrarlas para que no se re-trabajen:
+
+1. **L-03 no estaba abierto.** El mail de constancia de arrepentimiento —y el aviso al administrador— ya estaban implementados en `notifyWithdrawal` desde el commit `947848e`, y pasan por `mailGuard`. Lo que faltaba era un **test**: por eso el auditor concluyó que el endpoint "no manda ningún mail" y hasta lo usó para descartar el riesgo de spam. Se agregó `store-withdrawal-email.test.ts`.
+2. **S-04 no se cierra entero.** El informe decía que las tres vulnerabilidades tenían fix "sin cambio mayor". `nanoid` sí. Las dos de `react-router` exigen el **major v7** sobre todo el ruteo de la app — no entra en un patch. Quedan abiertas y anotadas en `09-CURRENT-STATUS.md`.
+
+### Validación
+
+- Backend: `npm run typecheck` limpio · `npx jest --forceExit` → **55 suites / 387 tests, 0 fallas**.
+- Frontend: `tsc --noEmit` limpio · Vitest **47/47** · `npm run build` OK · ESLint **165 errores** (igual que la línea de base, no subió).
+- Verificación en vivo contra los servidores de desarrollo: `/store/settings` devuelve **40 claves**, ninguna interna filtrada, y todas las que necesitan los legales y el checkout presentes; las tres páginas legales y el checkout responden 200; `payment_method: 'cash'` devuelve 422.
+- **No se hizo la verificación visual en navegador** (esta sesión no tenía herramienta de navegación). Queda pendiente mirar a ojo las tres páginas legales, la landing y el checkout.
+
+### Cómo retomar
+
+1. **Mergear** `fix/auditoria-2026-08-19` a `master` en los dos repos.
+2. **Releasear**: `cd backIndians && npm run release -- patch`. Resuelve de una sola vez el drift de backend y frontend, el snapshot alineado, el backup nuevo (ya verificado con la lógica de 2.1) y la primera versión anterior a la cual volver.
+3. **Verificar** con `npm run prod` que no queda drift en los tres componentes.
+
+### Lo que queda abierto y NO es de código
+
+Ver la tabla de `09-CURRENT-STATUS.md`. En orden de urgencia: cargar los datos bancarios reales (`bank_transfer_*`) — sin eso la tienda queda con **un solo** medio de pago —, `company_address` y `store_data_fiscal_url`, `MP_WEBHOOK_SECRET` en Railway, el monitoreo externo de C7, y una copia de los backups fuera de esta máquina.
+
+---
+
+## Sesión anterior: 2026-08-19 (mañana) — Sistema de releases implementado y v1.0.0 en producción
 
 ### Objetivo de la sesión
 

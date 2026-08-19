@@ -70,6 +70,8 @@ npm run report          # ver el último reporte HTML
 
 **Nota de arquitectura de tests**: `jest.config.js` fuerza `maxWorkers: 1` porque las suites comparten una única base de datos real — correrlas en paralelo pisaría datos entre sí. No uses una base con datos que te importen para correr tests.
 
+**`setupFilesAfterEnv`** (desde 2026-08-19): `src/__tests__/setup.ts` corre antes de cada archivo de suite y deja la tienda mínimamente configurada — hoy, los datos bancarios. Desde `BR-STORE-010` el checkout rechaza un pedido por transferencia sin CBU ni alias, y con el efectivo desactivado (`BR-STORE-009`) la transferencia es el medio con el que casi todas las suites de tienda crean pedidos. Está ahí y no en el seeder a propósito: el criterio es que `npx jest` corra en verde contra la base de desarrollo tal como esté, sin depender de que alguien la haya vuelto a sembrar.
+
 ## Cómo ejecutar lint
 
 ```bash

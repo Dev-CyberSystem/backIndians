@@ -45,13 +45,20 @@ describe('Job de expiración de pedidos impagos — 2.2', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: paymentMethod,
+      // El checkout público dejó de aceptar 'cash'. La regla "efectivo no
+      // expira" sigue viva en el job y aplica a los pedidos históricos que ya
+      // tienen ese método, así que el pedido se crea con uno aceptado y se le
+      // fija 'cash' en la fila junto con la antigüedad, más abajo.
+      payment_method: paymentMethod === 'cash' ? 'bank_transfer' : paymentMethod,
     });
     expect(checkout.status).toBe(201);
     const order = checkout.body.data.order ?? checkout.body.data;
 
     const oldDate = new Date(Date.now() - hoursOld * 3_600_000);
-    await StoreOrder.update({ createdAt: oldDate, ...extra }, { where: { id: order.id }, silent: true });
+    await StoreOrder.update(
+      { createdAt: oldDate, ...(paymentMethod === 'cash' ? { payment_method: 'cash' as const } : {}), ...extra },
+      { where: { id: order.id }, silent: true }
+    );
 
     return { orderId: order.id, orderNumber: order.order_number };
   }
@@ -99,7 +106,7 @@ describe('Job de expiración de pedidos impagos — 2.2', () => {
     expect(product!.stock_reserved).toBe(1); // la reserva sigue en pie
   });
 
-  it('un pedido en efectivo no expira automáticamente (pago/retiro en persona)', async () => {
+  it('un pedido histórico en efectivo no expira automáticamente (pago/retiro en persona)', async () => {
     const productId = await createTestProduct(3);
     const { orderId } = await createOrder(productId, 'cash', 49);
 

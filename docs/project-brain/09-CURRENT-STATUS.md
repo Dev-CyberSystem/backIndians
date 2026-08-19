@@ -1,6 +1,35 @@
 # 09 — Estado actual del proyecto
 
-> Fotografía al **2026-08-05**. Basado en `git log`/`git status` reales de ambos repos y en `backIndians/documentos/AUDITORIA_TIENDA_ONLINE_AVANCE.md`.
+> Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
+
+## Actualización 2026-08-19 — cierre de los hallazgos de la auditoría de panel
+
+Lo que cerró la sesión del 2026-08-19 (informe: `documentos/AUDITORIA_PANEL_SEIS_ROLES_2026-08-19.md`):
+
+| Hallazgo | Estado | Dónde |
+|---|---|---|
+| **R-02** suite en rojo (17 suites / 59 tests) | ✅ Cerrado | 17 archivos adaptados + `store-payment-methods.test.ts` fija el contrato. **55 suites / 387 tests en verde** |
+| **R-01** backup truncado dado por bueno | ✅ Cerrado | `scripts/release/verify-dump.cjs`: gzip íntegro + trailer `-- Dump completed on` + piso de tablas. Falla → borra y aborta |
+| **R-05** `db-query` "de solo lectura" que ejecutaba cualquier cosa | ✅ Cerrado | Renombrado a `db-exec.mjs` / `npm run db:exec`, con confirmación explícita. [DEC-017](08-DECISIONS.md) |
+| **R-06** herramientas sin trackear | ✅ Cerrado | `db-exec.mjs`, `prod-cleanup-2026-08-19.sql` y `package.json` commiteados |
+| **S-01** 75 claves de settings públicas | ✅ Cerrado | `PUBLIC_SETTING_KEYS` — 40 claves, verificado en vivo. `BR-STORE-011` |
+| **S-02** contraseñas de staff topeadas en 10 | ✅ Cerrado | `{10,128}` en back y front. Sin rotación forzada (decisión del usuario) |
+| **A-01** `ensureSchema` haciendo DDL en producción | ✅ Cerrado | Guarda `NODE_ENV !== 'production'` en `server.ts` |
+| **D-02** jobs que fallan sin avisar | ✅ Cerrado | `runScheduledJob` + alerta de `reportDailyInconsistencies` |
+| **B-02** transferencia ofrecida sin CBU | ✅ Cerrado **en código** | `BR-STORE-010`. **Falta cargar los datos bancarios reales** (tarea de configuración) |
+| **L-03** constancia de arrepentimiento por mail | ✅ Ya estaba implementada | Lo que faltaba era el test: `store-withdrawal-email.test.ts` |
+| **S-04** `npm audit` del frontend | 🟡 Parcial | `nanoid` (alta) cerrada. `react-router` (2 moderadas) **requiere el major v7** — pendiente de decisión |
+| **R-03/R-04** drift y sin rollback | Ver `11-RELEASE-Y-ROLLBACK.md` | Se resuelven con el release `v1.0.1` |
+| **B-04** `MP_WEBHOOK_SECRET` | ❌ Abierto | Tarea de Railway, ver [DEC-014](08-DECISIONS.md) |
+| **L-04/L-05** Data Fiscal y domicilio | ❌ Abierto | Configuración en el panel, no código |
+| **D-01/C7** monitoreo externo | ❌ Abierto | 8 casillas de `documentos/ALERTAS_Y_MONITOREO.md` |
+| **C6** HSTS | ❌ Abierto | Decisión del dueño: **no activar por ahora** (2026-08-19) |
+
+**Regla nueva y permanente**: todo cambio en `src/` sale por `npm run release`; `git push origin master` queda para documentación — [DEC-018](08-DECISIONS.md).
+
+---
+
+> Lo que sigue es la fotografía original al **2026-08-05**. Basado en `git log`/`git status` reales de ambos repos y en `backIndians/documentos/AUDITORIA_TIENDA_ONLINE_AVANCE.md`.
 
 ## Estado de los repos
 
@@ -55,7 +84,7 @@ Ninguno detectado — ambos repos están con working tree limpio y la última se
 ## Deuda técnica anotada explícitamente (por el propio equipo, en `AUDITORIA_TIENDA_ONLINE_AVANCE.md`)
 
 1. **`STORE_ORDER_TRANSITIONS` duplicado** entre `backIndians/src/config/storeOrderFlow.ts` y `frontIndians/src/api/store.ts` — fuente de desincronización futura si se edita solo un lado.
-2. **162 errores / 11 warnings de ESLint preexistentes** en `frontIndians`, no corregidos, quedaron para una "Fase 4" no confirmada como iniciada.
+2. **165 errores / 11 warnings de ESLint preexistentes** en `frontIndians` (eran 162 al 2026-08-05), no corregidos, quedaron para una "Fase 4" no confirmada como iniciada.
 3. UI de stock disponible (ver tabla de arriba).
 
 ## Deuda técnica detectada en esta auditoría (no necesariamente conocida por el equipo)
@@ -63,7 +92,9 @@ Ninguno detectado — ambos repos están con working tree limpio y la última se
 - `products`/`product_categories`: modelo y (parcialmente) migración sin uso funcional en el código actual — candidatos a limpieza o a confirmar si hay planes de reactivarlos.
 - Numeración de migración duplicada (dos migraciones con el número `018`) — no rompe nada, pero indica falta de coordinación de numeración entre branches en algún momento.
 - Posibles índices redundantes en `orders`/`invoices` (índice simple + índice compuesto con la misma columna líder).
-- Lógica de esquema duplicada entre 5 migraciones puntuales y `ensureSchema.ts` — mantenimiento doble si se edita solo un lado.
+- Lógica de esquema duplicada entre 5 migraciones puntuales y `ensureSchema.ts` — mantenimiento doble si se edita solo un lado. **Desde el 2026-08-19 `ensureSchema` sólo corre fuera de producción** (hallazgo A-01), así que la divergencia ya no puede alterar el esquema productivo en silencio; el mantenimiento doble sigue.
+
+- **`react-router` v6 con dos vulnerabilidades moderadas abiertas** (open redirect por backslash en `<Link>`/`useNavigate`, y arbitrary constructor injection en `deserializeErrors()`). El fix exige el major v7 sobre todo el ruteo de la app — no entra en un release patch, requiere decisión.
 - Índice único de `OrderChecklistCheck` definido tanto en el modelo como en la migración — riesgo de duplicado bajo `sync()`.
 - `store_wishlist` rompe la convención `createdAt`/`updatedAt` camelCase del resto del proyecto.
 - Inconsistencia menor entre `Order.order_number` (modelo TS: `allowNull:true`) y la migración 005 (`NOT NULL` tras backfill) — confirmar contra la base real.
@@ -78,7 +109,7 @@ Ninguno detectado — ambos repos están con working tree limpio y la última se
 
 ## Pruebas — estado
 
-- **Backend**: 37 archivos de test (Jest+Supertest), suites de integración contra MySQL real. Según el cierre de la auditoría de avance: **199/199 tests en verde** al cerrar Fase 2 (cifra reportada por el propio equipo, no re-ejecutada en esta auditoría documental).
+- **Backend**: al 2026-08-19, **55 suites / 387 tests en verde** (Jest+Supertest contra MySQL real, corrido dos veces). La suite necesita que la tienda tenga datos bancarios cargados para poder crear pedidos; los siembra `src/__tests__/setup.ts` vía `setupFilesAfterEnv`, así que `npx jest` corre contra la base de desarrollo tal como esté. *(Dato histórico: 199/199 al cerrar la Fase 2 de la auditoría de tienda.)*
 - **Frontend**: solo 3 archivos de test (Vitest), cubren exclusivamente utils puros (`formatters`, `host`, `validations`) — **sin tests de componentes React ni de hooks**, pese a que la lógica de formularios/flows es compleja (ej. `OrderItemForm`, checkout).
 - **E2E**: 5 specs de Playwright (`admin`, `customer-flows`, `seo`, `store`, `users`) — cobertura de flujos clave (login, registro/checkout de comprador con 3 medios de pago, SEO, navegación de tienda, CRUD de usuarios), pero acotada frente a la superficie total del sistema.
 
