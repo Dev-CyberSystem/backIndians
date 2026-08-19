@@ -18,6 +18,8 @@ Poder subir a producción de forma controlada y poder volver atrás si algo fall
 
 **Cambio de comportamiento a tener en cuenta**: `npm run migrate:undo` ya no es `db:migrate:undo:all` (todas las migraciones) — ahora revierte sólo la última. El viejo comportamiento quedó en `migrate:undo:all`.
 
+**Mejoras posteriores al release** (algunas editadas directamente por el usuario en el IDE durante la misma sesión, no sólo pedidas por texto): `npm run prod` como alias corto de `release:status`; `status.mjs` ahora reporta sistema y tienda por separado (antes un desfasaje entre esos dos hostnames podía pisarse sin avisar) y detecta **drift de commit** (compara el commit real de producción contra el commit al que apunta el tag, con `^{}` para resolver el tag anotado); `rollback.mjs` corrige un bug real — el backup a restaurar se identifica por la versión de **origen** (`--from=`), no la de destino, porque el dump de una versión se toma antes de desplegarla.
+
 **El primer release (v1.0.0) se hizo de verdad y está en producción.** Antes de eso se resolvió el pendiente heredado: `feature/textos-legales` ya estaba mergeada y pusheada a `master` en los dos repos (se había hecho en otra sesión no documentada acá — el handoff anterior tenía ese dato desactualizado). El trabajo de esta sesión se hizo en `feature/release-system`, se mergeó a `master` y se releaseó desde ahí.
 
 ### Bugs reales encontrados usando el sistema por primera vez (los cuatro ya corregidos y en `master`)
@@ -40,9 +42,10 @@ Ninguno de estos bugs tocó producción: todos aparecieron en los guardrails (el
 
 ### Riesgos y pendientes
 
-1. **Un backup que nunca se restauró es una hipótesis.** El backup se probó (dos veces, contra producción), pero el restore sólo se probó en el camino de error, nunca restaurando de verdad. Probar `npm run db:restore -- <archivo>` contra la base local en algún momento.
-2. **El rollback de frontend depende del snapshot local** (`frontIndians/.releases/v1.0.0/`): vive sólo en esta máquina. Desde otra, `npm run rollback` va a indicar el camino alternativo (checkout del tag + `npm ci` + `npm run deploy`).
-3. `backIndians/.env.release` ya existe en esta máquina con `MYSQL_PUBLIC_URL` real de Railway — no está commiteado (gitignored), así que **no viaja con el repo**. Cualquiera que releasee desde otra máquina necesita crear el suyo.
+1. **`master` tiene drift respecto al tag `v1.0.0`** (detectable con `npm run prod`): después del release se pushearon 2 commits sueltos a `master` (docs + las mejoras de arriba) sin pasar por un release nuevo — decisión consciente, confirmada con el usuario, de no forzar un release completo por cambios chicos. No afecta el funcionamiento (nada de eso tocó lógica de negocio), pero **el próximo release debería resolver el drift** (un `npm run release -- patch` deja todo alineado de nuevo). El commit real que corre en producción ahora es `f3981c3`, no el `06af3bf` al que apunta el tag.
+2. **Un backup que nunca se restauró es una hipótesis.** El backup se probó (dos veces, contra producción), pero el restore sólo se probó en el camino de error, nunca restaurando de verdad. Probar `npm run db:restore -- <archivo>` contra la base local en algún momento.
+3. **El rollback de frontend depende del snapshot local** (`frontIndians/.releases/v1.0.0/`): vive sólo en esta máquina. Desde otra, `npm run rollback` va a indicar el camino alternativo (checkout del tag + `npm ci` + `npm run deploy`).
+4. `backIndians/.env.release` ya existe en esta máquina con `MYSQL_PUBLIC_URL` real de Railway — no está commiteado (gitignored), así que **no viaja con el repo**. Cualquiera que releasee desde otra máquina necesita crear el suyo.
 
 ### Pendiente heredado de la sesión de textos legales (sigue vigente, ya en producción)
 
@@ -55,8 +58,9 @@ Como `feature/textos-legales` terminó mergeada y ahora forma parte de `v1.0.0` 
 
 ### Cómo retomar
 
-1. El sistema de releases ya está probado en producción — para el próximo release, `npm run release -- patch` (o `minor`/`major`) directamente, sin dry-run necesario salvo que se quiera revisar antes.
-2. Los pendientes de negocio de textos legales (arriba) son la prioridad más visible: están en producción mostrando "—" donde deberían ir los datos fiscales reales.
+1. El sistema de releases ya está probado en producción — para el próximo release, `npm run release -- patch` (o `minor`/`major`) directamente, sin dry-run necesario salvo que se quiera revisar antes. Ese release de paso resuelve el drift del punto 1 de arriba.
+2. Correr `npm run prod` al empezar la sesión para ver el estado real antes de asumir nada.
+3. Los pendientes de negocio de textos legales (arriba) son la prioridad más visible: están en producción mostrando "—" donde deberían ir los datos fiscales reales.
 
 ---
 
