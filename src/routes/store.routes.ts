@@ -66,7 +66,10 @@ const checkoutValidators = [
   body('items.*.quantity').isInt({ min: 1, max: 1000 }).withMessage('Cantidad inválida'),
   body('items.*.size_name').optional({ nullable: true }).isString().isLength({ max: 60 }),
   body('shipping_type').optional().isIn(['pickup', 'delivery']).withMessage('Tipo de envío inválido'),
-  body('payment_method').optional().isIn(['mercadopago', 'cash', 'bank_transfer']).withMessage('Método de pago inválido'),
+  // 'cash' se dejó de aceptar en el checkout de tienda online (pago en efectivo
+  // desactivado) — el valor sigue siendo válido en el ENUM de la DB solo para
+  // no romper pedidos históricos ya creados con ese método.
+  body('payment_method').optional().isIn(['mercadopago', 'bank_transfer']).withMessage('Método de pago inválido'),
   body('coupon_code').optional({ nullable: true }).isString().isLength({ max: 64 }),
   body('notes').optional({ nullable: true }).isString().isLength({ max: 1000 }),
   body('expected_total').optional().isFloat({ min: 0 }).withMessage('Total inválido'),
