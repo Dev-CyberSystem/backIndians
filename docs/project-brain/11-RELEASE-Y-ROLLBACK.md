@@ -1,6 +1,7 @@
 # 11 — Release y rollback
 
 > Creado el **2026-08-19**. Describe el sistema de releases versionados implementado en `backIndians/scripts/release/`.
+> **v1.0.0 se releaseó de verdad ese mismo día** (no sólo se probó en dry-run): tests reales, backup real contra la base de producción de Railway, push, deploy de los dos lados y verificación con `release:status` contra la producción real. Los procedimientos de este documento están probados de punta a punta, no sólo diseñados.
 
 ## Por qué existe
 
@@ -173,6 +174,14 @@ Los snapshots del frontend viven **sólo en la máquina que releaseó**. Si el r
 - **El backup se toma en el momento del release, no del deploy**. Si pasan horas entre uno y otro, el backup no refleja el estado real previo al deploy. Para deploys diferidos conviene correr `npm run db:backup` justo antes de pushear.
 - **`test:full` resetea la base de desarrollo local** (corre los seeders). Es lo esperado, pero conviene saberlo antes de releasear con datos locales que importen.
 - **El rollback de frontend depende del snapshot local** (ver arriba).
+
+## Gotchas de Windows ya resueltos (por si reaparecen en una máquina distinta)
+
+Encontrados haciendo el primer release real (v1.0.0, 2026-08-19), ya corregidos en el código — se documentan acá porque son específicos del entorno, no del diseño, y podrían reaparecer en otra instalación de Windows con una config distinta:
+
+- **`git` no corre bajo `shell:true`**. `npm` sí lo necesita en Windows (resuelve a `npm.cmd`, que `spawnSync` no puede ejecutar directo), pero `git.exe` es un ejecutable real. Pasarlo por `cmd.exe` hacía que mensajes de commit con paréntesis —como `chore(release): v1.0.0`— se partieran en dos argumentos y el commit fallara. Si algún comando git nuevo se agrega a los scripts, no asumir que necesita shell.
+- **`core.autocrlf=true`** puede hacer que `git status --porcelain` marque un archivo como modificado sin que haya diferencia de contenido real (renormalización de fin de línea). El chequeo de "working tree limpio" del release usa `git diff --name-only` (post-normalización) en vez del marcador crudo de `status`, justamente por esto.
+- **`mysqldump` en esta máquina** vive en `C:/Program Files/MySQL/MySQL Server 8.0/bin/`, no en el PATH. El script ya prueba esa ruta y otras habituales; si la instalación es distinta, usar `MYSQLDUMP_PATH` en `.env.release`.
 
 ## Actualizar este documento cuando…
 

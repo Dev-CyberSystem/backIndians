@@ -48,7 +48,9 @@ Ninguno detectado — ambos repos están con working tree limpio y la última se
 - **Rotar credenciales** mencionadas en `documentos/Users.txt` y en el comentario de `seeders/reset-admin-prod.ts` — señalado como riesgo en la auditoría de base de datos de esta sesión, pendiente de confirmación del usuario.
 - **CI/CD**: no existe ningún pipeline en servidor. Desde el 2026-08-19 sí hay un **sistema de releases versionados**
   (`npm run release` en backIndians) que corre las validaciones, saca backup de producción y tagea ambos repos;
-  las validaciones siguen ejecutándose en la máquina de quien releasea. Ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md).
+  las validaciones siguen ejecutándose en la máquina de quien releasea. **Primer release real: `v1.0.0`, desplegado
+  el 2026-08-19** (no sólo implementado — usado de punta a punta contra la producción de Railway/Ferozo). Ver
+  [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md).
 
 ## Deuda técnica anotada explícitamente (por el propio equipo, en `AUDITORIA_TIENDA_ONLINE_AVANCE.md`)
 

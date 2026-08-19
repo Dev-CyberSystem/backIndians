@@ -4,60 +4,59 @@
 
 ---
 
-## Última actualización: 2026-08-19 — Sistema de releases y rollback
+## Última actualización: 2026-08-19 — Sistema de releases implementado y v1.0.0 en producción
 
 ### Objetivo de la sesión
 
-Poder subir a producción de forma controlada y poder volver atrás si algo falla. Hasta ahora el deploy era pushear a `master` (Railway deploya solo) y correr `npm run deploy` en el frontend: sin versiones, sin tags en la historia de ninguno de los dos repos, y sin ninguna red bajo la base de datos.
-
-Rama: se trabajó sobre **`feature/textos-legales`** (la rama activa al empezar). **Nada commiteado todavía.**
+Poder subir a producción de forma controlada y poder volver atrás si algo falla. Hasta ahora el deploy era pushear a `master` (Railway deploya solo) y correr `npm run deploy` en el frontend: sin versiones, sin tags en la historia de ninguno de los dos repos, y sin ninguna red bajo la base de datos. Sesión larga, en dos tramos: primero se construyó el sistema, después se usó de verdad para hacer el primer release.
 
 ### Qué se hizo
 
-**Scripts nuevos (`backIndians/scripts/release/`)**
+**Scripts nuevos (`backIndians/scripts/release/`)**: `release.mjs`, `db-backup.mjs`/`db-restore.mjs`, `rollback.mjs`, `status.mjs`. Procedimiento completo en [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md) — no repetir acá.
 
-- `release.mjs` — valida ambos repos (rama, working tree, sincronía con origin), corre typecheck + tests + build, saca backup de producción, sincroniza `package.json`, actualiza `CHANGELOG.md`, tagea `vX.Y.Z` en **los dos repos** y guarda el build del frontend en `frontIndians/.releases/vX.Y.Z/`. **No deploya**: imprime los comandos exactos.
-- `db-backup.mjs` / `db-restore.mjs` — dump comprimido de producción vía `mysqldump` y restore con confirmación fuerte (hay que escribir el nombre de la base). El restore a producción saca un backup del estado actual antes de pisarlo. Por defecto `db:restore` apunta a la base **local**, para poder probar un backup sin arriesgar producción.
-- `rollback.mjs` — ejecuta el rollback de frontend (resube el snapshot anterior) y guía los de backend y base.
-- `status.mjs` — compara el tag local contra el `/health` del backend y el `/version.json` del frontend. Detecta deploys a medias y releases sin deployar.
+**Cambios en la aplicación**: `src/config/version.ts` + `/health` reporta `version`/`commit`; frontend genera `dist/version.json` en cada build y `deploy-ftp.mjs` sabe republicar un snapshot (`--from=` o una versión suelta); scripts nuevos en ambos `package.json`.
 
-**Cambios en la aplicación**
+**Cambio de comportamiento a tener en cuenta**: `npm run migrate:undo` ya no es `db:migrate:undo:all` (todas las migraciones) — ahora revierte sólo la última. El viejo comportamiento quedó en `migrate:undo:all`.
 
-- `src/config/version.ts` (nuevo) + `/health` ahora reporta `version` y `commit`, también en la respuesta 503.
-- Frontend: `scripts/generate-version.mjs` genera `dist/version.json` en cada build; `deploy-ftp.mjs` acepta `--from=<carpeta>` o una versión suelta para republicar un snapshot sin rebuildear; `.htaccess` marca `version.json` como `no-store`.
-- `package.json`: `release`, `release:status`, `rollback`, `db:backup`, `db:restore`, `migrate:status` (backend) y `deploy:release` (frontend).
+**El primer release (v1.0.0) se hizo de verdad y está en producción.** Antes de eso se resolvió el pendiente heredado: `feature/textos-legales` ya estaba mergeada y pusheada a `master` en los dos repos (se había hecho en otra sesión no documentada acá — el handoff anterior tenía ese dato desactualizado). El trabajo de esta sesión se hizo en `feature/release-system`, se mergeó a `master` y se releaseó desde ahí.
 
-**Cambio de comportamiento a tener en cuenta**
+### Bugs reales encontrados usando el sistema por primera vez (los cuatro ya corregidos y en `master`)
 
-`npm run migrate:undo` era `db:migrate:undo:all` — revertía **todas** las migraciones, o sea el esquema entero. Ahora revierte sólo la última, que es lo que el nombre sugiere; el comportamiento viejo quedó en `migrate:undo:all`.
+1. La guarda de "ejecutable directo" (`import.meta.url === ...`) no funcionaba en Windows con rutas `file://` de tres barras — el script no hacía nada al invocarlo directo.
+2. `db-backup.mjs`: un rechazo de promesa no manejado durante el pipeline mataba el proceso antes del `finally`, dejando el `.sql.gz` truncado y **el archivo con la contraseña de producción en `%TEMP%`**. Un dump vacío también se conservaba como si fuera válido.
+3. **`git` bajo `cmd.exe` en Windows partía el mensaje de commit por los paréntesis** (`chore(release): v1.0.0` → git recibía `v1.0.0` como pathspec extra y fallaba). `git.exe` es un ejecutable real, no necesita `shell:true` como `npm.cmd`; ahora `git()` fuerza `shell:false`.
+4. Cuando el paso de tag fallaba a mitad de camino, la reversión sólo restauraba la versión de `package.json` pero dejaba `CHANGELOG.md` a medio escribir y stageado — el reintento habría duplicado la entrada. Ahora la reversión deshace todo (versión + changelog + staging).
+5. `core.autocrlf=true` en la máquina de desarrollo hacía que `git status --porcelain` marcara `package.json` como modificado por pura renormalización de fin de línea, sin ninguna diferencia de contenido — bloqueaba el release por las dudas. Ahora se compara con `git diff --name-only` (ya normalizado).
+
+Ninguno de estos bugs tocó producción: todos aparecieron en los guardrails (el release se frenó solo, tres veces, antes de tocar nada) o en pruebas deliberadas contra escenarios de fallo.
 
 ### Validación
 
-- Backend: `tsc --noEmit` limpio · `store-public.test.ts` (el que cubre `/health`) 7/7 · suite completa corrida.
-- Scripts: `node --check` en los 8 archivos. Probados de verdad `release --dry-run` (guardrails y flujo completo), `status` contra el backend real de producción, `rollback` sin args y con tag inexistente, `db-restore` (listado y validaciones) y `db-backup` en cuatro escenarios: credenciales inválidas, dump vacío, dump válido y binario sin soporte de `--column-statistics`.
-- Frontend: `npm run build` OK, `version.json` generado correctamente.
-- Se corrigieron cuatro bugs encontrados en esas pruebas: la guarda de "ejecutable directo" no funcionaba en Windows; un rechazo no manejado mataba el proceso dejando el `.sql.gz` truncado y el archivo con la clave de producción en `%TEMP%`; un dump vacío se conservaba como si fuera válido; y `status` reportaba error de red cuando el fallback SPA devuelve 200 en vez de 404.
+- Backend: 48 suites / 325 tests en verde, dos veces (una manual sobre `master`, otra dentro del propio `release.mjs`). `tsc --noEmit` limpio.
+- Frontend: Vitest en verde, `npm run build` OK.
+- Backup real contra la base de producción de Railway: verificado dos veces (51 tablas, gzip íntegro).
+- `release:status` verificado de punta a punta contra la producción real después del deploy: backend y frontend reportando `v1.0.0`, coincidiendo con el tag local.
+- Humo en producción: `sistema.indians.com.ar/login` → 200, `indians.com.ar` → 200.
 
 ### Riesgos y pendientes
 
-1. **El primer release todavía no se hizo.** Requiere: mergear a `master` (el release exige estar en esa rama), crear `.env.release` con `MYSQL_PUBLIC_URL` de Railway, y correr `npm run release -- 1.0.0`.
-2. **El backup nunca corrió contra la base real** — no había credenciales de producción disponibles en la sesión. El camino de error y el pipeline de compresión sí se verificaron. Conviene que el primer `npm run db:backup` se mire con atención.
-3. **Un backup que nunca se restauró es una hipótesis.** Probar al menos una vez `npm run db:restore -- <archivo>` contra la base local.
-4. **El rollback de frontend depende del snapshot local**: vive sólo en la máquina que releaseó. Desde otra máquina hay que hacer checkout del tag + `npm ci` + `npm run deploy`.
+1. **Un backup que nunca se restauró es una hipótesis.** El backup se probó (dos veces, contra producción), pero el restore sólo se probó en el camino de error, nunca restaurando de verdad. Probar `npm run db:restore -- <archivo>` contra la base local en algún momento.
+2. **El rollback de frontend depende del snapshot local** (`frontIndians/.releases/v1.0.0/`): vive sólo en esta máquina. Desde otra, `npm run rollback` va a indicar el camino alternativo (checkout del tag + `npm ci` + `npm run deploy`).
+3. `backIndians/.env.release` ya existe en esta máquina con `MYSQL_PUBLIC_URL` real de Railway — no está commiteado (gitignored), así que **no viaja con el repo**. Cualquiera que releasee desde otra máquina necesita crear el suyo.
 
-### Pendiente heredado de la sesión anterior (textos legales, sigue vigente)
+### Pendiente heredado de la sesión de textos legales (sigue vigente, ya en producción)
 
-1. **`feature/textos-legales` no está mergeada.** Es un **cambio de contrato de API**: backend y frontend tienen que desplegarse **juntos** (el frontend viejo contra el backend nuevo no puede comprar ni registrarse, da 422). El release coordinado que se implementó en esta sesión está pensado justamente para eso.
-2. Cargar en Settings razón social, CUIT, domicilio, condición IVA y email reales, y la URL del QR de Data Fiscal de ARCA — sin eso los textos legales muestran "—".
-3. Revisión legal de los textos e inscripción de la base ante la AAIP (a definir con un profesional).
-4. **L-01 abierto**: la política de privacidad promete el derecho de supresión pero no existe `DELETE /me` ni purga de `store_events`.
-5. De los bloqueantes de la auditoría del 2026-08-18, sólo está cerrado B-03. B-01 (productos de prueba) y B-02 (transferencia sin CBU) siguen abiertos.
+Como `feature/textos-legales` terminó mergeada y ahora forma parte de `v1.0.0` en producción, sus pendientes de negocio (no de código) siguen abiertos:
+
+1. Cargar en Settings razón social, CUIT, domicilio, condición IVA y email reales, y la URL del QR de Data Fiscal de ARCA — sin eso los textos legales muestran "—" en producción ahora mismo.
+2. Revisión legal de los textos e inscripción de la base ante la AAIP (a definir con un profesional).
+3. **L-01 abierto**: la política de privacidad promete el derecho de supresión pero no existe `DELETE /me` ni purga de `store_events`.
+4. De los bloqueantes de la auditoría del 2026-08-18, sólo está cerrado B-03. B-01 (productos de prueba) y B-02 (transferencia sin CBU) siguen abiertos.
 
 ### Cómo retomar
 
-1. Leer [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md) — es el procedimiento completo.
-2. Decidir si commitear este trabajo en `feature/textos-legales` o en una rama propia.
-3. Antes del primer release: mergear a `master`, crear `.env.release`, y correr `npm run release -- 1.0.0 --dry-run` para ver el flujo sin efectos.
+1. El sistema de releases ya está probado en producción — para el próximo release, `npm run release -- patch` (o `minor`/`major`) directamente, sin dry-run necesario salvo que se quiera revisar antes.
+2. Los pendientes de negocio de textos legales (arriba) son la prioridad más visible: están en producción mostrando "—" donde deberían ir los datos fiscales reales.
 
 ---
 
