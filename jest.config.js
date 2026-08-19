@@ -6,6 +6,10 @@ module.exports = {
   // Solo archivos *.test.ts / *.spec.ts (evita ejecutar helpers.ts como suite)
   testMatch: ['**/?(*.)+(spec|test).[jt]s?(x)'],
   moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
+  // Deja la tienda mínimamente configurada antes de cada suite (ver setup.ts):
+  // desde B-02 el checkout rechaza transferencia sin CBU ni alias, y es el
+  // medio de pago con el que casi todas las suites de tienda crean pedidos.
+  setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
   transform: { '^.+\\.tsx?$': ['ts-jest', { tsconfig: { module: 'commonjs' } }] },
   testTimeout: 30000,
   // Las suites comparten una única DB MySQL (pool max:4). Corriendo en paralelo,

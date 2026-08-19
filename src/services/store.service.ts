@@ -837,9 +837,48 @@ export async function getCheckoutQuote(input: {
   };
 }
 
+/**
+ * ¿Hay datos suficientes para que un comprador pueda transferir? (B-02).
+ *
+ * Alcanza con CBU o alias: sin al menos uno de los dos, la pantalla de "pagá
+ * por transferencia" no le dice al comprador a dónde mandar la plata. El
+ * titular solo no sirve para transferir.
+ *
+ * El frontend usa exactamente el mismo criterio para decidir si ofrece el medio
+ * de pago (`StoreCheckoutPage.tsx`). Tienen que quedar iguales: si el front
+ * ofrece algo que el back rechaza, el comprador llega hasta el final del
+ * checkout para recibir un error.
+ */
+export function hasBankTransferConfigured(settings: Record<string, string>): boolean {
+  return Boolean((settings.bank_transfer_cbu ?? '').trim() || (settings.bank_transfer_alias ?? '').trim());
+}
+
 export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutResult> {
   const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
   const BACKEND_URL = process.env.BACKEND_PUBLIC_URL || 'http://localhost:3000';
+
+  // B-02: no dejar entrar un pedido por transferencia si no hay a dónde
+  // transferir. En producción las tres claves bancarias estaban vacías y el
+  // checkout ofrecía el medio igual: el comprador creaba el pedido, RESERVABA
+  // STOCK, y aterrizaba en una pantalla con un mensaje dirigido al
+  // administrador. Con el efectivo desactivado es uno de los dos únicos medios
+  // de pago.
+  //
+  // La validación va acá y no solo en el frontend por la misma razón de AUD-01:
+  // una defensa que vive únicamente en el cliente no es una defensa. Y va antes
+  // de calcular totales para no reservar nada de un pedido que se va a rechazar.
+  if ((input.payment_method ?? 'mercadopago') === 'bank_transfer') {
+    const settings = await getAllSettings();
+    if (!hasBankTransferConfigured(settings)) {
+      logger.warn('store.checkout.bankTransferNotConfigured', {
+        meta: { customerEmail: input.customerEmail },
+      });
+      throw new AppError(
+        'El pago por transferencia bancaria no está disponible en este momento. Elegí otro medio de pago.',
+        400
+      );
+    }
+  }
 
   // Idempotencia (1.4 / A-1): si ya existe un pedido con esta clave, devolverlo
   // tal cual en vez de reprocesar el checkout. Cubre el caso común (el segundo
