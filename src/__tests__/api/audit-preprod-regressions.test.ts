@@ -292,7 +292,7 @@ describe('AUD-15 — editar los talles de un producto no pierde las reservas viv
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: 'M', quantity: 3 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(201);
 

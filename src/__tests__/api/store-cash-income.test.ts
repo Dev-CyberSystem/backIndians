@@ -2,6 +2,7 @@ import { api, API, loginAs, auth } from './helpers';
 import * as mpService from '../../services/mercadopago.service';
 import { confirmStorePayment } from '../../services/store.service';
 import { CashTransaction } from '../../models/CashTransaction';
+import { StoreOrder } from '../../models/StoreOrder';
 import { User } from '../../models/User';
 
 /*
@@ -14,6 +15,14 @@ import { User } from '../../models/User';
  * bancaria separada (`store_bank_account_id`) — nunca se mezclan. Usa
  * cuentas propias; restaura los settings originales al terminar para no
  * dejar basura en la DB de dev.
+ *
+ * El checkout público dejó de aceptar `payment_method: 'cash'` (pago en
+ * efectivo desactivado en la tienda), pero la regla de ruteo del asiento sigue
+ * viva en `recordStoreOrderIncome` y tiene que seguir valiendo para los pedidos
+ * históricos que ya existen con ese método. Por eso los casos de efectivo se
+ * arman igual que en la realidad de hoy: el pedido entra por el checkout con
+ * un método aceptado y se le fija `payment_method = 'cash'` en la fila antes de
+ * confirmar el pago (ver `checkoutAndPay`).
  */
 
 describe('Ingreso en caja/banco al confirmar el pago de un pedido de tienda — 2.3 / Fase 3', () => {
@@ -81,10 +90,17 @@ describe('Ingreso en caja/banco al confirmar el pago de un pedido de tienda — 
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: paymentMethod,
+      payment_method: paymentMethod === 'cash' ? 'bank_transfer' : paymentMethod,
     });
     expect(checkout.status).toBe(201);
     const order = checkout.body.data.order ?? checkout.body.data;
+
+    if (paymentMethod === 'cash') {
+      // Pedido "histórico" en efectivo: el checkout ya no lo acepta, pero la
+      // fila puede existir y el asiento tiene que ir igual a la cuenta de caja.
+      await StoreOrder.update({ payment_method: 'cash' }, { where: { id: order.id }, silent: true });
+      order.payment_method = 'cash';
+    }
 
     const markPaid = await api()
       .patch(`${API}/store/admin/orders/${order.id}/status`)

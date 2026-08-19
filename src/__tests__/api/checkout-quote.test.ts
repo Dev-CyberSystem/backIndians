@@ -122,7 +122,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: zeroPriceProductId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(400);
   });
@@ -158,7 +158,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: negativePriceProductId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(400);
   });
@@ -172,7 +172,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
       shipping_type: 'delivery',
       shipping_address: { street: 'Calle 1', city: 'CABA' },
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
       expected_total: 1, // claramente desincronizado
     });
     expect(checkout.status).toBe(409);
@@ -195,7 +195,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
       expected_total: total,
     });
     expect(checkout.status).toBe(201);

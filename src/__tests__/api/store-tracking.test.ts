@@ -37,7 +37,7 @@ async function createOrder() {
       items: [{ catalog_product_id: target.id, size_name: target.size, quantity: 1 }],
       shipping_type: 'delivery',
       shipping_address: { street: 'Calle 1', city: 'CABA' },
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
   expect(res.status).toBe(201);
   const order = res.body.data.order ?? res.body.data;

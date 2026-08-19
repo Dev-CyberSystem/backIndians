@@ -94,7 +94,7 @@ describe('Ledger de stock (catalog_stock_movements) — API', () => {
     expect(after?.id).toBe(before?.id); // no se creó ningún movimiento nuevo
   });
 
-  it('el checkout de la tienda (efectivo) deja un movimiento reserve/store con store_order_id (2.1: reserva, no descuenta todavía)', async () => {
+  it('el checkout de la tienda (transferencia) deja un movimiento reserve/store con store_order_id (2.1: reserva, no descuenta todavía)', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
       customerName: 'Robot QA Ledger',
@@ -102,7 +102,7 @@ describe('Ledger de stock (catalog_stock_movements) — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(201);
     const order = checkout.body.data?.order ?? checkout.body.data;

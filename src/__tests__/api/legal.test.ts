@@ -44,7 +44,7 @@ describe('Legales — aceptación de términos y arrepentimiento', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     };
   }
 

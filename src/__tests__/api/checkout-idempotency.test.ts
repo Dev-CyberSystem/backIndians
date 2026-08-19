@@ -48,7 +48,7 @@ describe('Idempotencia del checkout — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 3 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
       accept_terms: true,
     };
 
@@ -76,7 +76,7 @@ describe('Idempotencia del checkout — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 4 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
       accept_terms: true,
     };
 
@@ -104,7 +104,7 @@ describe('Idempotencia del checkout — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
       accept_terms: true,
     };
 

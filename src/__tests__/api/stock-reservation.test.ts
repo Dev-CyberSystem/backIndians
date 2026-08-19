@@ -39,7 +39,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 3 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(201);
     const orderId = (checkout.body.data?.order ?? checkout.body.data)?.id;
@@ -70,7 +70,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(201);
     const orderId = (checkout.body.data?.order ?? checkout.body.data)?.id;
@@ -115,7 +115,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(checkout.status).toBe(201);
     const orderId = (checkout.body.data?.order ?? checkout.body.data)?.id;
@@ -167,7 +167,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: soldOutProductId, size_name: null, quantity: 2 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(first.status).toBe(201);
 
@@ -178,7 +178,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
       customerPhone: '1100000000',
       items: [{ catalog_product_id: soldOutProductId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup',
-      payment_method: 'cash',
+      payment_method: 'bank_transfer',
     });
     expect(second.status).toBe(400);
 

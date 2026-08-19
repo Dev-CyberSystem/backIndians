@@ -44,7 +44,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       accept_terms: true,
       customerName: 'Robot QA Cupon', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
-      shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
+      shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
     expect(first.status).toBe(201);
     expect(Number(first.body.data.order.discount_amount)).toBe(500);
@@ -53,7 +53,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       accept_terms: true,
       customerName: 'Robot QA Cupon', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
-      shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
+      shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
     expect(second.status).toBe(400);
     expect(String(second.body.message ?? second.body.error)).toMatch(/una sola vez por cliente/i);
@@ -68,7 +68,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       accept_terms: true,
       customerName: 'Robot QA Cupon A', customerEmail: email1, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
-      shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
+      shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
     expect(first.status).toBe(201);
 
@@ -77,7 +77,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       accept_terms: true,
       customerName: 'Robot QA Cupon B', customerEmail: email2, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
-      shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
+      shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
     expect(second.status).toBe(201);
   });
@@ -91,7 +91,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       accept_terms: true,
       customerName: 'Robot QA Cupon Cancelado', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
-      shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
+      shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
     expect(first.status).toBe(201);
 
@@ -104,7 +104,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       accept_terms: true,
       customerName: 'Robot QA Cupon Cancelado', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
-      shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
+      shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
     expect(second.status).toBe(201);
   });
@@ -133,7 +133,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       accept_terms: true,
         customerName: customer.name, customerEmail: customer.email, customerPhone: '1100000000',
         items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
-        shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
+        shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
       });
     expect(checkout.status).toBe(201);
     expect(checkout.body.data.order.customer_id).toBe(customer.id);
