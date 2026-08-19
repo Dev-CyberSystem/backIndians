@@ -16,7 +16,8 @@
 //
 // Uso:
 //   npm run rollback              # muestra a qué versiones se puede volver
-//   npm run rollback -- v1.3.0    # guía el rollback a v1.3.0
+//   npm run rollback -- v1.3.0 --from=v1.4.0
+//                                  # vuelve a v1.3.0 desde lo desplegado (v1.4.0)
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -80,7 +81,7 @@ function printOptions() {
   );
   if (!backups.length) log.warn('No hay backups guardados — el rollback de datos no sería posible.');
 
-  log.plain(`\n${c.dim('Volver a una versión: npm run rollback -- <version>')}`);
+  log.plain(`\n${c.dim('Volver a una versión: npm run rollback -- <destino> --from=<versión-productiva>')}`);
 }
 
 /** Plano 1: resubir por FTP el build de la versión anterior. */
@@ -130,11 +131,16 @@ function rollbackBackend(version) {
 }
 
 /** Plano 3: la base. Lo que no vuelve solo. */
-function rollbackDatabase(version) {
+function rollbackDatabase(version, sourceVersion) {
   log.step('Plano 3 — Base de datos');
 
   const backups = backupsFor();
-  const match = backups.find((b) => b.name.startsWith(version.replace(/^v/, 'v')));
+  // El backup v1.4.0 se toma ANTES de desplegar v1.4.0. Por eso, al volver a
+  // v1.3.0, el dump correcto se busca por la versión de origen (v1.4.0), no
+  // por el destino. Confundir esas dos versiones puede restaurar datos viejos.
+  const match = sourceVersion
+    ? backups.find((b) => b.name.startsWith(`${sourceVersion}-`))
+    : null;
 
   log.plain(`  ${c.bold('Primero preguntate: ¿el release corrió migraciones?')}`);
   log.plain('    cd backIndians');
@@ -150,10 +156,13 @@ function rollbackDatabase(version) {
   log.plain(`\n  ${c.bold('Si hubo pérdida o corrupción de datos (restore completo):')}`);
   if (match) {
     log.plain(`    npm run db:restore -- ${match.name} --target=prod`);
-    log.plain(`    ${c.dim(`backup tomado el ${match.mtime.toLocaleString('es-AR')}`)}`);
+    log.plain(`    ${c.dim(`backup previo al release ${sourceVersion}, tomado el ${match.mtime.toLocaleString('es-AR')}`)}`);
+  } else if (sourceVersion && backups.length) {
+    log.plain(`    ${c.red(`No hay backup etiquetado ${sourceVersion}, que es la versión de origen indicada.`)}`);
+    log.plain('    npm run db:restore   # listar y revisar fechas; no elegir uno a ciegas');
   } else if (backups.length) {
-    log.plain(`    npm run db:restore -- ${backups[0].name} --target=prod`);
-    log.plain(`    ${c.yellow(`No hay backup etiquetado ${version}; el de arriba es el más reciente.`)}`);
+    log.plain('    npm run db:restore   # listar backups y ubicar el tomado justo antes del deploy fallido');
+    log.plain(`    ${c.yellow('Falta --from=<versión-productiva>; no se sugiere un dump automáticamente.')}`);
   } else {
     log.plain(`    ${c.red('NO HAY BACKUPS. No se puede revertir la base a un estado anterior.')}`);
   }
@@ -170,6 +179,12 @@ async function main() {
   }
 
   const version = positional[0].startsWith('v') ? positional[0] : `v${positional[0]}`;
+  const sourceVersion = flags.from
+    ? (String(flags.from).startsWith('v') ? String(flags.from) : `v${flags.from}`)
+    : null;
+  if (sourceVersion && !/^v\d+\.\d+\.\d+$/.test(sourceVersion)) {
+    abort(`Versión de origen inválida: "${flags.from}"`, 'Usá --from=vX.Y.Z con la versión que informa `npm run prod`.');
+  }
   const known = REPOS.some((r) => listVersionTags(r.dir).includes(version));
   if (!known && !flags.force) {
     abort(`No existe el tag ${version} en ninguno de los dos repos`, 'Corré `npm run rollback` para ver las versiones disponibles.');
@@ -180,7 +195,7 @@ async function main() {
 
   await rollbackFrontend(version);
   rollbackBackend(version);
-  rollbackDatabase(version);
+  rollbackDatabase(version, sourceVersion);
 
   log.plain(`\n${c.bold('Después del rollback:')}`);
   log.plain('  1. Verificá el sistema: npm run release:status');

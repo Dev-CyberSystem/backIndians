@@ -99,16 +99,21 @@ npm run deploy:release -- vX.Y.Z
 
 ```bash
 cd backIndians && npm run release:status
+# Alias corto para la consulta cotidiana:
+cd backIndians && npm run prod
 ```
 
-Compara el tag local con lo que reportan el `/health` del backend y el `/version.json` del frontend. Detecta los dos problemas silenciosos: **deploy a medias** (backend en una versión, frontend en otra) y **release sin deployar** (tag creado pero producción todavía en la versión anterior).
+Compara el tag local con lo que reportan el `/health` del backend y el `/version.json` de los dos hostnames del frontend. Detecta los dos problemas silenciosos: **deploy a medias** (backend, sistema y tienda en versiones distintas) y **release sin deployar** (tag creado pero producción todavía en la versión anterior).
+
+El mismo reporte valida los **commits exactos**: detecta si un componente conserva el número `vX.Y.Z` en `package.json` pero fue desplegado desde un commit distinto al tag/snapshot de esa release. Además calcula el **objetivo de rollback seguro común**: la release anterior que tiene tag tanto en back como en front y que es menor a todo lo que está desplegado. También informa si existe el snapshot local del frontend y el backup previo al release productivo. Si falta visibilidad de algún componente, o todavía no existe una release anterior (por ejemplo mientras `v1.0.0` siga siendo la primera y única), no inventa un destino: lo marca como intervención manual.
 
 ## Rollback
 
 ```bash
 cd backIndians
 npm run rollback              # lista las versiones disponibles
-npm run rollback -- v1.3.0    # guía el rollback a esa versión
+npm run rollback -- v1.3.0 --from=v1.4.0
+                              # guía la vuelta de v1.4.0 a v1.3.0
 ```
 
 El script **ejecuta** el plano 1 (resubir el frontend anterior, con confirmación) y **guía** los planos 2 y 3, que necesitan a alguien mirando qué se rompió.
@@ -145,6 +150,8 @@ npm run db:restore -- <archivo> --target=prod       # restaura (pide confirmaci�
 ```
 
 El restore a producción saca automáticamente un backup del estado actual antes de pisarlo, por si el restore resulta ser el error.
+
+El valor de `--from` es importante: el backup `v1.4.0-<fecha>.sql.gz` se tomó **antes de desplegar v1.4.0**. Por lo tanto, para volver de `v1.4.0` a `v1.3.0`, ese es el backup asociado; no el que empieza con `v1.3.0`. `npm run prod` imprime el comando completo con origen y destino para no depender de la memoria durante un incidente.
 
 > **Ojo**: `migrate:undo` cambió de comportamiento. Antes era `db:migrate:undo:all` (revertía **todas** las migraciones, o sea el esquema entero). Ahora revierte sólo la última, que es lo que el nombre sugiere. El comportamiento viejo quedó en `migrate:undo:all`.
 

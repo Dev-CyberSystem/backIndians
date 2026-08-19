@@ -24,6 +24,7 @@
     "db:reset": "node scripts/reset-dev-db.js",
     "typecheck": "tsc --noEmit",
     "test": "jest --forceExit",
+    "prod": "node scripts/release/status.mjs",
     "release": "node scripts/release/release.mjs",
     "release:status": "node scripts/release/status.mjs",
     "rollback": "node scripts/release/rollback.mjs",

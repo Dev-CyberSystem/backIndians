@@ -349,7 +349,7 @@ function printDeployInstructions(version, previous) {
   log.plain('   - un pedido de prueba end-to-end si el release toca checkout');
 
   log.plain(`\n${c.yellow(c.bold('Si algo sale mal:'))}`);
-  log.plain(`   npm run rollback${previous ? ` -- ${previous}` : ''}`);
+  log.plain(`   npm run rollback${previous ? ` -- ${previous} --from=${version}` : ''}`);
   log.plain(`   ${c.dim('te guía paso a paso para volver' + (previous ? ` a ${previous}` : ' a la versión anterior'))}`);
 }
 
