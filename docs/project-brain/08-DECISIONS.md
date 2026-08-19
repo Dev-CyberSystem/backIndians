@@ -129,6 +129,72 @@
 
 **Estado**: Resuelta como medida temporal. **No cerrar como incidente hasta configurar el `MP_WEBHOOK_SECRET` real y revertir el chequeo a fatal.**
 
+## DEC-015 — El pago en efectivo de la tienda online queda desactivado (temporal), y el camino de código se conserva
+
+**Fecha**: 2026-08-19 (decisión del dueño, confirmada explícitamente).
+
+**Decisión**: `POST /store/checkout` deja de aceptar `payment_method: 'cash'` (validador en `src/routes/store.routes.ts`). La desactivación es **temporal**, así que el manejo de `'cash'` se conserva vivo: en el ENUM de `store_orders`, en `store.service.ts` (`cashSettingKeyFor`, `recordStoreOrderIncome`), en el job de expiración, y en el tipo `PaymentMethod` del frontend.
+
+**Motivo**: decisión comercial. Con MercadoPago y transferencia alcanza para operar, y el efectivo obliga a un circuito presencial que hoy no se quiere sostener.
+
+**Consecuencias**:
+- Los pedidos **históricos** en efectivo tienen que seguir funcionando: se muestran en el panel y en el seguimiento, su asiento sigue yendo a `store_cash_account_id` (nunca a la cuenta bancaria) y siguen sin expirar automáticamente. Los tests que cubren esas dos reglas arman el pedido como lo que hoy es en la realidad —uno histórico: entra por el checkout con un método aceptado y se le fija `payment_method = 'cash'` en la fila.
+- **El cambio de contrato dejó 17 suites de test atrás** (59 tests en rojo, con el commit responsable ya corriendo en producción). El contrato ahora está fijado por `src/__tests__/api/store-payment-methods.test.ts`, que espera `422` para `'cash'`.
+- **Para reactivarlo hay que tocar los dos lados**: primero el validador del backend, después `PAYMENT_OPTIONS` en `StoreCheckoutPage.tsx`, y actualizar ese test en el mismo cambio. Está comentado en el propio archivo del frontend. Sólo el frontend → el comprador recibe 422; sólo el backend → la opción no se ofrece.
+- Con el efectivo afuera quedan **dos** medios de pago, y por eso B-02 (transferencia sin datos bancarios) pasó de molesto a bloqueante — ver [DEC-016](#dec-016).
+
+**Estado**: Vigente.
+
+## DEC-016 — La transferencia bancaria se rechaza en el backend si no hay CBU ni alias configurados
+
+**Fecha**: 2026-08-19 (hallazgo B-02, auditoría del 2026-08-19).
+
+**Decisión**: `createStoreOrder` rechaza con `400` un checkout con `payment_method: 'bank_transfer'` cuando no hay CBU **ni** alias cargados en Settings. El predicado `hasBankTransferConfigured` se exporta desde `store.service.ts` y el frontend usa **el mismo criterio** para decidir si ofrece el medio de pago.
+
+**Motivo**: en producción las tres claves bancarias estaban vacías y el checkout ofrecía la transferencia igual. El comprador creaba el pedido, **se le reservaba stock**, y aterrizaba en una pantalla que le mostraba un mensaje dirigido al administrador. Con el efectivo desactivado ([DEC-015](#dec-015)) era uno de los dos únicos medios de pago.
+
+**Criterio**: alcanza con CBU **o** alias. El titular solo no sirve — no se puede transferir a un nombre.
+
+**Alternativa descartada**: resolverlo sólo en el frontend ocultando la opción. Es la misma lección de AUD-01: una defensa que vive únicamente en el cliente no es una defensa. La validación va además **antes** de calcular totales, para no reservar stock de un pedido que se va a rechazar.
+
+**Consecuencias**:
+- Los dos predicados (back y front) **tienen que quedar iguales**. Si se separan, el frontend ofrece algo que el backend rechaza y el comprador se entera recién al confirmar. Está comentado en ambos archivos.
+- Si esto deja **cero** medios de pago, la tienda muestra un aviso explícito y deshabilita el botón de confirmar, en vez de dejar completar un checkout que va a fallar.
+- El entorno de tests necesita datos bancarios para poder crear pedidos: los siembra `src/__tests__/setup.ts` (`setupFilesAfterEnv`), no el seeder, para que `npx jest` corra contra la base de desarrollo tal como esté.
+
+**Estado**: Vigente.
+
+## DEC-017 — `db:query` pasa a `db:exec`, con confirmación explícita para lo destructivo
+
+**Fecha**: 2026-08-19 (hallazgo R-05, auditoría del 2026-08-19; decisión del usuario entre dos opciones).
+
+**Decisión**: `scripts/release/db-query.mjs` se renombra a `db-exec.mjs` (`npm run db:exec`), se corrige su encabezado, y **exige confirmación interactiva** —escribir el nombre de la base— cuando el `.sql` contiene DDL/DML, mostrando antes las sentencias detectadas y la base destino. Flag `--yes` para uso no interactivo, mismo criterio que `release.mjs`.
+
+**Motivo**: su primera línea decía *"Corre un archivo .sql de SOLO LECTURA contra la base de PRODUCCIÓN"* y no tenía nada que lo restringiera: pasaba el archivo entero al cliente `mysql` por stdin. De hecho fue la herramienta con la que se ejecutó el `TRUNCATE` de ~40 tablas productivas del 2026-08-19. El nombre y el encabezado generaban una confianza que el código no respaldaba.
+
+**Alternativa descartada**: restringir `db:query` de verdad a `SELECT`/`SHOW`/`EXPLAIN` y crear un `db:exec` aparte. Se descartó por no querer dos herramientas donde alcanza una bien nombrada; lo destructivo hace falta (limpiezas, parches puntuales) y lo que faltaba era que quien lo corre lo vea venir.
+
+**Consecuencias**:
+- La detección (`scripts/release/sql-safety.cjs`) ignora comentarios y literales de texto **a propósito**: un aviso que salta en falso entrena a confirmar sin leer, que es peor que no preguntar.
+- El manejo de credenciales no se tocó (`--defaults-extra-file` con `mode 0o600` y borrado en `finally`), y la confirmación va **antes** de escribir ese archivo, para no dejar la clave de producción en `%TEMP%` si se cancela.
+- `prod-cleanup-2026-08-19.sql` quedó commiteado **tal cual se ejecutó**, con su encabezado original que menciona `npm run db:query`. Es registro histórico, no documentación vigente.
+
+**Estado**: Vigente.
+
+## DEC-018 — Todo cambio en `src/` sale por `npm run release`; `git push origin master` queda para documentación
+
+**Fecha**: 2026-08-19 (regla acordada tras la auditoría del 2026-08-19).
+
+**Decisión**: cualquier cambio que toque `src/` en cualquiera de los dos repos se despliega **exclusivamente** por `npm run release`. Los push directos a `master` quedan reservados para documentación.
+
+**Motivo**: el sistema de releases se terminó el 2026-08-19 a la mañana y el primer cambio de la tarde (`4714458`) lo esquivó por completo: sin tag, sin bump, sin backup y sin pasar por la validación. Ese commit cambiaba un contrato de API, rompía 59 tests y modificaba el comportamiento de cobro de la tienda — y llegó a producción sin que nadie lo notara. `npm run release` corre la suite antes de tagear: habría frenado el push. La herramienta funcionó; no se la usó.
+
+**Consecuencias**:
+- El drift deja de ser una excepción tolerable "para cambios chicos": un cambio chico en `src/` es exactamente el que nadie mira.
+- Sin release, el número de versión deja de identificar código y el snapshot de rollback deja de corresponder con lo que corre. El 2026-08-19 los tres componentes declaraban `v1.0.0` y ninguno era `v1.0.0`.
+
+**Estado**: Vigente.
+
 ## Actualizar este documento cuando…
 
 Se tome una decisión técnica o funcional nueva con impacto duradero, o se revierta/reemplace una decisión ya registrada (agregar entrada nueva referenciando la anterior, no editar la histórica).
