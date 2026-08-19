@@ -410,3 +410,72 @@ export async function sendAbandonedCartEmail(
     `, 520),
   });
 }
+
+// ─── Arrepentimiento (Res. 424/2020) ─────────────────────────────────────────
+
+/**
+ * Acuse de la solicitud de arrepentimiento con el código de identificación.
+ *
+ * La Resolución 424/2020 exige informar ese código dentro de las 24 h de
+ * recibida la solicitud y por el mismo medio: acá se manda en el acto, y el
+ * código también se muestra en pantalla por si el mail no llega.
+ */
+export async function sendWithdrawalRequestEmail(params: {
+  email: string;
+  name: string;
+  code: string;
+  orderNumber?: string | null;
+}) {
+  const { email, name, code, orderNumber } = params;
+
+  await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: `Solicitud de arrepentimiento ${code} — Indians Textil`,
+    html: emailWrapper(`
+      <h2 style="color:#1d4ed8;margin:0 0 8px;">Recibimos tu solicitud</h2>
+      <p style="margin:0 0 12px;">Hola ${escapeHtml(name)}, registramos tu pedido de revocación de la compra.</p>
+      <p style="margin:0 0 4px;font-size:13px;color:#6b7280;">Código de identificación</p>
+      <p style="margin:0 0 16px;font-size:22px;font-weight:700;letter-spacing:1px;color:#111;">${escapeHtml(code)}</p>
+      ${orderNumber ? `<p style="margin:0 0 12px;">Pedido informado: <strong>${escapeHtml(orderNumber)}</strong></p>` : ''}
+      <p style="margin:0 0 12px;">Guardá este código: identifica tu solicitud en cualquier comunicación posterior.</p>
+      <p style="margin:0 0 12px;">Nos vamos a comunicar con vos para coordinar la devolución del producto y el reintegro
+      del importe abonado. El costo de la devolución corre por nuestra cuenta (art. 34 de la Ley 24.240).</p>
+      <p style="margin:0;color:#6b7280;font-size:13px;">Si no hiciste esta solicitud, respondé este mail para anularla.</p>
+    `),
+  });
+}
+
+/** Aviso interno: hay una solicitud de arrepentimiento esperando gestión. */
+export async function sendWithdrawalAdminEmail(params: {
+  to: string;
+  code: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone?: string | null;
+  orderNumber?: string | null;
+  reason?: string | null;
+}) {
+  const { to, code, customerName, customerEmail, customerPhone, orderNumber, reason } = params;
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `⚖️ Arrepentimiento ${code} — ${customerName}`,
+    html: emailWrapper(`
+      <h2 style="margin:0 0 8px;">Nueva solicitud de arrepentimiento</h2>
+      <p style="margin:0 0 12px;">Código <strong>${escapeHtml(code)}</strong></p>
+      <table style="font-size:14px;border-collapse:collapse;">
+        <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Comprador</td><td>${escapeHtml(customerName)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Email</td><td>${escapeHtml(customerEmail)}</td></tr>
+        ${customerPhone ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Teléfono</td><td>${escapeHtml(customerPhone)}</td></tr>` : ''}
+        ${orderNumber ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Pedido</td><td>${escapeHtml(orderNumber)}</td></tr>` : ''}
+      </table>
+      ${reason ? `<p style="margin:12px 0 0;"><strong>Motivo:</strong> ${escapeHtml(reason)}</p>` : ''}
+      <p style="margin:16px 0 0;color:#6b7280;font-size:13px;">
+        Plazo legal: el comprador tiene 10 días corridos para revocar y el reintegro debe hacerse sin cargo.
+        Gestionala en el panel, en Tienda online → Legal.
+      </p>
+    `),
+  });
+}

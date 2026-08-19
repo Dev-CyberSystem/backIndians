@@ -116,6 +116,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
     expect(quoteRes.body.data.items[0].motivo).toMatch(/precio válido/);
 
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Precio Cero',
       customerEmail: `qa-precio-cero+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -151,6 +152,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
     expect(quoteRes.body.data.items[0].disponible).toBe(false);
 
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Precio Negativo',
       customerEmail: `qa-precio-negativo+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -163,6 +165,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
 
   it('el checkout con expected_total desincronizado devuelve 409 con el desglose nuevo', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Quote',
       customerEmail: `qa-quote+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -186,6 +189,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
     const total = quoteRes.body.data.total;
 
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Quote OK',
       customerEmail: `qa-quote-ok+${Date.now()}@test.local`,
       customerPhone: '1100000000',

@@ -6,7 +6,7 @@ import { connectDB } from './config/db';
 import { initSocket } from './config/socket';
 import { logger } from './utils/logger';
 import { ensureGarmentCostItems } from './services/cost.service';
-import { ensureSchema } from './config/ensureSchema';
+import { ensureSchema, ensureLegalSchema } from './config/ensureSchema';
 import { startScheduledJobs } from './jobs/scheduler';
 
 // Importar modelos para que Sequelize los registre y se creen las asociaciones
@@ -83,6 +83,7 @@ async function main() {
     // 1a. Asegurar columnas que agregan las migraciones sobre tablas existentes
     //     (dev usa sync() y no altera tablas ya creadas)
     await ensureSchema();
+    await ensureLegalSchema();
 
     // 1b. Sembrar el maestro de ítems de costo (idempotente; necesario en dev
     //     donde se usa sync() en lugar de migraciones)

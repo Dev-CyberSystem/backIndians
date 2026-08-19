@@ -78,7 +78,9 @@ Ninguno detectado — ambos repos están con working tree limpio y la última se
 
 ## Última funcionalidad trabajada
 
-Cierre de la Fase 2 de la auditoría de tienda online: cupón único por cliente (2.8) y ampliación del reporte diario de inconsistencias (2.7), seguido de un commit de documentación consolidando el cierre (`65e9d74`). Ver [10-SESSION-HANDOFF.md](10-SESSION-HANDOFF.md) para el detalle exacto de la última sesión conocida.
+**2026-08-19 — Textos legales de la tienda** (rama `feature/textos-legales`, sin mergear): Términos y Condiciones, Política de Privacidad, botón de arrepentimiento con formulario real y Data Fiscal en el footer, más la constancia registrada de aceptación (`legal_acceptances`, migraciones 096-098) y la pestaña de gestión en el panel. Cierra el bloqueante **B-03** de la auditoría del 2026-08-18; **`accept_terms` pasó a ser obligatorio en registro y checkout**, así que backend y frontend deben desplegarse juntos. Detalle en [10-SESSION-HANDOFF.md](10-SESSION-HANDOFF.md).
+
+Antes de eso: cierre de la Fase 2 de la auditoría de tienda online: cupón único por cliente (2.8) y ampliación del reporte diario de inconsistencias (2.7), seguido de un commit de documentación consolidando el cierre (`65e9d74`). Ver [10-SESSION-HANDOFF.md](10-SESSION-HANDOFF.md) para el detalle exacto de la última sesión conocida.
 
 ## Próximos pasos recomendados
 

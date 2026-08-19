@@ -30,6 +30,7 @@ async function createOrder() {
   const res = await api()
     .post(`${API}/store/checkout`)
     .send({
+      accept_terms: true,
       customerName: 'Robot Tracking',
       customerEmail: `track+${Date.now()}@test.local`,
       customerPhone: '1100000000',

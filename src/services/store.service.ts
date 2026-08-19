@@ -29,6 +29,7 @@ import {
 import { enqueueEmail } from '../utils/emailQueue';
 import { generateInvoicePdf } from '../utils/store.pdf';
 import { getAllSettings } from './settings.service';
+import { recordLegalAcceptance } from './legal.service';
 import { StoreOrderStatus } from '../models/StoreOrder';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
 import { CashTransaction } from '../models/CashTransaction';
@@ -549,6 +550,11 @@ export interface CheckoutInput {
   idempotencyKey?: string;
   /** Total que el cliente vio en el quote antes de confirmar (1.6 / C-6). */
   expected_total?: number;
+  /** Aceptación de T&C y Privacidad (obligatoria; la valida la ruta). */
+  accept_terms?: boolean | string;
+  /** IP y user-agent del comprador: quedan en la constancia de aceptación. */
+  ip?: string | null;
+  userAgent?: string | null;
 }
 
 export interface CheckoutResult {
@@ -990,6 +996,20 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
           );
           if (affected === 0) throw new AppError('El cupón ya no está disponible', 409);
         }
+
+        // Constancia de aceptación de los textos legales (Ley 24.240 art. 4 y
+        // Ley 25.326 art. 6): va DENTRO de la transacción del pedido para que
+        // no exista un pedido sin su constancia. Cubre al comprador invitado,
+        // que nunca pasó por el registro de cuenta.
+        await recordLegalAcceptance({
+          context: 'checkout',
+          customerId: input.customerId ?? null,
+          storeOrderId: storeOrder.id,
+          email: input.customerEmail,
+          ip: input.ip ?? null,
+          userAgent: input.userAgent ?? null,
+          transaction: t,
+        });
 
         return storeOrder;
       });

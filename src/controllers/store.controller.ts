@@ -24,7 +24,10 @@ export async function getStoreSettings(req: Request, res: Response, next: NextFu
 
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
-    const result = await storeAuth.storeRegisterService(req.body);
+    const result = await storeAuth.storeRegisterService(req.body, {
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
     res.status(201).json({ success: true, data: result });
   } catch (err) {
     next(err);
@@ -51,7 +54,10 @@ export async function login(req: Request, res: Response, next: NextFunction) {
 
 export async function googleAuth(req: Request, res: Response, next: NextFunction) {
   try {
-    const result = await storeAuth.storeGoogleAuthService(req.body.id_token);
+    const result = await storeAuth.storeGoogleAuthService(req.body.id_token, {
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);
@@ -268,6 +274,10 @@ export async function checkout(req: Request, res: Response, next: NextFunction) 
       ...req.body,
       customerId: req.storeCustomerId,
       idempotencyKey: typeof idempotencyKey === 'string' ? idempotencyKey : undefined,
+      // Para la constancia de aceptación de los términos (Res. 424/2020 y
+      // Ley 25.326): sin IP ni dispositivo, la constancia prueba poco.
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
     });
     res.status(201).json({ success: true, data: result });
   } catch (err) {

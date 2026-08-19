@@ -56,9 +56,17 @@ Para el detalle migración-por-migración completo (los 91 archivos con su descr
 | Tienda — carrito/eventos | `store_events`, `store_cart_reminders`, `store_wishlist` |
 | Tienda — pedidos | `store_orders`, `store_order_items`, `store_order_status_history`, `store_coupons` |
 | Tienda — devoluciones | `store_returns`, `store_return_items` |
+| Tienda — legales | `legal_acceptances` (constancia de aceptación de T&C/Privacidad, append-only), `store_withdrawal_requests` (arrepentimientos, Res. 424/2020) |
 | AFIP | sin tabla propia — columnas `afip_*` embebidas en `invoices`, `catalog_invoices`, `store_orders` + settings `afip_*` |
 | Settings | `settings` (key STRING PK, value TEXT) |
 | Idempotencia/logs | `webhook_events` |
+
+### Tablas legales (migraciones 096-098, 2026-08-19)
+
+- **`legal_acceptances`** — una fila por documento aceptado (`terms` / `privacy`) con `version`, `context` (`register`/`google_register`/`checkout`), `accepted_at`, `ip`, `user_agent`, y `customer_id` / `store_order_id` / `email` **todos opcionales** (el comprador invitado no tiene cuenta; el que se registra todavía no tiene pedido). Es append-only: no se actualiza ni se borra.
+  **Sin FK duras a `store_customers` / `store_orders`** a propósito: la constancia tiene que sobrevivir a la baja de la cuenta (art. 16 Ley 25.326) o del pedido. Se resuelve con índices (`customer_id`, `store_order_id`, `email`).
+- **`store_withdrawal_requests`** — solicitudes del botón de arrepentimiento. `code` único (`ARR-AAAA-NNNNNN`, correlativo por año), `order_number` como texto declarado por el comprador y `store_order_id` solo cuando ese número existe de verdad. Estado `received`/`in_progress`/`resolved`/`rejected`, `resolved_by` → `users`.
+- **`store_customers.terms_accepted_at` y `terms_version`** — resumen de la última aceptación, para no hacer JOIN en el panel. **Replicado en `ensureSchema.ts`** (`ensureLegalSchema`, llamado desde `server.ts`): son columnas sobre una tabla existente, y `sync()` no las agrega.
 
 ## Modelos y relaciones — puntos relevantes
 

@@ -8,6 +8,13 @@ import {
   sendVerificationEmail,
   sendPasswordResetEmailStore,
 } from '../utils/email.service';
+import { recordLegalAcceptance } from './legal.service';
+
+/** Datos del request que quedan en la constancia de aceptación de términos. */
+export interface RequestMeta {
+  ip?: string | null;
+  userAgent?: string | null;
+}
 
 const STORE_JWT_SECRET = process.env.STORE_JWT_SECRET || process.env.JWT_SECRET!;
 const STORE_JWT_REFRESH_SECRET = process.env.STORE_JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET!;
@@ -37,24 +44,37 @@ function generateStoreTokens(customerId: number, email: string, sessionVersion: 
   return { accessToken, refreshToken };
 }
 
-export async function storeRegisterService(data: {
-  name: string;
-  email: string;
-  password: string;
-}): Promise<{ message: string }> {
+export async function storeRegisterService(
+  data: {
+    name: string;
+    email: string;
+    password: string;
+  },
+  meta: RequestMeta = {}
+): Promise<{ message: string }> {
   const existing = await StoreCustomer.findOne({ where: { email: data.email } });
   if (existing) throw new AppError('Ya existe una cuenta con ese email', 409);
 
   const password_hash = await bcrypt.hash(data.password, 12);
   const verification_token = uuidv4();
 
-  await StoreCustomer.create({
+  const customer = await StoreCustomer.create({
     name: data.name,
     email: data.email,
     password_hash,
     verification_token,
     token_expires_at: new Date(Date.now() + VERIFY_TOKEN_TTL_MS),
     email_verified: false,
+  });
+
+  // La ruta ya exigió `accept_terms`: acá solo queda el registro de qué
+  // versión de los textos aceptó, cuándo y desde dónde.
+  await recordLegalAcceptance({
+    context: 'register',
+    customerId: customer.id,
+    email: data.email,
+    ip: meta.ip,
+    userAgent: meta.userAgent,
   });
 
   await sendVerificationEmail(data.email, data.name, verification_token);
@@ -94,7 +114,7 @@ export async function storeLoginService(
   return { customer: safe, tokens };
 }
 
-export async function storeGoogleAuthService(idToken: string): Promise<{
+export async function storeGoogleAuthService(idToken: string, meta: RequestMeta = {}): Promise<{
   customer: object;
   tokens: StoreTokenPair;
   isNew: boolean;
@@ -124,6 +144,16 @@ export async function storeGoogleAuthService(idToken: string): Promise<{
       password_hash: null,
     });
     isNew = true;
+    // Entrar por Google la primera vez ES crear la cuenta: la tienda avisa
+    // debajo del botón que continuar implica aceptar los textos legales, así
+    // que la constancia se registra igual que en el alta con contraseña.
+    await recordLegalAcceptance({
+      context: 'google_register',
+      customerId: customer.id,
+      email: customer.email,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    });
   } else if (!customer.google_id) {
     customer.google_id = google_id;
     customer.email_verified = true;

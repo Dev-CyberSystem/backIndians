@@ -41,6 +41,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
     const productId = await createTestProduct();
 
     const first = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Cupon', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
@@ -49,6 +50,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
     expect(Number(first.body.data.order.discount_amount)).toBe(500);
 
     const second = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Cupon', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
@@ -63,6 +65,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
 
     const email1 = `qa-cupon-a+${Date.now()}@test.local`;
     const first = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Cupon A', customerEmail: email1, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
@@ -71,6 +74,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
 
     const email2 = `qa-cupon-b+${Date.now()}@test.local`;
     const second = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Cupon B', customerEmail: email2, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
@@ -84,6 +88,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
     const productId = await createTestProduct();
 
     const first = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Cupon Cancelado', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
@@ -96,6 +101,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       .send({ status: 'cancelled' });
 
     const second = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Cupon Cancelado', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,
@@ -124,6 +130,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       .post(`${API}/store/checkout`)
       .set('Authorization', `Bearer ${token}`)
       .send({
+      accept_terms: true,
         customerName: customer.name, customerEmail: customer.email, customerPhone: '1100000000',
         items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
         shipping_type: 'pickup', payment_method: 'cash', coupon_code: couponCode,

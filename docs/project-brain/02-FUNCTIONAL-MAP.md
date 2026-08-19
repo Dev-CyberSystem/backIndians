@@ -217,6 +217,24 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 
 ---
 
+## 11b. Legales de la tienda (textos, aceptación y arrepentimiento)
+
+**Objetivo**: cumplir las obligaciones de la normativa argentina de consumo y datos personales en la tienda online, y poder **probar** el cumplimiento: qué versión de cada texto aceptó cada comprador, cuándo, y cómo se gestionó cada arrepentimiento.
+
+**Usuarios**: comprador (lee los textos, acepta, usa el botón de arrepentimiento sin necesidad de cuenta); `admin`/`billing` (gestiona las solicitudes y consulta constancias en Tienda online → Legales).
+
+**Flujo principal (comprador)**: lee Términos y Condiciones / Política de Privacidad (`/tienda/legal/terminos`, `/tienda/legal/privacidad`) → tilda la aceptación en el registro o en el checkout → el backend deja una fila por documento en `legal_acceptances` con versión, fecha, IP y user-agent. Si se arrepiente: `/tienda/legal/arrepentimiento` (link destacado en el footer, sin login) → se registra `store_withdrawal_requests` → recibe en el acto y por mail un código `ARR-AAAA-NNNNNN`.
+
+**Flujo principal (panel)**: `/ecommerce/legal` lista las solicitudes con estado (`received` → `in_progress` → `resolved`/`rejected`), notas internas y vínculo al pedido cuando el número informado coincide; la segunda pestaña busca constancias de aceptación por email.
+
+**Normativa que implementa**: Ley 24.240 (arts. 4, 11-17, 32-34), CCyCN arts. 1104-1116 (en particular 1109 jurisdicción, 1110/1111 revocación, 1116 excepción de productos personalizados), Resolución 424/2020 SCI (botón de arrepentimiento: acceso directo desde la home, sin registración previa, código dentro de las 24 h), Resolución 104/2005 SCT (identificación del proveedor), RG AFIP 4042-E (Data Fiscal F. 960/D), Ley 25.326 + Resolución 14/2018 AAIP (información al titular y leyenda del órgano de control).
+
+**Validaciones/restricciones**: `accept_terms` es **obligatorio** en `POST /store/auth/register` y en `POST /store/checkout` (rechazo 422 sin él); el botón de arrepentimiento no exige login ni captcha y nunca rechaza por "pedido inexistente"; los datos del titular (razón social, CUIT, domicilio) salen de `company_*` en Settings, no están escritos en los textos; el logo Data Fiscal solo se muestra si está cargado `store_data_fiscal_url`.
+
+**Nivel de implementación**: **Implementado y verificado** (12 tests de API en `src/__tests__/api/legal.test.ts`). Pendiente operativo, no de código: cargar los datos fiscales reales en Settings, pegar la URL del QR de ARCA y evaluar la inscripción de la base de datos ante la AAIP. Fuente: `backIndians/src/services/legal.service.ts`, `config/legalDocs.ts`, migraciones 096-098, `frontIndians/src/pages/store/legal/`, `pages/ecommerce/LegalRequestsPage.tsx`.
+
+---
+
 ## 12. Facturación electrónica AFIP/ARCA
 
 **Objetivo**: emitir comprobantes fiscales electrónicos válidos (con CAE) ante AFIP para facturas de fábrica, catálogo y pedidos de tienda.

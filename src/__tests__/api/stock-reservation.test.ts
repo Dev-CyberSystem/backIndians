@@ -33,6 +33,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
 
   it('el checkout reserva stock sin descontar stock_quantity real', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Reserva',
       customerEmail: `qa-reserva+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -63,6 +64,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
 
   it('confirmar el pago convierte la reserva en descuento definitivo de stock_quantity', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Confirmar',
       customerEmail: `qa-confirmar+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -107,6 +109,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
     const reservedBefore = Number(productBefore.body.data?.stock_reserved);
 
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Cancelar Antes',
       customerEmail: `qa-cancelar-antes+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -158,6 +161,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
     expect(soldOutProductId).toBeTruthy();
 
     const first = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Agota Stock',
       customerEmail: `qa-agota+${Date.now()}@test.local`,
       customerPhone: '1100000000',
@@ -168,6 +172,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
     expect(first.status).toBe(201);
 
     const second = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Sin Stock',
       customerEmail: `qa-sinstock+${Date.now()}@test.local`,
       customerPhone: '1100000000',

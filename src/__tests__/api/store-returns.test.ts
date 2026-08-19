@@ -32,6 +32,7 @@ describe('Devoluciones con revisión — 2.4', () => {
     const productId = product.body.data.id;
 
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA Devolucion',
       customerEmail: `qa-devolucion+${Date.now()}-${Math.random()}@test.local`,
       customerPhone: '1100000000',
@@ -151,6 +152,7 @@ describe('Devoluciones con revisión — 2.4', () => {
       client_id: clientId, title: `Producto QA ${Date.now()}`, price: 3000, stock_quantity: 5, show_in_store: true, active: true,
     });
     const checkout = await api().post(`${API}/store/checkout`).send({
+      accept_terms: true,
       customerName: 'Robot QA No Entregado', customerEmail: `qa-noentregado+${Date.now()}@test.local`,
       customerPhone: '1100000000', items: [{ catalog_product_id: product.body.data.id, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'cash',

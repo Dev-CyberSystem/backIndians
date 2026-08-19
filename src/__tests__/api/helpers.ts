@@ -90,6 +90,12 @@ export async function findPurchasable(): Promise<{ id: number; size: string | nu
     const detail = await api().get(`${API}/store/products/${prod.id}`);
     const p = detail.body?.data;
     if (!p) continue;
+    // El checkout rechaza los productos sin precio válido (price <= 0). En la
+    // DB de desarrollo quedan productos de otros tests con precio inválido a
+    // propósito: si no se descartan acá, el flujo de compra falla por elegir
+    // justo uno de ellos.
+    const price = Number(p.public_price ?? p.price ?? 0);
+    if (!(price > 0)) continue;
     const sizes = (p.sizes ?? []) as Array<{ size_name: string; stock_quantity: number; stock_reserved?: number }>;
     if (sizes.length > 0) {
       const withStock = sizes.find((s) => s.stock_quantity - (s.stock_reserved ?? 0) > 0);
