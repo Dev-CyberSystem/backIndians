@@ -4,51 +4,60 @@
 
 ---
 
-## Última actualización: 2026-08-19 — Textos legales de la tienda (cierra B-03 de la auditoría del 2026-08-18)
+## Última actualización: 2026-08-19 — Sistema de releases y rollback
 
 ### Objetivo de la sesión
 
-Escribir los textos legales exigidos por la normativa argentina de comercio electrónico y dejar **constancia registrada** de su aceptación. Ataca directamente el bloqueante **B-03** de la auditoría del 2026-08-18 ("sin política de privacidad, términos, botón de arrepentimiento ni Data Fiscal; el registro afirma que se aceptan términos inexistentes").
+Poder subir a producción de forma controlada y poder volver atrás si algo falla. Hasta ahora el deploy era pushear a `master` (Railway deploya solo) y correr `npm run deploy` en el frontend: sin versiones, sin tags en la historia de ninguno de los dos repos, y sin ninguna red bajo la base de datos.
 
-Rama: **`feature/textos-legales`** en los dos repos (creada desde `master`).
+Rama: se trabajó sobre **`feature/textos-legales`** (la rama activa al empezar). **Nada commiteado todavía.**
 
 ### Qué se hizo
 
-**Textos (frontend, `frontIndians/src/pages/store/legal/`)**
+**Scripts nuevos (`backIndians/scripts/release/`)**
 
-- `/tienda/legal/terminos` — Términos y Condiciones (19 secciones): identificación del titular (Res. 104/2005), precios en pesos con precio final (Decreto 274/2019), perfeccionamiento del contrato, envíos, **derecho de revocación a 10 días** con la excepción del art. 1116 CCyCN para prendas personalizadas, garantía legal (arts. 11-17 Ley 24.240), jurisdicción del **domicilio del consumidor** (art. 1109 CCyCN) y vías de reclamo (Ventanilla Única Federal).
-- `/tienda/legal/privacidad` — Política de Privacidad (Ley 25.326): qué datos, finalidad, carácter obligatorio/facultativo, destinatarios (MercadoPago, Google, Cloudflare, Resend, Cloudinary, correos, hosting), transferencia internacional (art. 12), plazos de respuesta de acceso/rectificación, y las dos leyendas textuales vigentes (art. 14 inc. 3 y la del órgano de control según **Resolución 14/2018 de la AAIP**, que derogó la Disposición 10/2008 — la leyenda vieja "DIRECCIÓN NACIONAL…" ya no corresponde).
-- `/tienda/legal/arrepentimiento` — botón de arrepentimiento con formulario real (Res. 424/2020): sin login, sin captcha, código `ARR-AAAA-NNNNNN` en pantalla y por mail. Link destacado en el footer de toda la tienda + alias `/tienda/arrepentimiento`.
-- **Data Fiscal (F. 960/D)**: componente en el footer que se muestra solo si está cargada la URL del QR de ARCA (`store_data_fiscal_url`, nueva clave de Settings, editable en Tienda online → Configuración).
-- Los datos del titular (razón social, CUIT, domicilio, condición IVA, contacto) **no están escritos en los textos**: salen de `company_*` en Settings.
+- `release.mjs` — valida ambos repos (rama, working tree, sincronía con origin), corre typecheck + tests + build, saca backup de producción, sincroniza `package.json`, actualiza `CHANGELOG.md`, tagea `vX.Y.Z` en **los dos repos** y guarda el build del frontend en `frontIndians/.releases/vX.Y.Z/`. **No deploya**: imprime los comandos exactos.
+- `db-backup.mjs` / `db-restore.mjs` — dump comprimido de producción vía `mysqldump` y restore con confirmación fuerte (hay que escribir el nombre de la base). El restore a producción saca un backup del estado actual antes de pisarlo. Por defecto `db:restore` apunta a la base **local**, para poder probar un backup sin arriesgar producción.
+- `rollback.mjs` — ejecuta el rollback de frontend (resube el snapshot anterior) y guía los de backend y base.
+- `status.mjs` — compara el tag local contra el `/health` del backend y el `/version.json` del frontend. Detecta deploys a medias y releases sin deployar.
 
-**Constancia de aceptación (backend)**
+**Cambios en la aplicación**
 
-- Tablas nuevas `legal_acceptances` y `store_withdrawal_requests` + columnas `store_customers.terms_accepted_at` / `terms_version` (migraciones **096, 097, 098**; replicadas en `ensureSchema.ts` → `ensureLegalSchema()`, llamada desde `server.ts`).
-- `accept_terms` **obligatorio** en `POST /store/auth/register` y `POST /store/checkout`; en el checkout la constancia se escribe dentro de la transacción del pedido. Ver `BR-LEGAL-001` a `BR-LEGAL-004` en [03-BUSINESS-RULES.md](03-BUSINESS-RULES.md).
-- Panel: **Tienda online → Legales** (`/ecommerce/legal`) — gestión de arrepentimientos (estado + notas + vínculo al pedido) y búsqueda de constancias por email.
+- `src/config/version.ts` (nuevo) + `/health` ahora reporta `version` y `commit`, también en la respuesta 503.
+- Frontend: `scripts/generate-version.mjs` genera `dist/version.json` en cada build; `deploy-ftp.mjs` acepta `--from=<carpeta>` o una versión suelta para republicar un snapshot sin rebuildear; `.htaccess` marca `version.json` como `no-store`.
+- `package.json`: `release`, `release:status`, `rollback`, `db:backup`, `db:restore`, `migrate:status` (backend) y `deploy:release` (frontend).
+
+**Cambio de comportamiento a tener en cuenta**
+
+`npm run migrate:undo` era `db:migrate:undo:all` — revertía **todas** las migraciones, o sea el esquema entero. Ahora revierte sólo la última, que es lo que el nombre sugiere; el comportamiento viejo quedó en `migrate:undo:all`.
 
 ### Validación
 
-- Backend: `tsc --noEmit` limpio · **Jest 48 suites / 325 tests en verde**, incluidas las 12 nuevas de `src/__tests__/api/legal.test.ts`.
-- Frontend: `tsc -b` limpio · Vitest 47/47 · `npm run build` OK · ESLint limpio en los archivos nuevos (el resto del repo sigue con los 168 errores preexistentes).
-- E2E: se agregó el paso de tildar la aceptación en los tres flujos que compran o se registran (`acceptLegalTerms` en `e2e/tests/utils.ts`). **No se corrió Playwright en esta sesión.**
-- Se corrigió `findPurchasable` (helper de tests) para descartar productos con precio inválido: un producto basura de otro test hacía fallar `purchase-flow` de forma intermitente.
+- Backend: `tsc --noEmit` limpio · `store-public.test.ts` (el que cubre `/health`) 7/7 · suite completa corrida.
+- Scripts: `node --check` en los 8 archivos. Probados de verdad `release --dry-run` (guardrails y flujo completo), `status` contra el backend real de producción, `rollback` sin args y con tag inexistente, `db-restore` (listado y validaciones) y `db-backup` en cuatro escenarios: credenciales inválidas, dump vacío, dump válido y binario sin soporte de `--column-statistics`.
+- Frontend: `npm run build` OK, `version.json` generado correctamente.
+- Se corrigieron cuatro bugs encontrados en esas pruebas: la guarda de "ejecutable directo" no funcionaba en Windows; un rechazo no manejado mataba el proceso dejando el `.sql.gz` truncado y el archivo con la clave de producción en `%TEMP%`; un dump vacío se conservaba como si fuera válido; y `status` reportaba error de red cuando el fallback SPA devuelve 200 en vez de 404.
 
 ### Riesgos y pendientes
 
-1. **Cambio de contrato de API**: backend y frontend tienen que desplegarse **juntos**. El frontend viejo contra el backend nuevo no puede comprar ni registrarse (422). Recordar que push a `master` del backend despliega solo en Railway.
-2. **Pendiente operativo del negocio, no de código**: cargar en Settings la razón social, CUIT, domicilio, condición IVA y email reales (hoy los textos muestran "—"), y pegar la URL del QR de Data Fiscal que genera ARCA. Sin eso, los textos están publicados pero incompletos frente a la Res. 104/2005 y la RG 4042-E.
-3. **A definir con un profesional**: inscripción de la base de datos ante la AAIP (art. 21 Ley 25.326, Res. 132/2018) y revisión de los textos por un abogado — lo entregado es un articulado completo y fundado en la normativa vigente, pero no reemplaza una revisión legal.
-4. **Cruce con S-01** (auditoría 2026-08-18: `/store/settings` expone las 75 claves): cuando se cierre con una allowlist, tienen que seguir siendo públicas `company_name`, `company_cuit`, `company_address`, `company_email`, `company_iva_condition` y `store_data_fiscal_url` — los textos legales las leen desde ahí.
-5. **L-01 sigue abierto**: la política de privacidad informa el derecho de supresión, pero no existe `DELETE /me` ni purga de `store_events`. Es la brecha más visible entre lo que el texto promete y lo que el sistema hace.
-6. Del resto de los bloqueantes de la auditoría, esta sesión **solo** cierra B-03. B-01 (productos de prueba), B-02 (transferencia sin CBU) y el resto siguen igual.
+1. **El primer release todavía no se hizo.** Requiere: mergear a `master` (el release exige estar en esa rama), crear `.env.release` con `MYSQL_PUBLIC_URL` de Railway, y correr `npm run release -- 1.0.0`.
+2. **El backup nunca corrió contra la base real** — no había credenciales de producción disponibles en la sesión. El camino de error y el pipeline de compresión sí se verificaron. Conviene que el primer `npm run db:backup` se mire con atención.
+3. **Un backup que nunca se restauró es una hipótesis.** Probar al menos una vez `npm run db:restore -- <archivo>` contra la base local.
+4. **El rollback de frontend depende del snapshot local**: vive sólo en la máquina que releaseó. Desde otra máquina hay que hacer checkout del tag + `npm ci` + `npm run deploy`.
+
+### Pendiente heredado de la sesión anterior (textos legales, sigue vigente)
+
+1. **`feature/textos-legales` no está mergeada.** Es un **cambio de contrato de API**: backend y frontend tienen que desplegarse **juntos** (el frontend viejo contra el backend nuevo no puede comprar ni registrarse, da 422). El release coordinado que se implementó en esta sesión está pensado justamente para eso.
+2. Cargar en Settings razón social, CUIT, domicilio, condición IVA y email reales, y la URL del QR de Data Fiscal de ARCA — sin eso los textos legales muestran "—".
+3. Revisión legal de los textos e inscripción de la base ante la AAIP (a definir con un profesional).
+4. **L-01 abierto**: la política de privacidad promete el derecho de supresión pero no existe `DELETE /me` ni purga de `store_events`.
+5. De los bloqueantes de la auditoría del 2026-08-18, sólo está cerrado B-03. B-01 (productos de prueba) y B-02 (transferencia sin CBU) siguen abiertos.
 
 ### Cómo retomar
 
-1. `git checkout feature/textos-legales` en ambos repos y revisar los textos con el titular del negocio antes de mergear.
-2. Cargar los datos fiscales en el panel (Configuración → empresa) y la URL de Data Fiscal, y recién ahí mergear y desplegar los dos repos juntos.
-3. Correr los E2E de Playwright contra el entorno local para validar el nuevo checkbox en el flujo real de navegador.
+1. Leer [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md) — es el procedimiento completo.
+2. Decidir si commitear este trabajo en `feature/textos-legales` o en una rama propia.
+3. Antes del primer release: mergear a `master`, crear `.env.release`, y correr `npm run release -- 1.0.0 --dry-run` para ver el flujo sin efectos.
 
 ---
 

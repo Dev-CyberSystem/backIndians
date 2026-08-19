@@ -91,6 +91,20 @@ npm run prerender                         # SSG puntual con Playwright (SEO)
 npm run deploy                            # build + prerender + sube por FTP (Ferozo, ver 09-CURRENT-STATUS.md)
 ```
 
+## Subir a produccion
+
+No deployar a mano. El procedimiento completo (release versionado, backup previo y rollback) esta en
+[11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md). Resumen:
+
+```bash
+cd backIndians
+npm run release              # valida ambos repos, backup de prod y tag vX.Y.Z en los dos
+npm run release:status       # que version esta corriendo realmente en produccion
+npm run rollback -- v1.2.3   # volver atras si algo fallo
+```
+
+El release **no deploya**: al terminar imprime los comandos de push y de subida por FTP.
+
 ## Depurar problemas frecuentes
 
 | Síntoma | Causa probable | Dónde mirar |

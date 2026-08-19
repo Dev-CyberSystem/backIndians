@@ -1,0 +1,179 @@
+# 11 — Release y rollback
+
+> Creado el **2026-08-19**. Describe el sistema de releases versionados implementado en `backIndians/scripts/release/`.
+
+## Por qué existe
+
+Antes de esto, "subir a producción" era: pushear a `master` (Railway deploya solo) y correr `npm run deploy` en el frontend. Eso funciona hasta el día que algo sale mal, y entonces no hay:
+
+- **una versión** que nombrar ("volvamos a lo de antes" no es una instrucción ejecutable),
+- **un punto al que volver** (ningún tag en la historia de ninguno de los dos repos),
+- **una red bajo la base de datos** (Railway corre `npm run migrate` en cada deploy; para cuando se detecta el problema, las migraciones ya se aplicaron).
+
+El sistema de releases resuelve las tres cosas.
+
+## Modelo mental: el rollback tiene tres planos
+
+Confundirlos es la forma habitual de empeorar una caída. De más fácil a más difícil de revertir:
+
+| Plano | Cómo se revierte | Tiempo | Riesgo |
+|---|---|---|---|
+| **Frontend** (estático en Ferozo) | Se resube el snapshot de la versión anterior | segundos | ninguno |
+| **Backend** (Railway) | Redeploy del deployment anterior, o `git revert` + push | ~1-3 min | ninguno para los datos |
+| **Base de datos** | Sólo con el backup, o revirtiendo migraciones una a una | minutos a horas | **pérdida de datos reales** |
+
+La regla que sigue de esto: **casi nunca hay que tocar la base**. Si el release sólo agregó columnas o tablas (el caso normal), el código viejo convive perfectamente con el esquema nuevo. Restaurar un backup pisa todo lo que pasó desde que se tomó — pedidos, pagos y cobros reales incluidos — así que es el último recurso, no el primero.
+
+## Versionado
+
+Una sola versión `vX.Y.Z` para **ambos** repos, aunque en un release uno de los dos no haya cambiado. Así "producción está en v1.4.0" es una frase completa y verificable, en vez de dos números y una tabla de compatibilidad mental.
+
+- La fuente de verdad son los **tags git**, presentes en los dos repos.
+- `package.json` de cada repo se mantiene sincronizado con el tag (lo hace el script).
+- El backend expone su versión en `/health`; el frontend, en `/version.json`. Eso permite verificar qué está corriendo de verdad en lugar de confiar en la memoria.
+- El primer release es `v1.0.0`, no `v0.0.1`: el sistema ya está en producción con usuarios reales.
+
+Criterio de numeración: `major` cambio que rompe algo o migración destructiva; `minor` funcionalidad nueva; `patch` correcciones.
+
+## Configuración previa (una sola vez por máquina)
+
+```bash
+cd backIndians
+cp .env.release.example .env.release
+```
+
+Completar `.env.release` con:
+
+- `MYSQL_PUBLIC_URL` — de las variables del proyecto en Railway (la **pública**; la interna sólo resuelve dentro de Railway). Sin esto no hay backup ni restore.
+- `RELEASE_API_URL`, `RELEASE_SYSTEM_URL`, `RELEASE_STORE_URL` — para que `release:status` pueda verificar qué hay desplegado.
+
+`.env.release` **no se commitea** (está en `.gitignore`). También hace falta `mysqldump`: el script busca solo en las rutas habituales de Windows; si no lo encuentra, se le indica con `MYSQLDUMP_PATH`.
+
+## Preparar un release
+
+```bash
+cd backIndians
+npm run release              # patch: v1.2.3 -> v1.2.4
+npm run release -- minor     # v1.2.3 -> v1.3.0
+npm run release -- 2.0.0     # versión explícita
+npm run release -- --dry-run # simula todo sin escribir nada
+```
+
+Qué hace, en orden:
+
+1. **Verifica los dos repos**: rama `master`, sin cambios sin commitear, sin quedar detrás de `origin`. Cualquiera de esas cosas frena el release.
+2. **Corre las validaciones**: typecheck + `test:full` del backend; tests + build + prerender del frontend. El lint queda afuera a propósito — hay 162 errores preexistentes (ver [09-CURRENT-STATUS.md](09-CURRENT-STATUS.md)) y bloquear por eso haría el release imposible sin arreglar deuda ajena al cambio.
+3. **Saca el backup de producción** a `.releases/db/vX.Y.Z-<fecha>.sql.gz`.
+4. **Sincroniza `package.json`**, actualiza `CHANGELOG.md` y crea el tag `vX.Y.Z` en ambos repos.
+5. **Guarda el build del frontend** en `frontIndians/.releases/vX.Y.Z/` — el mismo que se acaba de validar.
+
+**No deploya.** El deploy es el momento de mayor riesgo y no debe ocurrir por inercia; al terminar, el script imprime los comandos exactos.
+
+Flags: `--dry-run`, `--skip-tests`, `--skip-backup`, `--allow-dirty`, `--branch=<rama>`. Los últimos cuatro son escapes para situaciones excepcionales; usarlos deja una versión tageada que nadie verificó o sin red de seguridad.
+
+## Deployar
+
+```bash
+# 1. Backend — Railway deploya solo al recibir el push
+cd backIndians
+git push origin master && git push origin vX.Y.Z
+
+# 2. Verificar que levantó (health debe reportar la versión nueva)
+npm run release:status
+
+# 3. Frontend — sube el build exacto que se validó
+cd ../frontIndians
+git push origin master && git push origin vX.Y.Z
+npm run deploy:release -- vX.Y.Z
+
+# 4. Humo en producción
+#    - https://sistema.indians.com.ar/login  (entrar con un usuario real)
+#    - https://indians.com.ar               (la tienda lista productos)
+#    - un pedido end-to-end si el release toca checkout
+```
+
+`deploy:release` sube el snapshot guardado en lugar de rebuildear: publica exactamente lo que se validó, sin depender de que el árbol de dependencias de hoy produzca el mismo resultado que hace un rato.
+
+## Verificar qué hay en producción
+
+```bash
+cd backIndians && npm run release:status
+```
+
+Compara el tag local con lo que reportan el `/health` del backend y el `/version.json` del frontend. Detecta los dos problemas silenciosos: **deploy a medias** (backend en una versión, frontend en otra) y **release sin deployar** (tag creado pero producción todavía en la versión anterior).
+
+## Rollback
+
+```bash
+cd backIndians
+npm run rollback              # lista las versiones disponibles
+npm run rollback -- v1.3.0    # guía el rollback a esa versión
+```
+
+El script **ejecuta** el plano 1 (resubir el frontend anterior, con confirmación) y **guía** los planos 2 y 3, que necesitan a alguien mirando qué se rompió.
+
+### Backend
+
+- **Opción A (recomendada)**: en Railway, Deployments → el deploy anterior → *Redeploy*. Un minuto, sin tocar git.
+- **Opción B**: `git revert --no-edit <sha>` + push. Preferible si el rollback va a durar, porque deja la historia consistente.
+- **Opción C (último recurso)**: `git push origin vX.Y.Z^{}:master --force`. Reescribe `master`.
+
+### Base de datos
+
+Primero, la pregunta que evita la mayoría de los desastres:
+
+```bash
+npm run migrate:status -- --env production
+```
+
+Si las migraciones nuevas son **aditivas** (columnas o tablas nuevas), el código viejo funciona con ellas: **no hay que tocar la base**. Ese es el caso normal.
+
+Si hay que revertir una migración concreta:
+
+```bash
+npm run migrate:undo -- --env production   # revierte SOLO la última
+```
+
+Verificar antes que esa migración tenga un `down` real. Varias migraciones del proyecto no lo tienen.
+
+Si hubo pérdida o corrupción de datos:
+
+```bash
+npm run db:restore                                  # lista los backups
+npm run db:restore -- <archivo> --target=prod       # restaura (pide confirmación fuerte)
+```
+
+El restore a producción saca automáticamente un backup del estado actual antes de pisarlo, por si el restore resulta ser el error.
+
+> **Ojo**: `migrate:undo` cambió de comportamiento. Antes era `db:migrate:undo:all` (revertía **todas** las migraciones, o sea el esquema entero). Ahora revierte sólo la última, que es lo que el nombre sugiere. El comportamiento viejo quedó en `migrate:undo:all`.
+
+## Probar un backup sin arriesgar producción
+
+`db:restore` apunta a la base **local** por defecto, justamente para esto:
+
+```bash
+npm run db:restore -- <archivo>    # restaura sobre la base de desarrollo
+```
+
+Un backup que nunca se restauró es una hipótesis, no un respaldo. Conviene hacerlo cada tanto.
+
+## Qué queda fuera de git a propósito
+
+| Ruta | Por qué |
+|---|---|
+| `backIndians/.releases/db/` | Dumps con datos reales de producción (clientes, pagos, mails) |
+| `backIndians/.env.release` | Credenciales de la base de producción |
+| `frontIndians/.releases/` | Snapshots de build; son artefactos, se regeneran |
+
+Los snapshots del frontend viven **sólo en la máquina que releaseó**. Si el rollback hay que hacerlo desde otra máquina, el script detecta que no hay snapshot e indica el camino alternativo (checkout del tag + `npm ci` + `npm run deploy`).
+
+## Limitaciones conocidas
+
+- **No hay CI**: las validaciones corren en la máquina de quien releasea. Si esa máquina no tiene MySQL levantado, `test:full` falla y el release se frena (correcto, pero es un acoplamiento al entorno local).
+- **El backup se toma en el momento del release, no del deploy**. Si pasan horas entre uno y otro, el backup no refleja el estado real previo al deploy. Para deploys diferidos conviene correr `npm run db:backup` justo antes de pushear.
+- **`test:full` resetea la base de desarrollo local** (corre los seeders). Es lo esperado, pero conviene saberlo antes de releasear con datos locales que importen.
+- **El rollback de frontend depende del snapshot local** (ver arriba).
+
+## Actualizar este documento cuando…
+
+Cambie el hosting de cualquiera de los dos lados, se agregue CI, cambie el esquema de versionado, o se descubra un modo de falla nuevo durante un rollback real.

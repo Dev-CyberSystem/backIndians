@@ -18,10 +18,17 @@
     "reset-password": "ts-node --project tsconfig.seed.json seeders/reset-password.ts",
     "reset:admin-prod": "ts-node --project tsconfig.seed.json seeders/reset-admin-prod.ts",
     "migrate": "sequelize-cli db:migrate",
+    "migrate:undo": "sequelize-cli db:migrate:undo",
+    "migrate:undo:all": "sequelize-cli db:migrate:undo:all",
+    "migrate:status": "sequelize-cli db:migrate:status",
     "db:reset": "node scripts/reset-dev-db.js",
-    "migrate:undo": "sequelize-cli db:migrate:undo:all",
     "typecheck": "tsc --noEmit",
-    "test": "jest --forceExit"
+    "test": "jest --forceExit",
+    "release": "node scripts/release/release.mjs",
+    "release:status": "node scripts/release/status.mjs",
+    "rollback": "node scripts/release/rollback.mjs",
+    "db:backup": "node scripts/release/db-backup.mjs",
+    "db:restore": "node scripts/release/db-restore.mjs"
   },
   "engines": {
     "node": ">=20"

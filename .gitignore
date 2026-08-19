@@ -3,6 +3,10 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.release.example
 *.log
 uploads/
 documentos/Users.txt
+
+# Backups de base y snapshots de release: contienen datos reales de produccion
+.releases/
