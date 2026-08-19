@@ -16,7 +16,7 @@
 //   npm run release -- 2.0.0        # versión explícita
 //   npm run release -- --dry-run    # simula todo sin escribir ni tagear
 //
-// Flags: --dry-run, --skip-tests, --skip-backup, --branch=<rama>, --allow-dirty
+// Flags: --dry-run, --skip-tests, --skip-backup, --branch=<rama>, --allow-dirty, --yes
 
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -340,7 +340,12 @@ async function main() {
   log.plain('\n' + c.dim(entry.split('\n').slice(0, 40).join('\n')));
 
   if (!DRY) {
-    const ok = await confirm(`¿Preparar el release ${c.bold(version)}?`);
+    // --yes es para invocación no interactiva deliberada (ej. un agente
+    // corriendo esto en nombre de alguien que ya vio y aprobó el changelog de
+    // arriba). Sin el flag, confirm() sigue exigiendo una terminal real: no hay
+    // forma de auto-confirmar por accidente vía pipe o script.
+    const ok = flags.yes ? true : await confirm(`¿Preparar el release ${c.bold(version)}?`);
+    if (flags.yes) log.info('Confirmado por --yes (invocación no interactiva).');
     if (!ok) {
       log.fail('Cancelado.');
       process.exit(1);
