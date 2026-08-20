@@ -3,6 +3,17 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.0.2 — 2026-08-20
+
+### backIndians (6eea89a)
+
+- docs(auditoria): tercera pasada del panel de seis roles (post-correccion)
+- feat(health): exponer si MP_WEBHOOK_SECRET esta cargado, y avisar cuando el arrepentimiento no llega al admin
+
+### frontIndians (3430d18)
+
+- sin cambios desde el release anterior
+
 ## v1.0.1 — 2026-08-19
 
 ### backIndians (6b9b2d6)

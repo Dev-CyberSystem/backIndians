@@ -1,6 +1,6 @@
 {
   "name": "indians-textil-backend",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Backend del sistema de gestión para fábrica textil de producción a pedido",
   "main": "dist/server.js",
   "scripts": {
