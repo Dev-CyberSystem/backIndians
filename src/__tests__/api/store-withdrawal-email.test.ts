@@ -40,6 +40,24 @@ async function esperarEnvio(mock: jest.Mock, intentos = 40): Promise<void> {
   }
 }
 
+/**
+ * Espera y devuelve la llamada que corresponde a UNA solicitud concreta.
+ *
+ * `notifyWithdrawal` se dispara con `void` para no demorar la respuesta, así que
+ * el envío de un test anterior puede aterrizar durante el siguiente, después del
+ * `mockClear()`. Mirar `mock.calls[0]` daba por bueno el mail equivocado y hacía
+ * fallar la aserción del código con un desfasaje de uno. Buscar por código en vez
+ * de por posición hace la aserción independiente del orden y del timing.
+ */
+async function esperarEnvioDe(mock: jest.Mock, code: string, intentos = 40) {
+  for (let i = 0; i < intentos; i++) {
+    const call = mock.mock.calls.find((c) => c[0]?.code === code);
+    if (call) return call[0];
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`No llegó ningún envío para el código ${code} tras ${intentos} intentos`);
+}
+
 async function solicitar(extra: Record<string, unknown> = {}) {
   const email = `qa-arrep-mail+${Date.now()}-${Math.random().toString(36).slice(2)}@test.local`;
   const res = await api().post(`${API}/store/legal/withdrawal`).send({
@@ -52,9 +70,16 @@ async function solicitar(extra: Record<string, unknown> = {}) {
 }
 
 describe('Constancia de arrepentimiento por mail — Res. 424/2020 (L-03)', () => {
+  const legalEmailOriginal = process.env.LEGAL_NOTIFICATIONS_EMAIL;
+
   beforeEach(() => {
     emails.sendWithdrawalRequestEmail.mockClear();
     emails.sendWithdrawalAdminEmail.mockClear();
+  });
+
+  afterEach(() => {
+    if (legalEmailOriginal === undefined) delete process.env.LEGAL_NOTIFICATIONS_EMAIL;
+    else process.env.LEGAL_NOTIFICATIONS_EMAIL = legalEmailOriginal;
   });
 
   it('manda la constancia al consumidor con el mismo código que se le mostró', async () => {
@@ -83,16 +108,20 @@ describe('Constancia de arrepentimiento por mail — Res. 424/2020 (L-03)', () =
   });
 
   it('también avisa al administrador para que el reclamo no duerma', async () => {
+    // El destinatario sale de `LEGAL_NOTIFICATIONS_EMAIL || settings.company_email
+    // || ALERT_EMAIL_TO`. Este test lo fijaba en ninguno de los tres y pasaba sólo
+    // si la base de desarrollo tenía `company_email` cargada de sesiones
+    // anteriores: contra una base recién sembrada fallaba (Q-A de la auditoría del
+    // 2026-08-19). Establecer la precondición acá lo vuelve autocontenido, que es
+    // lo que hace falta para que `npm run release` sea una compuerta confiable.
+    process.env.LEGAL_NOTIFICATIONS_EMAIL = 'legales-qa@indians.com.ar';
+
     const { res } = await solicitar({ reason: 'No me quedó bien el talle' });
     expect(res.status).toBe(201);
 
-    await esperarEnvio(emails.sendWithdrawalAdminEmail);
-    expect(emails.sendWithdrawalAdminEmail).toHaveBeenCalledTimes(1);
-
-    const payload = emails.sendWithdrawalAdminEmail.mock.calls[0][0];
-    expect(payload.code).toBe(res.body.data.code);
+    const payload = await esperarEnvioDe(emails.sendWithdrawalAdminEmail, res.body.data.code);
     expect(payload.reason).toBe('No me quedó bien el talle');
-    expect(payload.to).toBeTruthy();
+    expect(payload.to).toBe('legales-qa@indians.com.ar');
   });
 
   it('si el mail falla, la solicitud queda registrada igual', async () => {

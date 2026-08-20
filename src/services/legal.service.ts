@@ -230,17 +230,31 @@ async function notifyWithdrawal(request: StoreWithdrawalRequest): Promise<void> 
     settings.company_email ||
     process.env.ALERT_EMAIL_TO;
 
-  if (adminEmail) {
-    await sendWithdrawalAdminEmail({
-      to: adminEmail,
-      code: request.code,
-      customerName: request.customer_name,
-      customerEmail: request.customer_email,
-      customerPhone: request.customer_phone,
-      orderNumber: request.order_number,
-      reason: request.reason,
+  if (!adminEmail) {
+    // Sin destinatario el aviso interno no sale, y hasta acá se salteaba en
+    // silencio (Q-C de la auditoría del 2026-08-19): el arrepentimiento quedaba
+    // sólo en la bandeja de `/ecommerce/legal`, esperando que alguien la mirara.
+    // La constancia al consumidor —que es la obligación de la Res. 424/2020— sí
+    // salió; lo que se pierde es la gestión. Es exactamente el patrón que D-02
+    // acaba de corregir en los jobs: fallar sin avisar.
+    logger.warn('legal.withdrawal.adminEmailSkipped', {
+      message:
+        'Solicitud de arrepentimiento sin aviso al administrador: no hay LEGAL_NOTIFICATIONS_EMAIL, ' +
+        'company_email ni ALERT_EMAIL_TO configurados. El reclamo queda sólo en la bandeja de legales.',
+      meta: { code: request.code },
     });
+    return;
   }
+
+  await sendWithdrawalAdminEmail({
+    to: adminEmail,
+    code: request.code,
+    customerName: request.customer_name,
+    customerEmail: request.customer_email,
+    customerPhone: request.customer_phone,
+    orderNumber: request.order_number,
+    reason: request.reason,
+  });
 }
 
 export interface ListWithdrawalFilters {
