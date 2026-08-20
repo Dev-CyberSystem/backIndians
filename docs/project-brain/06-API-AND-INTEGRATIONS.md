@@ -39,7 +39,7 @@ CRUD de usuarios internos: `GET /`, `POST /`, `PUT /:id`, `PATCH /:id/toggle`, `
 - `POST /transactions/:id/reverse` → `{ reason (≥10 chars), amount? }`, único camino para corregir un importe. Crea un contraasiento (tipo/cuenta invertidos), soporta reversión parcial, deja el original intacto salvo `status`/`reversed_at`/`reversed_by`.
 
 ### `/catalog` — `catalog.routes.ts`
-`POST /webhook/mp` → **sin auth** (webhook MP del catálogo mayorista). Resto autenticado. Categorías CRUD → `admin,billing`. Productos: lectura abierta, escritura `admin,billing`; `PATCH /products/:id/stock`, `PUT /products/:id/sizes`, imágenes (máx 3/producto). Pedidos: creación `admin,billing,seller`; `PATCH /orders/:id/status`, `POST /orders/:id/payment` (genera preferencia MP). Facturas de catálogo: CRUD, pagos, imágenes.
+`POST /webhook/mp` → **sin auth** (webhook MP del catálogo mayorista, con `webhookLimiter`). Resto autenticado. Categorías CRUD → `admin,billing`. Productos: lectura abierta, escritura `admin,billing`; `PATCH /products/:id/stock`, `PUT /products/:id/sizes`, imágenes (máx 3/producto). Pedidos: creación `admin,billing,seller`; `PATCH /orders/:id/status`, `POST /orders/:id/payment` (genera preferencia MP). Facturas de catálogo: CRUD, pagos, imágenes.
 
 ### `/store` — `store.routes.ts` (el más grande, mezcla público + comprador + admin)
 - **Público**: `/settings` (cache 60s), `/events` (SSE), auth de comprador (`register`, `verify-email`, `login`, `google`, `refresh`, `forgot/reset-password`), `/track`, `/trending`, `/products*`, `/coupons/validate`, `/checkout/quote`, `POST /checkout` (con `Idempotency-Key`, `checkoutLimiter`), `/payment/confirm`, `/orders/:orderNumber/status`, `/track/:token`, `POST /orders/:orderNumber/payment-proof`, `POST /webhook/mp` (`webhookLimiter`).
@@ -89,8 +89,11 @@ CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso 
 ### MercadoPago (pagos)
 - **Estado**: Implementado y verificado — Checkout Pro (Preference), no QR dinámico de cobro presencial.
 - **Servicio**: `backIndians/src/services/mercadopago.service.ts` — `createPreference`, `getPreference`, `getPaymentInfo`, `searchPaymentsByReference`, `verifyWebhookSignature` (HMAC-SHA256, fail-closed en producción si falta `MP_WEBHOOK_SECRET`).
-- **Webhooks**: `POST /catalog/webhook/mp` (catálogo mayorista) y `POST /store/webhook/mp` (tienda) — ambos con verificación de firma e idempotencia vía tabla `webhook_events`.
-- **Reconciliación**: job programado (`backIndians/src/jobs/reconcilePayments.ts`) cada ~10 min, para pagos cuyo webhook no llegó.
+- **Webhooks**: `POST /catalog/webhook/mp` (catálogo mayorista) y `POST /store/webhook/mp` (tienda) — ambos con verificación de firma, `webhookLimiter` e idempotencia vía tabla `webhook_events` (`provider` distinto en cada circuito: `mercadopago` para tienda, `mercadopago_catalog` para catálogo, para que dos pagos con el mismo id no se pisen).
+- **`notification_url`**: las dos preferences la mandan explícitamente, apuntando a `BACKEND_PUBLIC_URL` + la ruta del webhook de su circuito. **Sin esta variable, MP no notifica nada** y la única vía de acreditación queda siendo el job de reconciliación. La de catálogo se agregó el 2026-08-19 — hasta ahí, ningún pago de catálogo llegaba al webhook (ver [DEC-019](08-DECISIONS.md#dec-019)).
+- **Acreditación**: el resultado de un pago se aplica en un único lugar por circuito — `applyPaymentResult` (tienda, `store.service.ts`) y `applyCatalogPaymentResult` (catálogo, `catalog.service.ts`), compartidos por el webhook y por el job. Ambos validan moneda contra ARS antes de acreditar, son idempotentes y nunca acreditan a ciegas. En catálogo el cobro se materializa como una fila de `catalog_invoice_payments` con `payment_method='mercadopago'` e `idempotency_key = mp-<paymentId>` (índice único, migración 094), que actualiza `payment_amount`/`status` de la factura y genera el asiento de caja (DEC-012).
+- **Reconciliación**: dos jobs programados cada ~10 min, para pagos cuyo webhook no llegó — `backIndians/src/jobs/reconcilePayments.ts` (tienda) y `reconcileCatalogPayments.ts` (catálogo). Para recuperar un pago viejo a mano: `npx ts-node --project tsconfig.seed.json scripts/reconcile-catalog-order.ts CAT-2026-00002`.
+- **Aviso de cobro (catálogo)**: al acreditarse un pago se emite `notification:catalog_payment` por socket (toast en el panel, filtrado por rol — al vendedor sólo sus ventas) y se manda un mail a `CATALOG_PAYMENT_NOTIFY_EMAIL` (o `ALERT_EMAIL_TO`). El mail existe porque el flujo típico es un QR que el cliente escanea desde su teléfono: nadie está mirando el panel en ese momento.
 - **Env vars**: `MP_ACCESS_TOKEN`, `MP_PUBLIC_KEY`, `MP_WEBHOOK_SECRET` (obligatoria en producción, el server no arranca sin ella).
 - **Frontend**: sin SDK embebido; redirect a `init_point`/`sandbox_init_point`, polling de estado en `StoreCheckoutPendingPage`. En catálogo mayorista se renderiza el link como QR (`qrcode.react`), no es la API de QR de MP.
 
@@ -140,7 +143,8 @@ CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso 
 | Email tienda | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` |
 | Email sistema | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` |
 | Anti-bot | `TURNSTILE_SECRET_KEY` |
-| Jobs | `RECONCILE_JOB_ENABLED`, `RECONCILE_STALE_MINUTES`, `ORDER_EXPIRY_HOURS` |
+| Avisos operativos | `ALERT_EMAIL_TO`, `ALERT_COOLDOWN_MINUTES`, `ALERTS_ENABLED`, `CATALOG_PAYMENT_NOTIFY_EMAIL` |
+| Jobs | `RECONCILE_JOB_ENABLED`, `RECONCILE_STALE_MINUTES`, `ORDER_EXPIRY_HOURS`, `CATALOG_RECONCILE_LOOKBACK_DAYS` (30 por defecto) |
 | MercadoPago | `MP_ACCESS_TOKEN`, `MP_PUBLIC_KEY`, `MP_WEBHOOK_SECRET` |
 | AFIP | `AFIP_CERT_BASE64`, `AFIP_KEY_BASE64` |
 | Google OAuth | `GOOGLE_CLIENT_ID` |

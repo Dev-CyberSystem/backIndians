@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import { type Includeable, Op, Transaction, UniqueConstraintError } from 'sequelize';
 import { AppError } from '../middlewares/errorHandler';
@@ -17,10 +18,17 @@ import {
   ProductCategory,
 } from '../models';
 import { sequelize } from '../config/db';
+import { getIO } from '../config/socket';
+import { WebhookEvent } from '../models/WebhookEvent';
 import * as mpService from './mercadopago.service';
 import * as stockLedger from './stockLedger.service';
 import type { InvoicePaymentMethod } from '../models/InvoicePayment';
 import { recordInvoiceCollectionCashIncome, reverseAllForReference } from './cash.service';
+import { logger } from '../utils/logger';
+import { sendAlert } from '../utils/alerts';
+import { enqueueEmail } from '../utils/emailQueue';
+import { escapeHtml } from '../utils/escapeHtml';
+import { formatPriceNumber } from '../utils/money';
 
 // ─── Include estándar de un producto ─────────────────────────────────────────
 
@@ -552,6 +560,7 @@ export async function createCatalogOrder(input: CreateCatalogOrderInput) {
           totalAmount,
           paymentType: input.payment_type,
           backUrls: input.back_urls,
+          notificationUrl: buildCatalogNotificationUrl(),
         });
 
         await order.update({ mp_preference_id: mpResult.preference_id ?? undefined });
@@ -788,6 +797,7 @@ export async function initiateCatalogPayment(
     paymentType: order.payment_type,
     overrideAmount: customAmount,
     backUrls,
+    notificationUrl: buildCatalogNotificationUrl(),
   });
 
   await order.update({ mp_preference_id: mpResult.preference_id ?? undefined });
@@ -875,18 +885,403 @@ export async function addPaymentToCatalogInvoice(
   return getCatalogInvoice(orderId);
 }
 
-export async function handleMPWebhook(paymentId: string) {
-  const paymentInfo = await mpService.getPaymentInfo(paymentId);
-  const externalRef = paymentInfo.external_reference;
-  if (!externalRef) return;
+// ─── Acreditación de pagos de MercadoPago (catálogo) ─────────────────────────
+//
+// Hasta 2026-08-19 el webhook de catálogo sólo estampaba `mp_payment_id` /
+// `mp_payment_status` en el pedido: NO registraba el cobro en la factura, no
+// lo asentaba en caja y no avisaba a nadie. Como además la preference se
+// creaba sin `notification_url` (ver `buildCatalogNotificationUrl`), MP nunca
+// llegaba a llamarlo, así que un pedido pagado por QR o por link quedaba
+// indistinguible de uno impago: factura sin cobro, dashboard en $0 y cero
+// notificación. Esta sección le da el mismo tratamiento que ya tenía la
+// tienda online (`applyPaymentResult` en store.service.ts).
 
-  const order = await CatalogOrder.findOne({ where: { order_number: externalRef } });
-  if (!order) return;
+/** Moneda única del sistema: un pago en otra moneda no se acredita a ciegas. */
+const MP_EXPECTED_CURRENCY = 'ARS';
+
+/** Prefijo de `external_reference` de un pedido de catálogo (`CAT-2026-00001`). */
+const CATALOG_REFERENCE_PREFIX = 'CAT-';
+
+/**
+ * Tolerancia al comparar montos de MP contra el total de la factura. MP
+ * redondea a 2 decimales y el pedido puede pagarse en mitades, así que una
+ * diferencia de centavos no es una anomalía; más de $1 sí.
+ */
+const AMOUNT_TOLERANCE = 1;
+
+/**
+ * URL que MP llama server-to-server al cambiar el estado del pago. Sin esto
+ * MP no notifica nada y la única vía de acreditación queda siendo el job de
+ * reconciliación. Misma variable que usa la tienda (`BACKEND_PUBLIC_URL`).
+ */
+function buildCatalogNotificationUrl(): string | undefined {
+  const backendUrl = process.env.BACKEND_PUBLIC_URL;
+  if (!backendUrl) return undefined;
+  return `${backendUrl.replace(/\/+$/, '')}/api/v1/catalog/webhook/mp`;
+}
+
+function emitCatalogPaymentEvent(
+  order: CatalogOrder,
+  amount: number,
+  fullyPaid: boolean,
+  clientName: string | null
+): void {
+  try {
+    getIO().emit('notification:catalog_payment', {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      sellerId: order.seller_id,
+      clientName,
+      amount,
+      total: Number(order.total_amount),
+      fullyPaid,
+    });
+  } catch { /* el socket puede no estar inicializado (tests, scripts) */ }
+}
+
+/**
+ * Aviso por mail de que entró un cobro. Complementa el toast por socket, que
+ * sólo lo ve quien tenga el panel abierto en ese momento — justo lo que no
+ * pasa cuando el cliente escanea el QR y se va.
+ *
+ * Destino: `CATALOG_PAYMENT_NOTIFY_EMAIL`, o `ALERT_EMAIL_TO` como reserva.
+ * Sin ninguna de las dos configuradas no se manda nada (y no es un error).
+ * `mailer` se importa en diferido por el mismo motivo que en `alerts.ts`:
+ * instancia Resend en el top level del módulo.
+ */
+function notifyCatalogPaymentByEmail(params: {
+  order: CatalogOrder;
+  invoiceNumber: string;
+  amount: number;
+  totalPaid: number;
+  invoiceTotal: number;
+  fullyPaid: boolean;
+  paymentId: string | null;
+  clientName: string | null;
+}): void {
+  const to = process.env.CATALOG_PAYMENT_NOTIFY_EMAIL || process.env.ALERT_EMAIL_TO;
+  if (!to) return;
+
+  const { order, invoiceNumber, amount, totalPaid, invoiceTotal, fullyPaid, paymentId, clientName } = params;
+  const pending = Math.max(0, invoiceTotal - totalPaid);
+
+  enqueueEmail(`catalogPayment:${order.order_number}`, async () => {
+    const { sendMail, emailWrapper } = await import('../utils/mailer');
+    const rows: [string, string][] = [
+      ['Pedido', order.order_number],
+      ['Factura', invoiceNumber],
+      ['Cliente', clientName ?? '—'],
+      ['Cobrado ahora', `$${formatPriceNumber(amount)}`],
+      ['Total de la factura', `$${formatPriceNumber(invoiceTotal)}`],
+      ['Saldo pendiente', pending > 0 ? `$${formatPriceNumber(pending)}` : 'Sin saldo'],
+      ['Pago MercadoPago', paymentId ?? '—'],
+    ];
+    await sendMail({
+      to,
+      subject: `${fullyPaid ? 'Pago acreditado' : 'Pago parcial acreditado'} — ${order.order_number} ($${formatPriceNumber(amount)})`,
+      html: emailWrapper(`
+        <h2 style="margin:0 0 4px;font-size:18px;color:#111827;">
+          ${fullyPaid ? 'Pago acreditado' : 'Pago parcial acreditado'}
+        </h2>
+        <p style="margin:0 0 16px;color:#6b7280;font-size:13px;">
+          Se acreditó un cobro de MercadoPago en una venta del catálogo.
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          ${rows.map(([label, value]) => `
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">${escapeHtml(label)}</td>
+              <td style="padding:6px 0;text-align:right;color:#111827;font-weight:600;">${escapeHtml(value)}</td>
+            </tr>`).join('')}
+        </table>
+      `),
+    });
+  });
+}
+
+export interface ApplyCatalogPaymentResult {
+  applied: boolean;
+  /** Motivo estable — sirve para logs, tests y el `result` del WebhookEvent. */
+  reason: string;
+}
+
+/**
+ * Aplica a un pedido de catálogo el resultado de un pago de MercadoPago.
+ * Compartida por el webhook y por el job de reconciliación, igual que
+ * `applyPaymentResult` en la tienda. Criterios:
+ *
+ *  - El estado de MP se estampa SIEMPRE en el pedido, se acredite o no: es la
+ *    traza de que el pago existió y llegó hasta acá.
+ *  - Sólo `approved` acredita. Cualquier otro estado (pending, rejected…)
+ *    queda registrado sin tocar la factura ni la caja.
+ *  - Idempotente por `idempotency_key = mp-<paymentId>`, que tiene índice
+ *    único (migración 094): el webhook y el job pueden pisarse sin duplicar el
+ *    cobro, y MP puede reenviar la notificación las veces que quiera.
+ *  - Un pago aprobado que no se puede imputar (factura anulada o inexistente,
+ *    moneda distinta) NO se acredita a ciegas: se loguea como error y se
+ *    dispara una alerta, porque es plata real que entró sin destino.
+ *  - Un pago parcial (pedido con `payment_type='half'` o monto personalizado)
+ *    es un caso normal, no un error: se registra y la factura queda en
+ *    `issued` con saldo.
+ */
+export async function applyCatalogPaymentResult(
+  order: CatalogOrder,
+  payment: mpService.PaymentInfo,
+  paymentId: string | null
+): Promise<ApplyCatalogPaymentResult> {
+  const mpStatus = payment.status ?? 'unknown';
+  const resolvedPaymentId = paymentId ?? (payment.id != null ? String(payment.id) : null);
 
   await order.update({
-    mp_payment_id: String(paymentInfo.id),
-    mp_payment_status: paymentInfo.status ?? null,
+    mp_payment_status: mpStatus,
+    ...(resolvedPaymentId ? { mp_payment_id: resolvedPaymentId } : {}),
   });
+
+  if (mpStatus !== 'approved') {
+    return { applied: false, reason: `not_approved:${mpStatus}` };
+  }
+
+  const amount = Number(payment.transaction_amount ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    logger.error(
+      'catalog.payment.invalidAmount',
+      new Error('Pago aprobado de MercadoPago sin monto utilizable'),
+      { meta: { orderNumber: order.order_number, paymentId: resolvedPaymentId, amount: payment.transaction_amount } }
+    );
+    return { applied: false, reason: 'invalid_amount' };
+  }
+
+  if (payment.currency_id && payment.currency_id !== MP_EXPECTED_CURRENCY) {
+    logger.error(
+      'catalog.payment.currencyMismatch',
+      new Error('Pago de MercadoPago en una moneda distinta a la del sistema'),
+      { meta: { orderNumber: order.order_number, paymentId: resolvedPaymentId, currency: payment.currency_id } }
+    );
+    await sendAlert({
+      key: `catalog-payment-currency-${order.order_number}`,
+      severity: 'critical',
+      title: `Pago en moneda inesperada — ${order.order_number}`,
+      detail:
+        `MercadoPago informó un pago aprobado de ${amount} ${payment.currency_id} para el pedido ` +
+        `${order.order_number}, pero el sistema opera en ${MP_EXPECTED_CURRENCY}.\n\n` +
+        `NO se acreditó automáticamente. Revisar el pago ${resolvedPaymentId ?? 's/id'} en MercadoPago ` +
+        `y registrar el cobro a mano si corresponde.`,
+    });
+    return { applied: false, reason: 'currency_mismatch' };
+  }
+
+  const idempotencyKey = resolvedPaymentId ? `mp-${resolvedPaymentId}` : null;
+  if (idempotencyKey) {
+    const already = await CatalogInvoicePayment.findOne({ where: { idempotency_key: idempotencyKey } });
+    if (already) return { applied: false, reason: 'already_applied' };
+  }
+
+  let outcome: ApplyCatalogPaymentResult = { applied: false, reason: 'invoice_not_found' };
+  let invoiceNumber = '';
+  let invoiceTotal = 0;
+  let totalPaid = 0;
+  let fullyPaid = false;
+
+  try {
+    await sequelize.transaction(async (t) => {
+      const invoice = await CatalogInvoice.findOne({
+        where: { catalog_order_id: order.id }, transaction: t, lock: Transaction.LOCK.UPDATE,
+      });
+      if (!invoice) return;
+      if (invoice.status === 'cancelled') {
+        outcome = { applied: false, reason: 'invoice_cancelled' };
+        return;
+      }
+
+      invoiceNumber = invoice.invoice_number;
+      invoiceTotal = Number(invoice.total_amount ?? 0);
+
+      const paymentRow = await CatalogInvoicePayment.create(
+        {
+          catalog_invoice_id: invoice.id,
+          amount,
+          payment_method: 'mercadopago',
+          notes: `MercadoPago · pago ${resolvedPaymentId ?? 's/id'}`,
+          idempotency_key: idempotencyKey,
+        },
+        { transaction: t }
+      );
+
+      const rows = await CatalogInvoicePayment.findAll({ where: { catalog_invoice_id: invoice.id }, transaction: t });
+      totalPaid = rows.reduce((sum, p) => sum + p.amount, 0);
+      fullyPaid = invoiceTotal > 0 && totalPaid >= invoiceTotal - AMOUNT_TOLERANCE;
+
+      await invoice.update(
+        { payment_amount: totalPaid, status: fullyPaid ? 'paid' : invoice.status },
+        { transaction: t }
+      );
+
+      const recordedAt = await recordInvoiceCollectionCashIncome(
+        {
+          referenceType: 'catalog_invoice',
+          referenceId: invoice.id,
+          amount,
+          paymentMethod: 'mercadopago',
+          description: `Cobro factura ${invoice.invoice_number} (catálogo, MercadoPago)`,
+          createdBy: order.seller_id,
+        },
+        t
+      );
+      if (recordedAt) await paymentRow.update({ cash_recorded_at: recordedAt }, { transaction: t });
+
+      outcome = { applied: true, reason: fullyPaid ? 'applied:paid' : 'applied:partial' };
+    });
+  } catch (err) {
+    // Carrera entre el webhook y el job de reconciliación aplicando el mismo
+    // pago: el índice único de `idempotency_key` la corta, y el cobro que ganó
+    // ya quedó registrado. No es un error.
+    if (err instanceof UniqueConstraintError && idempotencyKey) {
+      return { applied: false, reason: 'already_applied' };
+    }
+    throw err;
+  }
+
+  if (!outcome.applied) {
+    logger.error(
+      'catalog.payment.unassignable',
+      new Error(`Pago aprobado que no se pudo imputar (${outcome.reason})`),
+      { meta: { orderNumber: order.order_number, paymentId: resolvedPaymentId, amount, reason: outcome.reason } }
+    );
+    await sendAlert({
+      key: `catalog-payment-unassignable-${order.order_number}`,
+      severity: 'critical',
+      title: `Pago sin imputar — ${order.order_number}`,
+      detail:
+        `MercadoPago aprobó un pago de $${formatPriceNumber(amount)} para el pedido ${order.order_number}, ` +
+        `pero no se pudo registrar el cobro (motivo: ${outcome.reason}).\n\n` +
+        `Es plata que entró y quedó sin asentar. Revisar el pedido en el panel de catálogo ` +
+        `y el pago ${resolvedPaymentId ?? 's/id'} en MercadoPago.`,
+    });
+    return outcome;
+  }
+
+  if (invoiceTotal > 0 && totalPaid > invoiceTotal + AMOUNT_TOLERANCE) {
+    logger.warn('catalog.payment.overpaid', {
+      meta: { orderNumber: order.order_number, paymentId: resolvedPaymentId, totalPaid, invoiceTotal },
+    });
+    await sendAlert({
+      key: `catalog-payment-overpaid-${order.order_number}`,
+      severity: 'warning',
+      title: `Cobro mayor al total facturado — ${order.order_number}`,
+      detail:
+        `La factura ${invoiceNumber} tiene un total de $${formatPriceNumber(invoiceTotal)} y acumula ` +
+        `$${formatPriceNumber(totalPaid)} cobrados. El cobro se registró igual (la plata entró), ` +
+        `pero conviene revisar si corresponde una devolución o una nota de crédito.`,
+    });
+  }
+
+  const clientName = (order as CatalogOrder & { client?: Client }).client?.name ?? null;
+
+  logger.info('catalog.payment.applied', {
+    meta: {
+      orderNumber: order.order_number, paymentId: resolvedPaymentId,
+      amount, totalPaid, invoiceTotal, fullyPaid,
+    },
+  });
+
+  emitCatalogPaymentEvent(order, amount, fullyPaid, clientName);
+  notifyCatalogPaymentByEmail({
+    order, invoiceNumber, amount, totalPaid, invoiceTotal, fullyPaid,
+    paymentId: resolvedPaymentId, clientName,
+  });
+
+  return outcome;
+}
+
+/**
+ * Punto de entrada del webhook de MercadoPago para catálogo.
+ *
+ * Deduplica por `webhook_events` con el mismo criterio que la tienda (MP
+ * reenvía la misma notificación varias veces), pero con `provider` propio para
+ * que un pago de catálogo y uno de tienda con el mismo id no se pisen. Si el
+ * procesamiento falla NO se marca `processed_at`: el evento queda disponible
+ * para el reintento de MP o para el job de reconciliación.
+ */
+export async function handleMPWebhook(paymentId: string, rawPayload?: unknown): Promise<void> {
+  const provider = 'mercadopago_catalog';
+  const payloadHash = rawPayload
+    ? createHash('sha256').update(JSON.stringify(rawPayload)).digest('hex')
+    : null;
+
+  let event = await WebhookEvent.findOne({ where: { provider, event_id: paymentId } });
+  if (event?.processed_at) return;
+
+  if (!event) {
+    try {
+      event = await WebhookEvent.create({ provider, event_id: paymentId, payload_hash: payloadHash });
+    } catch (err) {
+      if (err instanceof UniqueConstraintError) {
+        event = await WebhookEvent.findOne({ where: { provider, event_id: paymentId } });
+        if (event?.processed_at) return;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  try {
+    const info = await mpService.getPaymentInfo(paymentId);
+    const ref = info.external_reference;
+    if (!ref || !ref.startsWith(CATALOG_REFERENCE_PREFIX)) {
+      await event?.update({ processed_at: new Date(), result: 'ignored_no_reference' });
+      return;
+    }
+
+    const order = await CatalogOrder.findOne({
+      where: { order_number: ref },
+      include: [{ model: Client, as: 'client', attributes: ['id', 'name'] }],
+    });
+    if (!order) {
+      await event?.update({ processed_at: new Date(), result: 'ignored_order_not_found' });
+      return;
+    }
+
+    const result = await applyCatalogPaymentResult(order, info, paymentId);
+    await event?.update({ processed_at: new Date(), result: result.reason.slice(0, 50) });
+  } catch (err) {
+    logger.error('catalog.webhook.processingFailed', err, { meta: { paymentId } });
+    throw err;
+  }
+}
+
+/**
+ * Reconciliación de un pedido de catálogo contra MercadoPago, sin depender del
+ * webhook. La usa el job periódico, y sirve también para recuperar a mano un
+ * pago viejo: busca los pagos asociados al `external_reference` del pedido y
+ * aplica los aprobados.
+ *
+ * Aplica TODOS los aprobados, no sólo el último: un pedido puede cobrarse en
+ * dos partes (mitad al encargar, mitad al retirar) y cada pago es un cobro
+ * distinto. `applyCatalogPaymentResult` es idempotente, así que reprocesar los
+ * ya aplicados no duplica nada.
+ */
+export async function confirmCatalogPayment(orderNumber: string): Promise<ApplyCatalogPaymentResult[]> {
+  const order = await CatalogOrder.findOne({
+    where: { order_number: orderNumber },
+    include: [{ model: Client, as: 'client', attributes: ['id', 'name'] }],
+  });
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+
+  const payments = await mpService.searchPaymentsByReference(order.order_number);
+  const approved = payments.filter((p) => p.status === 'approved');
+
+  // Sin ningún pago aprobado igual dejamos registrado el último estado
+  // conocido de MP, que es lo que el panel muestra como referencia.
+  if (approved.length === 0) {
+    const latest = payments[0];
+    if (latest) await applyCatalogPaymentResult(order, latest, latest.id != null ? String(latest.id) : null);
+    return [];
+  }
+
+  const results: ApplyCatalogPaymentResult[] = [];
+  for (const payment of approved) {
+    results.push(await applyCatalogPaymentResult(order, payment, payment.id != null ? String(payment.id) : null));
+  }
+  return results;
 }
 
 // ─── Categorías de producto ───────────────────────────────────────────────────

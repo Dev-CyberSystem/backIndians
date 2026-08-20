@@ -27,6 +27,20 @@ Lo que cerró la sesión del 2026-08-19 (informe: `documentos/AUDITORIA_PANEL_SE
 
 **Regla nueva y permanente**: todo cambio en `src/` sale por `npm run release`; `git push origin master` queda para documentación — [DEC-018](08-DECISIONS.md).
 
+## Actualización 2026-08-19 (noche) — pagos de MercadoPago del catálogo
+
+Rama `fix/catalogo-mp-metricas` (ambos repos), **sin mergear ni releasear**. Reporte de producción: dos ventas de catálogo del mes, una cobrada por MercadoPago, y el dashboard mostrando $0 facturado y $0 cobrado.
+
+| Defecto | Estado | Dónde |
+|---|---|---|
+| Métricas de catálogo sumando `payment_amount` (facturado ≠ cobrado) | ✅ Cerrado | `dashboard.service.ts`. [DEC-019](08-DECISIONS.md#dec-019), `BR-CATALOG-002` |
+| Preference de catálogo creada sin `notification_url` — MP nunca llamaba al webhook | ✅ Cerrado | `catalog.service.ts` (`buildCatalogNotificationUrl`) |
+| Webhook de catálogo que no acreditaba el cobro ni asentaba en caja ni avisaba | ✅ Cerrado | `applyCatalogPaymentResult` + `reconcileCatalogPayments`. [DEC-020](08-DECISIONS.md#dec-020), `BR-CATALOG-001` |
+| `back_urls` armadas con `FRONTEND_URL` cruda (que es un CSV) | ✅ Cerrado | `catalog.controller.ts` |
+| Sin aviso automático de cobro | ✅ Cerrado | Socket `notification:catalog_payment` + mail (`CATALOG_PAYMENT_NOTIFY_EMAIL`/`ALERT_EMAIL_TO`) |
+| Los dos pedidos ya afectados en producción | ❌ Abierto | Se recuperan con `scripts/reconcile-catalog-order.ts` **después** de desplegar |
+| Verificación con un pago real de MercadoPago | ❌ Abierto | Los tests simulan MP con `jest.spyOn` — el circuito de punta a punta no se probó todavía |
+
 ---
 
 > Lo que sigue es la fotografía original al **2026-08-05**. Basado en `git log`/`git status` reales de ambos repos y en `backIndians/documentos/AUDITORIA_TIENDA_ONLINE_AVANCE.md`.

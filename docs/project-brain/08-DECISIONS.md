@@ -206,6 +206,48 @@
 
 **Estado**: Vigente.
 
+## DEC-019 — En el catálogo, "facturación" es lo emitido y "cobrado" son los cobros reales: no se mezclan
+
+**Fecha**: 2026-08-19 (fix del reporte de producción sobre `CAT-2026-00001/00002`).
+
+**Decisión**: las métricas de catálogo del dashboard separan de forma explícita las dos magnitudes, con las mismas fuentes que ya usaba el circuito de fábrica:
+
+- **Facturación del período** → `SUM(catalog_invoices.total_amount)` de las facturas `issued`/`paid`, imputadas por `issue_date`.
+- **Cobrado (por medio de pago)** → filas de `catalog_invoice_payments`, imputadas por `paid_at`.
+- **Pendiente de cobro** → `total_amount − payment_amount` de las facturas no anuladas.
+
+**Motivo**: las seis métricas de catálogo sumaban `catalog_invoices.payment_amount`, un campo que **sólo** se llena al registrar un cobro explícito (`addPaymentToCatalogInvoice`). Ni marcar la factura como "Pagada" desde el panel ni el webhook de MP lo tocaban. Resultado en producción: dos ventas del mes, una cobrada por MercadoPago, y el dashboard mostrando "Facturación catálogo: $0", "Cobrado vía MercadoPago: $0" y la curva de evolución en cero. La métrica no estaba rota por un caso borde: estaba midiendo otra cosa que la que decía su título.
+
+**Alternativa descartada**: dejar la métrica como estaba y hacer que "marcar como pagada" completara `payment_amount`. Habría tapado el síntoma sin arreglar la definición — una factura emitida y no cobrada tiene que sumar a la facturación del mes igual, como ya pasa en fábrica.
+
+**Consecuencias**:
+- `payment_breakdown.via_mp` pasó a contar **cobros** (`count` = cantidad de cobros de MercadoPago), no pedidos con `mp_payment_status='approved'`. Soporta cobros parciales, que el criterio anterior no podía representar.
+- `catalog_orders.mp_payment_status` deja de ser fuente de métricas y queda como lo que es: la traza del último estado informado por MP.
+- El dashboard de catálogo y el de fábrica ahora definen "facturación" igual. Si se cambia uno, hay que mirar el otro.
+
+**Estado**: Vigente.
+
+## DEC-020 — Un pago de MercadoPago del catálogo se acredita solo, por dos caminos independientes
+
+**Fecha**: 2026-08-19.
+
+**Decisión**: el circuito de catálogo recibe el mismo tratamiento que la tienda online: `applyCatalogPaymentResult` registra el cobro en la factura, la salda si corresponde, genera el asiento de caja y avisa (socket + mail). Se llega ahí por **dos** caminos, a propósito redundantes:
+
+1. **Webhook** (`POST /catalog/webhook/mp`), con la preference declarando `notification_url`.
+2. **Job de reconciliación** (`reconcileCatalogPayments`, cada 10 min), que le pregunta a MP por los pedidos con link/QR generado y factura sin saldar.
+
+**Motivo**: hasta este fix, `handleMPWebhook` sólo estampaba `mp_payment_id`/`mp_payment_status` en el pedido — no registraba cobro, no asentaba caja, no avisaba a nadie. Y como la preference se creaba **sin `notification_url`**, MP ni siquiera lo llamaba. Un pedido pagado por QR era indistinguible de uno impago, y la única forma de enterarse era que alguien mirara la cuenta de MercadoPago.
+
+La redundancia no es paranoia, es la lección de [DEC-014](#dec-014): entre el 2026-08-07 y el 2026-08-19, con `MP_WEBHOOK_SECRET` sin cargar, **todas** las notificaciones de MP se rechazaban con 401 y nadie lo notó por doce días. El webhook es el camino rápido; el job es la red de contención que hace que una falla de configuración degrade el sistema (hasta 10 minutos de demora) en vez de romperlo. `applyCatalogPaymentResult` es idempotente (índice único sobre `idempotency_key = mp-<paymentId>`), así que los dos pueden correr a la vez sin duplicar cobros.
+
+**Consecuencias**:
+- El webhook de catálogo pasa a depender de `BACKEND_PUBLIC_URL`, que ya era obligatoria en producción (`validateEnv()` no deja arrancar sin ella): no hay configuración nueva que cargar.
+- Las preferences creadas **antes** de este cambio siguen sin `notification_url` — para esos pedidos el único camino sigue siendo el job o el script de recuperación.
+- Un pago aprobado que no se puede imputar (factura anulada, moneda distinta a ARS) **no** se acredita: se loguea como error y dispara `sendAlert`. Es plata real que entró sin destino y tiene que verla una persona.
+- El job deja afuera a propósito las facturas ya marcadas "Pagada" a mano — y son justamente las que quedaron mal por el bug. Para esas está `scripts/reconcile-catalog-order.ts`.
+
+**Estado**: Vigente.
+
 ## Actualizar este documento cuando…
 
 Se tome una decisión técnica o funcional nueva con impacto duradero, o se revierta/reemplace una decisión ya registrada (agregar entrada nueva referenciando la anterior, no editar la histórica).

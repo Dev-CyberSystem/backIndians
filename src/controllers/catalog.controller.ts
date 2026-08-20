@@ -161,7 +161,16 @@ export async function updateCatalogOrderStatus(req: AuthRequest, res: Response, 
 
 export async function initiateCatalogPayment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // OJO: `FRONTEND_URL` puede ser una LISTA separada por comas (es la
+    // allowlist de CORS de `app.ts`, con el dominio de la tienda y el del
+    // sistema). Usarla cruda acá generaba back_urls del tipo
+    // "https://a.com,https://b.com/catalog/orders?payment=success", que MP
+    // rechaza o convierte en una redirección rota tras pagar. Mismo criterio
+    // que `auth.service.ts`: `SYSTEM_URL` y, si no está, el primer origen.
+    const frontendUrl =
+      process.env.SYSTEM_URL ||
+      process.env.FRONTEND_URL?.split(',')[0].trim() ||
+      'http://localhost:5173';
     const customAmount = req.body.amount != null ? Number(req.body.amount) : undefined;
     const result = await catalogService.initiateCatalogPayment(
       parseInt(req.params.id),
@@ -249,7 +258,7 @@ export async function mpWebhook(req: AuthRequest, res: Response, next: NextFunct
     }
 
     if (paymentId) {
-      await catalogService.handleMPWebhook(String(paymentId));
+      await catalogService.handleMPWebhook(String(paymentId), req.body);
     }
     res.sendStatus(200);
   } catch (err) { next(err); }
