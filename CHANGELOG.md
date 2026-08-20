@@ -3,6 +3,17 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.0.4 — 2026-08-20
+
+### backIndians (5454927)
+
+- fix(catalogo): acreditar pagos de MercadoPago y separar facturado de cobrado
+- docs(release): los comandos del runbook pasan a PowerShell
+
+### frontIndians (f725209)
+
+- fix(catalogo): avisar en el panel cuando impacta un pago de MercadoPago
+
 ## v1.0.3 — 2026-08-20
 
 ### backIndians (1f8189a)
