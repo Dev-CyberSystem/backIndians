@@ -49,11 +49,13 @@ Una sola versión `vX.Y.Z` para **ambos** repos, aunque en un release uno de los
 
 Criterio de numeración: `major` cambio que rompe algo o migración destructiva; `minor` funcionalidad nueva; `patch` correcciones.
 
+> **Los comandos de este documento son para PowerShell**, que es donde realmente se releasea (Windows). Dos diferencias que ya hicieron fallar un release: **no existe `\` como continuación de línea** —git lo recibe como si fuera una rama y tira `not something we can merge`— y **Windows PowerShell 5.1 no soporta `&&`**, que da error de parser. Por eso acá va un comando por línea. Si necesitás encadenar condicionalmente: `comando1; if ($?) { comando2 }`.
+
 ## Configuración previa (una sola vez por máquina)
 
-```bash
+```powershell
 cd backIndians
-cp .env.release.example .env.release
+Copy-Item .env.release.example .env.release
 ```
 
 Completar `.env.release` con:
@@ -65,7 +67,15 @@ Completar `.env.release` con:
 
 ## Preparar un release
 
-```bash
+Si el release incluye una rama, **mergeala primero y confirmá que el merge entró**: `npm run release` tagea lo que hay en `master`, no lo que quedó en la rama.
+
+```powershell
+cd backIndians
+git merge --no-ff <rama> -m "Merge <rama>: <qué trae>"
+git log --oneline -1         # tiene que mostrar el merge, no el commit anterior
+```
+
+```powershell
 cd backIndians
 npm run release              # patch: v1.2.3 -> v1.2.4
 npm run release -- minor     # v1.2.3 -> v1.3.0
@@ -87,17 +97,19 @@ Flags: `--dry-run`, `--skip-tests`, `--skip-backup`, `--allow-dirty`, `--branch=
 
 ## Deployar
 
-```bash
+```powershell
 # 1. Backend — Railway deploya solo al recibir el push
 cd backIndians
-git push origin master && git push origin vX.Y.Z
+git push origin master
+git push origin vX.Y.Z
 
 # 2. Verificar que levantó (health debe reportar la versión nueva)
 npm run release:status
 
 # 3. Frontend — sube el build exacto que se validó
-cd ../frontIndians
-git push origin master && git push origin vX.Y.Z
+cd ..\frontIndians
+git push origin master
+git push origin vX.Y.Z
 npm run deploy:release -- vX.Y.Z
 
 # 4. Humo en producción
@@ -110,10 +122,10 @@ npm run deploy:release -- vX.Y.Z
 
 ## Verificar qué hay en producción
 
-```bash
-cd backIndians && npm run release:status
-# Alias corto para la consulta cotidiana:
-cd backIndians && npm run prod
+```powershell
+cd backIndians
+npm run release:status
+npm run prod                 # alias corto, para la consulta cotidiana
 ```
 
 Compara el tag local con lo que reportan el `/health` del backend y el `/version.json` de los dos hostnames del frontend. Detecta los dos problemas silenciosos: **deploy a medias** (backend, sistema y tienda en versiones distintas) y **release sin deployar** (tag creado pero producción todavía en la versión anterior).
@@ -124,7 +136,7 @@ El mismo reporte valida los **commits exactos**: detecta si un componente conser
 
 ## Rollback
 
-```bash
+```powershell
 cd backIndians
 npm run rollback              # lista las versiones disponibles
 npm run rollback -- v1.3.0 --from=v1.4.0
@@ -143,7 +155,7 @@ El script **ejecuta** el plano 1 (resubir el frontend anterior, con confirmació
 
 Primero, la pregunta que evita la mayoría de los desastres:
 
-```bash
+```powershell
 npm run migrate:status -- --env production
 ```
 
@@ -151,7 +163,7 @@ Si las migraciones nuevas son **aditivas** (columnas o tablas nuevas), el códig
 
 Si hay que revertir una migración concreta:
 
-```bash
+```powershell
 npm run migrate:undo -- --env production   # revierte SOLO la última
 ```
 
@@ -159,7 +171,7 @@ Verificar antes que esa migración tenga un `down` real. Varias migraciones del 
 
 Si hubo pérdida o corrupción de datos:
 
-```bash
+```powershell
 npm run db:restore                                  # lista los backups
 npm run db:restore -- <archivo> --target=prod       # restaura (pide confirmación fuerte)
 ```
@@ -174,7 +186,7 @@ El valor de `--from` es importante: el backup `v1.4.0-<fecha>.sql.gz` se tomó *
 
 `db:restore` apunta a la base **local** por defecto, justamente para esto:
 
-```bash
+```powershell
 npm run db:restore -- <archivo>    # restaura sobre la base de desarrollo
 ```
 
@@ -198,7 +210,7 @@ La lógica de verificación tiene tests propios (`src/__tests__/unit/verify-dump
 
 ## Correr SQL contra producción: `npm run db:exec`
 
-```bash
+```powershell
 npm run db:exec -- ruta/al/archivo.sql          # pide confirmación si toca datos
 npm run db:exec -- ruta/al/archivo.sql --yes    # no interactivo
 ```
