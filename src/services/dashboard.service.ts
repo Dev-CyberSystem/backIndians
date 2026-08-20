@@ -329,10 +329,21 @@ export async function getDashboardSummary(period?: string) {
   });
 
   // ── Catálogo: queries paralelas ────────────────────────────────────────────
+  //
+  // OJO con la diferencia entre FACTURADO y COBRADO — mezclarlas fue
+  // exactamente el bug del 2026-08-19: todas estas métricas sumaban
+  // `ci.payment_amount`, que sólo se llena al registrar un cobro explícito.
+  // Marcar una factura como "Pagada" desde el panel no lo toca, y el webhook
+  // de MP tampoco lo tocaba, así que una venta cobrada mostraba $0 facturado.
+  //   · Facturación → `ci.total_amount` de facturas emitidas/pagadas (mismo
+  //     criterio que la facturación de fábrica, más arriba en este archivo).
+  //   · Cobrado     → filas reales de `catalog_invoice_payments`.
+  //   · Pendiente   → saldo (total facturado − cobrado) de lo no anulado.
   const [
     catalogOrdersThisPeriod,
     catalogOrdersLastPeriod,
     catalogRevenueRows,
+    catalogCollectionRows,
     catalogByMonthRows,
     catalogTopProductRows,
     catalogTopSellerRows,
@@ -347,37 +358,54 @@ export async function getDashboardSummary(period?: string) {
        WHERE createdAt BETWEEN :from AND :to`,
       { replacements: { from: prevStart, to: prevEnd }, type: QueryTypes.SELECT }
     ),
-    // Revenue + breakdown de medios de cobro
+    // Facturación del catálogo (emitido) + saldo pendiente de cobro.
+    // Se lee de `catalog_invoices` directo, sin pasar por el pedido: la
+    // facturación se imputa a la fecha de emisión de la factura, igual que en
+    // el circuito de fábrica.
+    sequelize.query<{
+      this_revenue: string; prev_revenue: string;
+      pending_count: string; pending_amount: string;
+    }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status IN ('issued','paid')
+                            AND issue_date BETWEEN :from AND :to THEN total_amount END), 0)      AS this_revenue,
+         COALESCE(SUM(CASE WHEN status IN ('issued','paid')
+                            AND issue_date BETWEEN :prevFrom AND :prevTo THEN total_amount END), 0) AS prev_revenue,
+         COALESCE(SUM(CASE WHEN status IN ('draft','issued')
+                            AND issue_date BETWEEN :from AND :to
+                           THEN GREATEST(total_amount - payment_amount, 0) END), 0)              AS pending_amount,
+         SUM(CASE WHEN status IN ('draft','issued')
+                   AND issue_date BETWEEN :from AND :to
+                   AND total_amount - payment_amount > 0 THEN 1 ELSE 0 END)                      AS pending_count
+       FROM catalog_invoices
+       WHERE issue_date BETWEEN :prevFrom AND :to`,
+      { replacements: { from: periodStart, to: periodEnd, prevFrom: prevStart, prevTo: prevEnd }, type: QueryTypes.SELECT }
+    ),
+    // Cobrado en el período, por medio de pago. Sale de los cobros reales
+    // (`catalog_invoice_payments`), que es la única fuente que distingue
+    // MercadoPago de efectivo/transferencia y soporta cobros parciales. Se
+    // imputa por fecha de COBRO (`paid_at`), no por fecha de la factura.
     sequelize.query<{
       mp_count: string; mp_amount: string;
       manual_count: string; manual_amount: string;
-      pending_count: string; pending_amount: string;
-      this_revenue: string; prev_revenue: string;
     }>(
       `SELECT
-         SUM(CASE WHEN co.mp_payment_status = 'approved' THEN 1 ELSE 0 END)                           AS mp_count,
-         COALESCE(SUM(CASE WHEN co.mp_payment_status = 'approved' THEN ci.payment_amount ELSE 0 END), 0) AS mp_amount,
-         SUM(CASE WHEN (co.mp_payment_status IS NULL OR co.mp_payment_status != 'approved')
-                   AND ci.status = 'paid' THEN 1 ELSE 0 END)                                          AS manual_count,
-         COALESCE(SUM(CASE WHEN (co.mp_payment_status IS NULL OR co.mp_payment_status != 'approved')
-                   AND ci.status = 'paid' THEN ci.payment_amount ELSE 0 END), 0)                      AS manual_amount,
-         SUM(CASE WHEN (co.mp_payment_status IS NULL OR co.mp_payment_status != 'approved')
-                   AND ci.status IN ('draft','issued') THEN 1 ELSE 0 END)                             AS pending_count,
-         COALESCE(SUM(CASE WHEN (co.mp_payment_status IS NULL OR co.mp_payment_status != 'approved')
-                   AND ci.status IN ('draft','issued') THEN ci.payment_amount ELSE 0 END), 0)         AS pending_amount,
-         COALESCE(SUM(CASE WHEN ci.issue_date BETWEEN :from AND :to AND ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS this_revenue,
-         COALESCE(SUM(CASE WHEN ci.issue_date BETWEEN :prevFrom AND :prevTo AND ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS prev_revenue
-       FROM catalog_orders co
-       LEFT JOIN catalog_invoices ci ON ci.catalog_order_id = co.id
-       WHERE co.createdAt BETWEEN :from AND :to`,
-      { replacements: { from: periodStart, to: periodEnd, prevFrom: prevStart, prevTo: prevEnd }, type: QueryTypes.SELECT }
+         SUM(CASE WHEN cip.payment_method = 'mercadopago' THEN 1 ELSE 0 END)                       AS mp_count,
+         COALESCE(SUM(CASE WHEN cip.payment_method = 'mercadopago' THEN cip.amount ELSE 0 END), 0) AS mp_amount,
+         SUM(CASE WHEN cip.payment_method <> 'mercadopago' THEN 1 ELSE 0 END)                      AS manual_count,
+         COALESCE(SUM(CASE WHEN cip.payment_method <> 'mercadopago' THEN cip.amount ELSE 0 END), 0) AS manual_amount
+       FROM catalog_invoice_payments cip
+       JOIN catalog_invoices ci ON ci.id = cip.catalog_invoice_id
+       WHERE ci.status <> 'cancelled'
+         AND cip.paid_at BETWEEN :from AND :to`,
+      { replacements: { from: periodStart, to: periodEnd }, type: QueryTypes.SELECT }
     ),
     // Evolución mensual catálogo
     sequelize.query<{ month: string; count: string; revenue: string }>(
       `SELECT
          DATE_FORMAT(co.createdAt, '%Y-%m')                                                  AS month,
          COUNT(co.id)                                                                         AS count,
-         COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS revenue
+         COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.total_amount ELSE 0 END), 0) AS revenue
        FROM catalog_orders co
        LEFT JOIN catalog_invoices ci ON ci.catalog_order_id = co.id
        WHERE co.createdAt BETWEEN :from AND :to
@@ -409,7 +437,7 @@ export async function getDashboardSummary(period?: string) {
          u.id                                                                              AS seller_id,
          u.name                                                                            AS seller_name,
          COUNT(co.id)                                                                      AS total_orders,
-         COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS total_revenue
+         COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.total_amount ELSE 0 END), 0) AS total_revenue
        FROM catalog_orders co
        JOIN users u ON u.id = co.seller_id
        LEFT JOIN catalog_invoices ci ON ci.catalog_order_id = co.id
@@ -424,6 +452,7 @@ export async function getDashboardSummary(period?: string) {
   const catOrders   = Number(catalogOrdersThisPeriod[0]?.count ?? 0);
   const catOrdersPrev = Number(catalogOrdersLastPeriod[0]?.count ?? 0);
   const catRev = catalogRevenueRows[0] ?? {};
+  const catCol = catalogCollectionRows[0] ?? {};
   const catRevThis  = Number(catRev.this_revenue ?? 0);
   const catRevPrev  = Number(catRev.prev_revenue  ?? 0);
 
@@ -434,8 +463,8 @@ export async function getDashboardSummary(period?: string) {
     revenue_last_period: catRevPrev,
     pending_revenue: Number(catRev.pending_amount ?? 0),
     payment_breakdown: {
-      via_mp:  { count: Number(catRev.mp_count ?? 0),      amount: Number(catRev.mp_amount ?? 0) },
-      manual:  { count: Number(catRev.manual_count ?? 0),  amount: Number(catRev.manual_amount ?? 0) },
+      via_mp:  { count: Number(catCol.mp_count ?? 0),      amount: Number(catCol.mp_amount ?? 0) },
+      manual:  { count: Number(catCol.manual_count ?? 0),  amount: Number(catCol.manual_amount ?? 0) },
       pending: { count: Number(catRev.pending_count ?? 0), amount: Number(catRev.pending_amount ?? 0) },
     },
     by_month: catalogByMonthRows.map(r => ({
@@ -588,7 +617,7 @@ export async function getSellerStats(filters: {
     `SELECT
        co.seller_id,
        COUNT(co.id)                                                                               AS catalog_orders,
-       COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.payment_amount ELSE 0 END), 0) AS catalog_revenue
+       COALESCE(SUM(CASE WHEN ci.status IN ('issued','paid') THEN ci.total_amount ELSE 0 END), 0) AS catalog_revenue
      FROM catalog_orders co
      LEFT JOIN catalog_invoices ci ON ci.catalog_order_id = co.id
      WHERE co.createdAt BETWEEN :currentStart AND :currentEnd

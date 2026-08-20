@@ -4,7 +4,45 @@
 
 ---
 
-## Última actualización: 2026-08-19 (tarde) — Cierre de los hallazgos de la auditoría de panel
+## Última actualización: 2026-08-19 (noche) — Pagos de MercadoPago del catálogo: acreditación, métricas y aviso
+
+Rama: `fix/catalogo-mp-metricas` en **ambos** repos. No mergeada, no releaseada.
+
+### De dónde salió
+
+Reporte de producción: dos ventas de catálogo del mes (`CAT-2026-00001` anulada, `CAT-2026-00002` cobrada por MercadoPago) y el dashboard mostrando "Pedidos catálogo: 2" pero "Facturación catálogo: $0", "Cobrado vía MercadoPago: $0" y la curva de evolución en cero. Junto con eso, la pregunta de fondo: **¿hay forma de enterarse automáticamente cuando impacta un pago?** — la respuesta honesta era no.
+
+### Los cuatro defectos, que son independientes entre sí
+
+1. **Métricas midiendo otra cosa** — las seis métricas de catálogo sumaban `catalog_invoices.payment_amount`, que sólo se llena al registrar un cobro explícito. Marcar la factura "Pagada" desde el panel no lo toca. Ver [DEC-019](08-DECISIONS.md#dec-019) y `BR-CATALOG-002`.
+2. **La preference se creaba sin `notification_url`** — MP nunca llamaba al webhook de catálogo. El de la tienda sí la mandaba desde siempre; el de catálogo, no.
+3. **El webhook no acreditaba nada** — `handleMPWebhook` estampaba `mp_payment_id`/`mp_payment_status` y terminaba ahí: sin cobro en la factura, sin asiento de caja, sin aviso. Ver [DEC-020](08-DECISIONS.md#dec-020) y `BR-CATALOG-001`.
+4. **`back_urls` armadas con `FRONTEND_URL` cruda**, que es un CSV de orígenes de CORS — la redirección post-pago apuntaba a una URL rota. Ahora usa `SYSTEM_URL` o el primer origen, igual que `auth.service.ts`.
+
+### Qué se hizo
+
+**Backend**: `applyCatalogPaymentResult` (nueva, compartida por webhook y job) registra el cobro como `CatalogInvoicePayment` con `payment_method='mercadopago'` e `idempotency_key = mp-<paymentId>`, salda la factura y genera el asiento de caja; `handleMPWebhook` reescrito con dedup por `webhook_events` (`provider='mercadopago_catalog'`); `confirmCatalogPayment` + `jobs/reconcileCatalogPayments.ts` (cron cada 10 min, desfasado 5 del de tienda); `webhookLimiter` en la ruta del webhook; métricas del dashboard reescritas. **Aviso**: socket `notification:catalog_payment` + mail a `CATALOG_PAYMENT_NOTIFY_EMAIL`/`ALERT_EMAIL_TO`.
+
+**Frontend**: listener del evento nuevo en `useSocket.ts` (filtrado por rol — al vendedor sólo sus ventas) e invalidación de `['catalog','orders']` y `['dashboard']`; dos etiquetas del dashboard corregidas para que digan lo que ahora miden.
+
+**Script de recuperación**: `scripts/reconcile-catalog-order.ts` — el job automático deja afuera las facturas ya marcadas "Pagada" a mano, que son justamente las que quedaron mal.
+
+### Validación
+
+- Backend: `npm run typecheck` limpio · `npx jest --forceExit` → **57 suites / 401 tests, 0 fallas** (10 nuevos en `catalog-mp-payments.test.ts`).
+- Frontend: `tsc --noEmit` limpio · Vitest **47/47** · ESLint sin errores nuevos en los archivos tocados.
+- **No verificado contra MercadoPago real** — los pagos se simulan con `jest.spyOn`. La prueba de fuego es el paso 3 de abajo.
+
+### Cómo retomar
+
+1. **Mergear y releasear** por `npm run release` ([DEC-018](08-DECISIONS.md#dec-018)). **No hace falta cargar ninguna variable nueva**: `BACKEND_PUBLIC_URL` y `MP_WEBHOOK_SECRET` ya están en Railway (`validateEnv()` no deja arrancar sin ellas en producción). La única opcional es `CATALOG_PAYMENT_NOTIFY_EMAIL`; sin ella el aviso de cobro va a `ALERT_EMAIL_TO`.
+2. **Recuperar el pago viejo** contra la base de producción: `npx ts-node --project tsconfig.seed.json scripts/reconcile-catalog-order.ts CAT-2026-00002`. Idempotente. Después verificar el dashboard.
+3. **Probar el circuito completo con un pago real chico**: generar el QR de un pedido nuevo, pagarlo, y confirmar que llega el toast en el panel, el mail, y que el pedido queda cobrado sin tocar nada. Es lo único que valida el webhook de punta a punta — los tests simulan MP con `jest.spyOn`.
+4. **Verificar que MP recibe la `notification_url`**: en el panel de MercadoPago, la notificación de ese pago debe figurar contra `/api/v1/catalog/webhook/mp`, no contra la de tienda. Si llegara a la de tienda, se ignora (filtra por prefijo `ECOM-`) y el pago lo termina levantando el job.
+
+---
+
+## Sesión anterior: 2026-08-19 (tarde) — Cierre de los hallazgos de la auditoría de panel
 
 ### Objetivo de la sesión
 

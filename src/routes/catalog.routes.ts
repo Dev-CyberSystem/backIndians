@@ -3,13 +3,16 @@ import { body, param, query, header } from 'express-validator';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
+import { webhookLimiter } from '../middlewares/rateLimit';
 import { upload } from '../middlewares/upload';
 import * as ctrl from '../controllers/catalog.controller';
 
 const router = Router();
 
-// Webhook de MercadoPago — sin autenticación (llamado por MP directamente)
-router.post('/webhook/mp', ctrl.mpWebhook);
+// Webhook de MercadoPago — sin autenticación (lo llama MP directamente), con
+// el mismo rate limit que el de la tienda: es un endpoint público que desde
+// este fix registra cobros y asientos de caja.
+router.post('/webhook/mp', webhookLimiter, ctrl.mpWebhook);
 
 router.use(authenticate);
 

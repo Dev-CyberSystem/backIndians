@@ -123,6 +123,20 @@
 **Fuente**: commits `35ae47d` (backend) y `0819968` (frontend), hallazgo C-4 de `AUDITORIA_TIENDA_ONLINE_DIAGNOSTICO.md`.
 **Estado**: Vigente.
 
+### BR-CATALOG-001 — Un pago de MercadoPago aprobado se acredita solo en la factura de catálogo
+**Descripción**: cuando MercadoPago informa un pago `approved` de una venta de catálogo (por webhook o por el job de reconciliación), el sistema registra un `CatalogInvoicePayment` con `payment_method='mercadopago'`, actualiza `payment_amount` de la factura, la pasa a `paid` si quedó saldada y genera el asiento de caja (BR-CASH-016). Es idempotente por `idempotency_key = mp-<paymentId>`, así que el webhook y el job pueden aplicar el mismo pago sin duplicarlo. Un pago **parcial** (pedido con `payment_type='half'` o monto personalizado en el QR) es un caso normal: se registra y la factura queda `issued` con saldo. Un pago aprobado que **no se puede imputar** (factura anulada, moneda distinta de ARS) no se acredita a ciegas: se loguea como error y dispara `sendAlert`.
+**Módulo**: Catálogo mayorista (7) / Caja (9).
+**Fuente**: `catalog.service.ts` (`applyCatalogPaymentResult`, `handleMPWebhook`, `confirmCatalogPayment`), `jobs/reconcileCatalogPayments.ts`, `DEC-020`.
+**Estado**: Vigente desde 2026-08-19. Antes de esa fecha el webhook sólo estampaba `mp_payment_status` en el pedido, y ni siquiera lo llamaban (la preference iba sin `notification_url`).
+
+---
+
+### BR-CATALOG-002 — En las métricas de catálogo, facturado y cobrado son magnitudes distintas
+**Descripción**: la "Facturación catálogo" del dashboard es `SUM(catalog_invoices.total_amount)` de las facturas `issued`/`paid` del período (por `issue_date`) — una factura emitida suma aunque todavía no se haya cobrado, igual que en fábrica. Lo "Cobrado" sale de las filas de `catalog_invoice_payments` (por `paid_at`) y se desglosa por medio de pago. El "Pendiente de cobro" es el saldo `total_amount − payment_amount` de las facturas no anuladas. `catalog_orders.mp_payment_status` **no** es fuente de ninguna métrica de dinero.
+**Módulo**: Catálogo mayorista (7) / Dashboard.
+**Fuente**: `dashboard.service.ts` (bloque "Catálogo: queries paralelas", `getSellerPerformance`), `DEC-019`.
+**Estado**: Vigente desde 2026-08-19. Antes, las seis métricas sumaban `payment_amount`, que sólo se llena al registrar un cobro explícito — una venta cobrada mostraba $0 facturado.
+
 ---
 
 ## Costos de prendas

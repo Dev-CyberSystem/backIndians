@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { logger } from '../utils/logger';
 import { sendAlert } from '../utils/alerts';
 import { reconcilePendingPayments } from './reconcilePayments';
+import { reconcileCatalogPayments } from './reconcileCatalogPayments';
 import { reportDailyInconsistencies } from './reportInconsistencies';
 import { expireStaleOrders } from './expireStaleOrders';
 
@@ -64,6 +65,17 @@ export function startScheduledJobs(): void {
     })
   );
 
+  // Cada 10 minutos, desfasado 5 respecto del anterior para no pegarle a la
+  // API de MP con las dos reconciliaciones al mismo tiempo: pagos de catálogo
+  // (QR / link) que quedaron sin acreditar.
+  cron.schedule('5,15,25,35,45,55 * * * *', () =>
+    runScheduledJob('reconcileCatalogPayments', reconcileCatalogPayments, {
+      impact:
+        'Los pagos de MercadoPago de las ventas de catálogo dejan de acreditarse solos: la factura ' +
+        'queda sin cobro registrado, no se asienta en caja y el dashboard muestra $0 facturado.',
+    })
+  );
+
   // Una vez por día (03:00) — horario de bajo tráfico.
   cron.schedule('0 3 * * *', () =>
     runScheduledJob('reportInconsistencies', reportDailyInconsistencies, {
@@ -84,6 +96,6 @@ export function startScheduledJobs(): void {
   );
 
   logger.info('jobs.scheduler.started', {
-    message: 'Jobs de reconciliación (10 min), expiración de pedidos (1 hora) e inconsistencias (diario 03:00) programados',
+    message: 'Jobs de reconciliación de tienda y de catálogo (10 min cada uno), expiración de pedidos (1 hora) e inconsistencias (diario 03:00) programados',
   });
 }
