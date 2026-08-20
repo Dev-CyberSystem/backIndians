@@ -20,7 +20,7 @@ Lo que cerró la sesión del 2026-08-19 (informe: `documentos/AUDITORIA_PANEL_SE
 | **L-03** constancia de arrepentimiento por mail | ✅ Ya estaba implementada | Lo que faltaba era el test: `store-withdrawal-email.test.ts` |
 | **S-04** `npm audit` del frontend | 🟡 Parcial | `nanoid` (alta) cerrada. `react-router` (2 moderadas) **requiere el major v7** — pendiente de decisión |
 | **R-03/R-04** drift y sin rollback | Ver `11-RELEASE-Y-ROLLBACK.md` | Se resuelven con el release `v1.0.1` |
-| **B-04** `MP_WEBHOOK_SECRET` | ❌ Abierto | Tarea de Railway, ver [DEC-014](08-DECISIONS.md) |
+| **B-04** `MP_WEBHOOK_SECRET` | ✅ Cerrado (2026-08-19) | Variable cargada en Railway + chequeo de arranque de vuelta a fatal + `webhook_secret` en `/health`. Cierra [DEC-014](08-DECISIONS.md) |
 | **L-04/L-05** Data Fiscal y domicilio | ❌ Abierto | Configuración en el panel, no código |
 | **D-01/C7** monitoreo externo | ❌ Abierto | 8 casillas de `documentos/ALERTAS_Y_MONITOREO.md` |
 | **C6** HSTS | ❌ Abierto | Decisión del dueño: **no activar por ahora** (2026-08-19) |

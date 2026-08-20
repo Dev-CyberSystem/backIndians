@@ -127,7 +127,18 @@
 - Una vez configurado, volver a subir el chequeo de `server.ts` a fatal (revertir el commit `1de899d` o equivalente) — la rebaja a warning no debe quedar como comportamiento permanente.
 - Confirmar si `NPM_CONFIG_PRODUCTION=false` debe quedar permanente (es inocuo y es el patrón estándar para backends TypeScript en Railway) o si se prefiere una alternativa (ej. mover `typescript` a `dependencies`, menos robusto porque no cubre otros `@types/*` que también hacen falta en el build).
 
-**Estado**: Resuelta como medida temporal. **No cerrar como incidente hasta configurar el `MP_WEBHOOK_SECRET` real y revertir el chequeo a fatal.**
+**Estado**: ✅ **CERRADA el 2026-08-19.**
+
+**Cierre** (12 días después de la medida de emergencia):
+1. `MP_WEBHOOK_SECRET` cargado en Railway. Verificado sobre el arranque del `2026-08-19 18:02 GMT-3` (deployment `819ae6c2`, el proceso que estaba sirviendo): los logs **no** contienen `startup.envValidation.temporary`, la línea que sólo se emite cuando la variable falta.
+2. El chequeo de `server.ts` volvió a ser fatal, junto con `BACKEND_PUBLIC_URL`, y se borró el bloque de medida temporal.
+3. Se agregó `webhook_secret` (booleano, **nunca el valor**) a `/health`, y `npm run prod` lo reporta.
+
+**Por qué el punto 3 es parte del cierre y no un extra.** Lo que mantuvo esto abierto doce días no fue la dificultad de cargar una variable: fue que **no había forma de saber desde afuera si estaba cargada**. `verifyWebhookSignature` devuelve `false` tanto si falta el secreto como si la firma es inválida —correcto por seguridad, inútil para diagnosticar—, así que la única evidencia era buscar la *ausencia* de una línea en los logs de Railway. Una ausencia sólo prueba algo si sabés que la verías. Sin un indicador positivo, nadie podía flipear el chequeo a fatal con confianza, y el riesgo de equivocarse era repetir el crash-loop del 06/08. El indicador es lo que rompe ese empate.
+
+**`NPM_CONFIG_PRODUCTION=false` queda permanente** en Railway: es el patrón estándar de Nixpacks para backends TypeScript y cubre también los `@types/*` que hacen falta en el build.
+
+**Regla que deja este incidente**: antes de volver fatal cualquier chequeo de arranque, tiene que existir una forma de verificar —desde afuera y sin leer logs— que la condición se cumple en el proceso que corre.
 
 ## DEC-015 — El pago en efectivo de la tienda online queda desactivado (temporal), y el camino de código se conserva
 

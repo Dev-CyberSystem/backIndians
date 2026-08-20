@@ -42,34 +42,42 @@ function validateEnv(): void {
   // notificaciones. Sin esto, los pagos no se acreditan solos (C-2) o el webhook
   // queda abierto a cualquiera (C-3). Fallar acá es más barato que descubrirlo
   // con pedidos pagados que nunca pasan a "paid".
+  // La rebaja temporal del 2026-08-07 (DEC-014) queda cerrada: `MP_WEBHOOK_SECRET`
+  // se cargó en Railway y el arranque del 2026-08-19 18:02 GMT-3 ya no logueó
+  // `startup.envValidation.temporary`, así que el chequeo vuelve a ser fatal.
+  //
+  // Por qué fatal y no un warning: sin el secreto, `verifyWebhookSignature`
+  // rechaza TODAS las notificaciones de MercadoPago (fail-closed real en
+  // `mercadopago.service.ts:22`). El sistema no queda inseguro, queda mudo — los
+  // pagos sólo se acreditan por el job de conciliación, con hasta ~10 minutos de
+  // demora, y nada lo grita. Un arranque que falla es ruidoso e inmediato; un
+  // warning en un log que nadie mira fue justamente lo que dejó esto abierto
+  // doce días.
+  //
+  // ⚠️ La contracara es real y ya pasó: activar esta validación sin la variable
+  // cargada dejó producción en crash-loop más de un día (2026-08-06T17:53 →
+  // 2026-08-07). Antes de tocar esta lista, confirmá que la variable está en el
+  // proceso que corre — `/health` ahora expone `webhook_secret` justamente para
+  // eso, y `npm run prod` lo muestra.
   if (process.env.NODE_ENV === 'production') {
-    const backendUrl = process.env.BACKEND_PUBLIC_URL || '';
     const prodErrors: string[] = [];
+
+    const backendUrl = process.env.BACKEND_PUBLIC_URL || '';
     if (!backendUrl || /localhost|127\.0\.0\.1/.test(backendUrl)) {
       prodErrors.push('BACKEND_PUBLIC_URL falta o apunta a localhost (requerido para el webhook de MercadoPago)');
     }
+
+    if (!process.env.MP_WEBHOOK_SECRET) {
+      prodErrors.push(
+        'MP_WEBHOOK_SECRET falta — sin él se rechazan todas las notificaciones de MercadoPago y los ' +
+        'pagos sólo se acreditan por el job de conciliación (hasta ~10 min de demora). ' +
+        'Cargalo en Railway con el mismo valor que figura en la configuración del webhook en MercadoPago.'
+      );
+    }
+
     if (prodErrors.length) {
       logger.error('startup.envValidation', new Error(prodErrors.join(' | ')));
       process.exit(1);
-    }
-
-    // ⚠️ MEDIDA TEMPORAL DE EMERGENCIA (2026-08-07): MP_WEBHOOK_SECRET nunca
-    // quedó configurado en Railway tras activarse esta validación, y el
-    // proceso quedó en crash-loop desde 2026-08-06T17:53 — producción caída
-    // más de un día. Se baja de "no arranca" a warning para levantar el
-    // servicio YA. La firma del webhook sigue rechazándose en tiempo de
-    // ejecución sin el secreto (fail-closed real en
-    // `mercadopago.service.ts#verifyWebhookSignature`) — no se abre ningún
-    // agujero de seguridad, pero los webhooks de MP no se acreditan solos
-    // hasta configurar el secreto real.
-    // TODO: configurar MP_WEBHOOK_SECRET en Railway (el mismo valor que
-    // figura en la config del webhook del lado de MercadoPago) y volver a
-    // subir este chequeo a fatal — no dejar esta rebaja como estado permanente.
-    if (!process.env.MP_WEBHOOK_SECRET) {
-      logger.error('startup.envValidation.temporary', new Error(
-        'MP_WEBHOOK_SECRET no configurado — el servicio arranca igual (medida de emergencia), ' +
-        'pero los webhooks de MercadoPago se rechazan hasta configurarlo en Railway.'
-      ));
     }
   }
 }
