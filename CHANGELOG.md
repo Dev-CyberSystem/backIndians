@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.0.3 — 2026-08-20
+
+### backIndians (1f8189a)
+
+- fix(mp): MP_WEBHOOK_SECRET vuelve a ser fatal en produccion
+
+### frontIndians (faa1a47)
+
+- sin cambios desde el release anterior
+
 ## v1.0.2 — 2026-08-20
 
 ### backIndians (6eea89a)
