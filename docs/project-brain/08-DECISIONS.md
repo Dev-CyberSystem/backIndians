@@ -235,6 +235,7 @@
 
 1. **Webhook** (`POST /catalog/webhook/mp`), con la preference declarando `notification_url`.
 2. **Job de reconciliación** (`reconcileCatalogPayments`, cada 10 min), que le pregunta a MP por los pedidos con link/QR generado y factura sin saldar.
+3. **Refresco a demanda desde el panel** (`POST /catalog/orders/:id/payment/refresh`, agregado el 2026-08-21). Los otros dos caminos resuelven que el *sistema* se entere; éste resuelve que se entere la *pantalla que el operador está mirando*. Ver [DEC-021](#dec-021).
 
 **Motivo**: hasta este fix, `handleMPWebhook` sólo estampaba `mp_payment_id`/`mp_payment_status` en el pedido — no registraba cobro, no asentaba caja, no avisaba a nadie. Y como la preference se creaba **sin `notification_url`**, MP ni siquiera lo llamaba. Un pedido pagado por QR era indistinguible de uno impago, y la única forma de enterarse era que alguien mirara la cuenta de MercadoPago.
 
@@ -245,6 +246,25 @@ La redundancia no es paranoia, es la lección de [DEC-014](#dec-014): entre el 2
 - Las preferences creadas **antes** de este cambio siguen sin `notification_url` — para esos pedidos el único camino sigue siendo el job o el script de recuperación.
 - Un pago aprobado que no se puede imputar (factura anulada, moneda distinta a ARS) **no** se acredita: se loguea como error y dispara `sendAlert`. Es plata real que entró sin destino y tiene que verla una persona.
 - El job deja afuera a propósito las facturas ya marcadas "Pagada" a mano — y son justamente las que quedaron mal por el bug. Para esas está `scripts/reconcile-catalog-order.ts`.
+
+**Estado**: Vigente.
+
+## DEC-021 — La pantalla del QR sondea a MercadoPago, no a nuestra base
+
+**Fecha**: 2026-08-21.
+
+**Decisión**: mientras está abierta la pantalla del código QR, el panel llama cada 10 segundos a `POST /catalog/orders/:id/payment/refresh` —que consulta a MercadoPago— y cierra esa pantalla solo apenas sube lo cobrado. El mismo endpoint está detrás del botón **Actualizar** del modal del pedido. El sondeo se corta a los 15 minutos.
+
+**Motivo**: con [DEC-020](#dec-020) el sistema ya se entera de los pagos, pero la pantalla no. El operador genera el QR, el cliente paga desde su propio teléfono, y en el panel no pasa nada: el modal guardaba el pedido en estado local de React y sólo cambiaba cuando el propio operador hacía algo. En las capturas del reporte se ven cuatro cobros que habían entrado y recién aparecieron al recargar a mano.
+
+**Por qué contra MP y no contra nuestra base**: releer nuestra base sólo sirve si el webhook ya llegó. Si no llegó —que es exactamente el caso que hay que cubrir— la base tampoco sabe nada hasta la próxima corrida del job, hasta 10 minutos después. Un botón "Actualizar" que muestra lo mismo que ya estaba en pantalla no resuelve el problema que se reportó.
+
+**Alternativa descartada**: sólo el botón, sin sondeo. Deja al operador adivinando cuándo tocarlo, y no cierra la pantalla del QR —que era la mitad del pedido original—. Se hicieron las dos cosas: el sondeo para el caso normal, el botón para cuando el sondeo ya se cortó o el operador está en el modal sin el QR abierto.
+
+**Consecuencias**:
+- Cada tick pega contra la API de MercadoPago, no sólo contra la nuestra: por eso el endpoint tiene `catalogPaymentRefreshLimiter` (60/min por IP) y el sondeo tiene tope de tiempo. Una pestaña olvidada no puede quemar cuota de MP indefinidamente.
+- El pedido abierto en el modal pasó a vivir en la caché de React Query (`['catalog','order', id]`), no en estado local. Las mutaciones que antes hacían `setDetailModal` ahora escriben ahí (`patchOpenOrder`), y el evento de socket `notification:catalog_payment` invalida `['catalog']` completo.
+- El refresco nunca falla por un problema con MercadoPago: si la consulta se cae, devuelve el pedido tal cual está y se reintenta en el próximo tick.
 
 **Estado**: Vigente.
 

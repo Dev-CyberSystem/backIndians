@@ -4,7 +4,40 @@
 
 ---
 
-## Última actualización: 2026-08-19 (noche) — Pagos de MercadoPago del catálogo: acreditación, métricas y aviso
+## Última actualización: 2026-08-21 — La pantalla del panel se entera del pago
+
+Rama: `fix/catalogo-refresco-pago` en **ambos** repos. No mergeada, no releaseada. Continúa el trabajo de la sesión anterior (ya releaseado como **v1.0.4**).
+
+### De dónde salió
+
+Con v1.0.4 el sistema ya acredita los pagos de MercadoPago del catálogo, pero **la pantalla no se entera**: el operador genera el QR, el cliente paga desde su teléfono y en el panel no cambia nada. En las capturas del reporte se ven cuatro cobros ya acreditados que sólo aparecieron al recargar a mano — uno por link de pago y otro por QR.
+
+Causa: el modal guardaba el pedido en estado local de React (`detailModal.order`) y sólo cambiaba cuando el propio operador hacía algo. Un cobro que entraba por MercadoPago no lo tocaba nunca.
+
+### Qué se hizo
+
+**Backend**: `POST /catalog/orders/:id/payment/refresh` → `refreshCatalogPayment` → `confirmCatalogPayment` (el mismo código que ya usan el webhook y el job — no hay una cuarta lógica de acreditación). Con `catalogPaymentRefreshLimiter` (60/min por IP) porque cada llamada pega contra la API de MercadoPago. Nunca falla por un problema con MP: si la consulta se cae, devuelve el pedido tal cual está.
+
+**Frontend**: el pedido abierto pasó de estado local a la caché de React Query (`['catalog','order', id]`), con la fila de la lista como `initialData` para que el modal pinte al instante. Las mutaciones ahora escriben ahí (`patchOpenOrder`). Encima de eso, las dos cosas que pidió el usuario:
+- **Sondeo mientras el QR está abierto** — cada 10s consulta a MP y, apenas sube lo cobrado, **cierra la pantalla del QR sola** y avisa cuánto entró. Tope de 15 min: una pestaña olvidada no puede quemar cuota de MP para siempre.
+- **Botón "Actualizar"** en el encabezado de la factura del modal del pedido, para el resto de los casos.
+
+**Por qué contra MP y no contra nuestra base** (lo importante de este cambio): releer nuestra base sólo sirve si el webhook ya llegó. Si no llegó —el caso que hay que cubrir— la base tampoco sabe nada hasta la próxima corrida del job. Ver [DEC-021](08-DECISIONS.md#dec-021).
+
+### Validación
+
+- Backend: `npm run typecheck` limpio · `npx jest --forceExit` → **57 suites / 406 tests, 0 fallas** (5 nuevos: acredita sin webhook, sin pagos devuelve el pedido intacto, MP caído no rompe, doble refresco no duplica, 404).
+- Frontend: `tsc --noEmit` limpio · Vitest **47/47** · ESLint sin errores nuevos.
+- **Falta la prueba en navegador**: generar un QR, pagarlo, y ver que la ventana se cierre sola. Es el comportamiento central de este cambio y no está verificado a ojo.
+
+### Cómo retomar
+
+1. Probar en el navegador el ciclo completo (QR abierto → pago → cierre automático) y el botón **Actualizar**.
+2. Mergear y releasear por `npm run release -- patch` ([DEC-018](08-DECISIONS.md#dec-018)). Sin variables nuevas.
+
+---
+
+## Sesión anterior: 2026-08-19 (noche) — Pagos de MercadoPago del catálogo: acreditación, métricas y aviso
 
 Rama: `fix/catalogo-mp-metricas` en **ambos** repos. No mergeada, no releaseada.
 

@@ -3,7 +3,7 @@ import { body, param, query, header } from 'express-validator';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
-import { webhookLimiter } from '../middlewares/rateLimit';
+import { webhookLimiter, catalogPaymentRefreshLimiter } from '../middlewares/rateLimit';
 import { upload } from '../middlewares/upload';
 import * as ctrl from '../controllers/catalog.controller';
 
@@ -190,6 +190,16 @@ router.post(
   '/orders/:id/payment',
   [param('id').isInt({ min: 1 }), validate],
   ctrl.initiateCatalogPayment
+);
+
+// POST /catalog/orders/:id/payment/refresh — le pregunta a MercadoPago si el
+// pago ya entró y devuelve el pedido actualizado. Lo usa el botón "Actualizar"
+// del modal y el sondeo mientras está abierta la pantalla del QR.
+router.post(
+  '/orders/:id/payment/refresh',
+  catalogPaymentRefreshLimiter,
+  [param('id').isInt({ min: 1 }), validate],
+  ctrl.refreshCatalogPayment
 );
 
 // ─── Facturas del catálogo ────────────────────────────────────────────────────

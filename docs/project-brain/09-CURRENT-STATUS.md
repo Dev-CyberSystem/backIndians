@@ -41,6 +41,20 @@ Rama `fix/catalogo-mp-metricas` (ambos repos), **sin mergear ni releasear**. Rep
 | Los dos pedidos ya afectados en producción | ❌ Abierto | Se recuperan con `scripts/reconcile-catalog-order.ts` **después** de desplegar |
 | Verificación con un pago real de MercadoPago | ❌ Abierto | Los tests simulan MP con `jest.spyOn` — el circuito de punta a punta no se probó todavía |
 
+**Todo lo de arriba se desplegó como `v1.0.4`.**
+
+## Actualización 2026-08-21 (noche) — la pantalla del panel se entera del pago
+
+Rama `fix/catalogo-refresco-pago` (ambos repos), **sin mergear ni releasear**. El sistema ya acreditaba los pagos (v1.0.4), pero el modal del pedido no se actualizaba: guardaba el pedido en estado local de React y sólo cambiaba si el operador hacía algo.
+
+| Cambio | Estado | Dónde |
+|---|---|---|
+| Endpoint de refresco contra MercadoPago | ✅ Cerrado | `POST /catalog/orders/:id/payment/refresh`, con `catalogPaymentRefreshLimiter`. [DEC-021](08-DECISIONS.md#dec-021) |
+| La pantalla del QR se cierra sola al entrar el pago | ✅ Cerrado | Sondeo cada 10s, tope 15 min (`CatalogOrdersPage.tsx`) |
+| Botón "Actualizar" en el modal del pedido | ✅ Cerrado | Encabezado de la factura |
+| El pedido abierto deja de vivir en estado local | ✅ Cerrado | Caché de React Query `['catalog','order', id]` |
+| Prueba en navegador del ciclo QR → pago → cierre | ❌ Abierto | Es el comportamiento central del cambio y no está verificado a ojo |
+
 ---
 
 > Lo que sigue es la fotografía original al **2026-08-05**. Basado en `git log`/`git status` reales de ambos repos y en `backIndians/documentos/AUDITORIA_TIENDA_ONLINE_AVANCE.md`.

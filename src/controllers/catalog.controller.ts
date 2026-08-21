@@ -185,6 +185,13 @@ export async function initiateCatalogPayment(req: AuthRequest, res: Response, ne
   } catch (err) { next(err); }
 }
 
+export async function refreshCatalogPayment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const order = await catalogService.refreshCatalogPayment(parseInt(req.params.id));
+    res.json({ success: true, data: order });
+  } catch (err) { next(err); }
+}
+
 export async function getCatalogInvoice(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const invoice = await catalogService.getCatalogInvoice(parseInt(req.params.id));
