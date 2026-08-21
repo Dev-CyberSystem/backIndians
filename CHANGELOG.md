@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.0.5 — 2026-08-21
+
+### backIndians (78b09b8)
+
+- feat(catalogo): refrescar el cobro contra MercadoPago a demanda
+
+### frontIndians (3129043)
+
+- feat(catalogo): la pantalla del QR se cierra sola al entrar el pago
+
 ## v1.0.4 — 2026-08-20
 
 ### backIndians (5454927)
