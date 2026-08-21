@@ -216,6 +216,80 @@ describe('Pagos de MercadoPago en catálogo', () => {
     expect(invoice.payment_amount).toBe(PRICE);
   });
 
+  describe('refresco a demanda desde el panel', () => {
+    it('acredita el pago consultando a MercadoPago, sin webhook de por medio', async () => {
+      const { order, invoice } = await createSale();
+      const paymentId = Date.now() + 20;
+
+      // El webhook nunca llegó: la única fuente es la consulta a MP.
+      jest.spyOn(mpService, 'searchPaymentsByReference').mockImplementation(async (ref: string) =>
+        ref === order.order_number ? [approvedPayment(order.order_number, PRICE, paymentId)] : []
+      );
+
+      const res = await api()
+        .post(`${API}/catalog/orders/${order.id}/payment/refresh`)
+        .set(...auth(admin));
+
+      expect(res.status).toBe(200);
+      expect(res.body.data?.invoice?.status).toBe('paid');
+      expect(Number(res.body.data?.invoice?.payment_amount)).toBe(PRICE);
+
+      await invoice.reload();
+      expect(invoice.payment_amount).toBe(PRICE);
+    });
+
+    it('sin pagos en MercadoPago devuelve el pedido intacto, no un error', async () => {
+      const { order, invoice } = await createSale();
+
+      jest.spyOn(mpService, 'searchPaymentsByReference').mockResolvedValue([]);
+
+      const res = await api()
+        .post(`${API}/catalog/orders/${order.id}/payment/refresh`)
+        .set(...auth(admin));
+
+      expect(res.status).toBe(200);
+      expect(res.body.data?.order_number).toBe(order.order_number);
+      await invoice.reload();
+      expect(invoice.payment_amount).toBe(0);
+      expect(invoice.status).toBe('issued');
+    });
+
+    it('si MercadoPago falla, el refresco devuelve el pedido igual (no rompe la pantalla)', async () => {
+      const { order } = await createSale();
+
+      jest.spyOn(mpService, 'searchPaymentsByReference').mockRejectedValue(new Error('MP caído'));
+
+      const res = await api()
+        .post(`${API}/catalog/orders/${order.id}/payment/refresh`)
+        .set(...auth(admin));
+
+      expect(res.status).toBe(200);
+      expect(res.body.data?.order_number).toBe(order.order_number);
+    });
+
+    it('refrescar dos veces el mismo pago no duplica el cobro', async () => {
+      const { order, invoice } = await createSale();
+      const paymentId = Date.now() + 21;
+
+      jest.spyOn(mpService, 'searchPaymentsByReference').mockImplementation(async (ref: string) =>
+        ref === order.order_number ? [approvedPayment(order.order_number, PRICE, paymentId)] : []
+      );
+
+      await api().post(`${API}/catalog/orders/${order.id}/payment/refresh`).set(...auth(admin));
+      await api().post(`${API}/catalog/orders/${order.id}/payment/refresh`).set(...auth(admin));
+
+      const payments = await CatalogInvoicePayment.findAll({ where: { catalog_invoice_id: invoice.id } });
+      expect(payments).toHaveLength(1);
+    });
+
+    it('un pedido inexistente devuelve 404', async () => {
+      const res = await api()
+        .post(`${API}/catalog/orders/99999999/payment/refresh`)
+        .set(...auth(admin));
+      expect(res.status).toBe(404);
+    });
+  });
+
   it('el dashboard cuenta lo facturado y lo cobrado por MercadoPago', async () => {
     const before = await getDashboardSummary();
     const { order } = await createSale();

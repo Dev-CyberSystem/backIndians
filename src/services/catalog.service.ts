@@ -1284,6 +1284,36 @@ export async function confirmCatalogPayment(orderNumber: string): Promise<ApplyC
   return results;
 }
 
+/**
+ * Refresco a demanda del cobro de una venta de catálogo, para el panel.
+ *
+ * Por qué existe además del webhook y del job: el operador se queda mirando
+ * la pantalla del QR mientras el cliente paga desde su teléfono. Refrescar
+ * contra nuestra base sólo sirve si el webhook YA llegó; si no llegó, la
+ * pantalla no se entera hasta la próxima corrida del job (hasta 10 minutos
+ * después). Este camino le pregunta a MercadoPago en el momento — el mismo
+ * criterio que `confirmStorePayment` en la tienda.
+ *
+ * Devuelve el pedido completo ya actualizado, así el frontend pinta el
+ * resultado sin una segunda llamada. Si MercadoPago no responde o el pedido
+ * nunca tuvo pago, devuelve el pedido tal cual está: refrescar nunca falla
+ * por un problema con MP, sólo no encuentra nada nuevo.
+ */
+export async function refreshCatalogPayment(orderId: number) {
+  const order = await CatalogOrder.findByPk(orderId, { attributes: ['id', 'order_number'] });
+  if (!order) throw new AppError('Pedido no encontrado', 404);
+
+  try {
+    await confirmCatalogPayment(order.order_number);
+  } catch (err) {
+    logger.warn('catalog.payment.refreshFailed', {
+      meta: { orderNumber: order.order_number, error: err instanceof Error ? err.message : String(err) },
+    });
+  }
+
+  return getCatalogOrder(orderId);
+}
+
 // ─── Categorías de producto ───────────────────────────────────────────────────
 
 export async function listProductCategories() {

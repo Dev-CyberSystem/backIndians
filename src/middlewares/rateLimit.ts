@@ -66,6 +66,15 @@ export const quoteLimiter = createLimiter('quote', 10 * 60_000, 60, { skip: rate
 /** Subir comprobante de transferencia: 15 por hora por IP (operación cara: sube a Cloudinary). */
 export const paymentProofLimiter = createLimiter('paymentProof', 60 * 60_000, 15, { skip: rateLimitDisabled });
 
+/**
+ * Refrescar el cobro de una venta de catálogo contra MercadoPago: 60 por
+ * minuto por IP. A diferencia del resto, cada llamada pega contra la API de
+ * MP, así que el límite protege una cuota externa, no sólo la nuestra. Un
+ * panel con el QR abierto consulta cada 10s (6/min); el margen cubre varios
+ * operadores detrás del mismo NAT sin molestar a nadie.
+ */
+export const catalogPaymentRefreshLimiter = createLimiter('catalogPaymentRefresh', 60_000, 60, { skip: rateLimitDisabled });
+
 /** Confirmar/consultar estado de pago (polling público): 120 por minuto por IP. */
 export const paymentStatusLimiter = createLimiter('paymentStatus', 60_000, 120, { skip: rateLimitDisabled });
 

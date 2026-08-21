@@ -126,7 +126,7 @@
 ### BR-CATALOG-001 — Un pago de MercadoPago aprobado se acredita solo en la factura de catálogo
 **Descripción**: cuando MercadoPago informa un pago `approved` de una venta de catálogo (por webhook o por el job de reconciliación), el sistema registra un `CatalogInvoicePayment` con `payment_method='mercadopago'`, actualiza `payment_amount` de la factura, la pasa a `paid` si quedó saldada y genera el asiento de caja (BR-CASH-016). Es idempotente por `idempotency_key = mp-<paymentId>`, así que el webhook y el job pueden aplicar el mismo pago sin duplicarlo. Un pago **parcial** (pedido con `payment_type='half'` o monto personalizado en el QR) es un caso normal: se registra y la factura queda `issued` con saldo. Un pago aprobado que **no se puede imputar** (factura anulada, moneda distinta de ARS) no se acredita a ciegas: se loguea como error y dispara `sendAlert`.
 **Módulo**: Catálogo mayorista (7) / Caja (9).
-**Fuente**: `catalog.service.ts` (`applyCatalogPaymentResult`, `handleMPWebhook`, `confirmCatalogPayment`), `jobs/reconcileCatalogPayments.ts`, `DEC-020`.
+**Fuente**: `catalog.service.ts` (`applyCatalogPaymentResult`, `handleMPWebhook`, `confirmCatalogPayment`, `refreshCatalogPayment`), `jobs/reconcileCatalogPayments.ts`, `DEC-020`. Hay **tres** caminos que llegan a `applyCatalogPaymentResult`: el webhook, el job cada 10 min y el refresco a demanda del panel (`POST /catalog/orders/:id/payment/refresh`, agregado el 2026-08-21). Los tres son el mismo código y la misma idempotencia.
 **Estado**: Vigente desde 2026-08-19. Antes de esa fecha el webhook sólo estampaba `mp_payment_status` en el pedido, y ni siquiera lo llamaban (la preference iba sin `notification_url`).
 
 ---
