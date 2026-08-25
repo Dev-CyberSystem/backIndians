@@ -3,6 +3,20 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.1.0 — 2026-08-25
+
+### backIndians (431964b)
+
+- docs(brain): incidente sistema.indians.com.ar (SSL Donweb) y bug de login
+- docs(brain): el checkout ya no ofrece transferencia ni retiro
+- docs(brain): documentar el centro de ayuda de la tienda
+
+### frontIndians (84804fd)
+
+- fix(auth): permitir contraseñas de más de 10 caracteres en login
+- feat(tienda): ocultar transferencia y retiro en local del checkout
+- feat(tienda): centro de ayuda completo en /tienda/ayuda
+
 ## v1.0.5 — 2026-08-21
 
 ### backIndians (78b09b8)
