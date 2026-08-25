@@ -2,6 +2,17 @@
 
 > Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
 
+## Actualización 2026-08-24 — incidente: `sistema.indians.com.ar` caído (SSL Donweb) + bug de login
+
+Ver [DEC-022](08-DECISIONS.md#dec-022) para el detalle completo. Resumen:
+
+| Ítem | Estado | Dónde |
+|---|---|---|
+| Bug de login: `password.max(10)` en el frontend bloqueaba contraseñas válidas de 11+ caracteres | ✅ Cerrado y desplegado | `frontIndians/src/pages/auth/LoginPage.tsx`, commit `723400f` en `master` |
+| Certificado SSL de `sistema.indians.com.ar` (subdominio sin cubrir en el origen de Donweb) | ❌ Abierto | Requiere contactar soporte de Donweb — el self-service del panel no permite subdominios |
+| `sistema.indianstextil.com.ar` como vía de emergencia mientras el SSL sigue caído | ✅ Documentado, en uso | Mismo backend/DB/build que `indians.com.ar`, no es un sistema aparte |
+| Link de "recuperar contraseña" fijo a `SYSTEM_URL` (queda roto si `sistema.indians.com.ar` vuelve a caerse) | ❌ Abierto, sin decisión | `auth.service.ts` / `user.service.ts` |
+
 ## Actualización 2026-08-19 — cierre de los hallazgos de la auditoría de panel
 
 Lo que cerró la sesión del 2026-08-19 (informe: `documentos/AUDITORIA_PANEL_SEIS_ROLES_2026-08-19.md`):

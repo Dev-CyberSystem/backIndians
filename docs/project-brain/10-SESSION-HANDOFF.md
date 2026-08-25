@@ -1,10 +1,23 @@
 # 10 — Entrega entre sesiones
 
-> Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)).
+> Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)). Excepción puntual esta vez: se dejan **dos** secciones porque la sesión de incidente de abajo no tocó ni reemplazó el trabajo de "Centro de ayuda" — esa rama sigue exactamente como quedó, sin mergear.
 
 ---
 
-## Última actualización: 2026-08-24 — Centro de ayuda de la tienda
+## Última actualización: 2026-08-24 — Incidente `sistema.indians.com.ar` caído
+
+Ver [DEC-022](08-DECISIONS.md#dec-022) para el detalle técnico completo. Resumen para retomar:
+
+**Qué se hizo**: se diagnosticó que `sistema.indians.com.ar` devolvía la página de error de Donweb ("sin certificado SSL") en vez de la app — causa: el certificado del hosting cubre `indians.com.ar` raíz pero nunca se dio de alta el subdominio `sistema.` en el panel de Certificados SSL de Donweb, y su self-service no acepta subdominios. Aparte, se encontró y arregló un bug real de login (`LoginPage.tsx` rechazaba contraseñas de más de 10 caracteres, contradiciendo el mínimo de 10 del backend) — commit `723400f`, commiteado y pusheado directo a `master` (no a `feature/centro-de-ayuda`, que quedó intacta), buildeado y desplegado por FTP.
+
+**Cómo retomar**:
+1. **Pendiente real**: el certificado SSL de `sistema.indians.com.ar` sigue sin resolverse — hace falta contactar soporte de Donweb (el panel no permite agregarlo como subdominio). Hasta que se resuelva, el acceso al panel es por `https://sistema.indianstextil.com.ar/` (mismo backend/DB/build, documentado como vía de emergencia).
+2. Confirmar si el usuario quiere que el link de "recuperar contraseña" deje de depender de `SYSTEM_URL` fijo (propuesto, no implementado — ver DEC-022).
+3. `frontIndians` quedó en `master` con el fix de login ya pusheado; `feature/centro-de-ayuda` no se tocó y sigue con sus 2 commits sin mergear (ver la sección siguiente). Al mergear esa rama a `master`, va a traer consigo el fix de login (ya está en `master`, así que no hay conflicto esperado ahí).
+
+---
+
+## Sesión anterior (aún vigente, sin cambios): 2026-08-24 — Centro de ayuda de la tienda
 
 Rama: `feature/centro-de-ayuda` en **ambos** repos (en backIndians solo cambia el cerebro documental: el código del backend no se tocó). No mergeada, no releaseada.
 
