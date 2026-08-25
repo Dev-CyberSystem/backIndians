@@ -181,6 +181,8 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 
 **Efectos sobre otros módulos**: mismo `CatalogProduct` que puede exponerse en la tienda online (`show_in_store=true`); movimientos de stock se auditan en `CatalogStockMovement` (ledger compartido con la tienda).
 
+**Ficha técnica del producto + código interno (migración 099)**: `CatalogProduct` guarda, además de los datos comerciales, una plantilla de ficha técnica (telas, colores, cuello/manga, marca/escudo, detalle de tela, sponsors, bordado, puño, accesorios — los mismos campos que `OrderItem`) y un `internal_code` de texto libre. Se cargan una vez al crear/editar el producto en `CatalogPage.tsx` (componente compartido `TechnicalSheetFields`, también usado por `OrderItemForm.tsx` para no duplicar esos ~300 líneas de JSX). Al presionar "Pedido" en la tarjeta del producto, `NewOrderPage.tsx` recibe esos valores por `location.state.prefillItem` y los precarga en el primer `OrderItem` del pedido nuevo — **quedan editables**, es solo el punto de partida; lo único que no se precarga es talles, personalización y notas del pedido. `internal_code` y toda esta ficha técnica están **excluidos** de la API pública de la tienda (`store.service.ts`, `PUBLIC_PRODUCT_ATTRIBUTES`) — no viajan en `listStoreProducts`/`getStoreProduct`.
+
 **Nivel de implementación**: **Implementado y verificado**. Fuente: `backIndians/src/routes/catalog.routes.ts`, `models/CatalogOrder.ts`, `frontIndians/src/pages/catalog/`.
 
 ---
