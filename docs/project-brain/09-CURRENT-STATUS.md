@@ -2,6 +2,17 @@
 
 > Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
 
+## Actualización 2026-08-24 — incidente: `sistema.indians.com.ar` caído (SSL Donweb) + bug de login
+
+Ver [DEC-022](08-DECISIONS.md#dec-022) para el detalle completo. Resumen:
+
+| Ítem | Estado | Dónde |
+|---|---|---|
+| Bug de login: `password.max(10)` en el frontend bloqueaba contraseñas válidas de 11+ caracteres | ✅ Cerrado y desplegado | `frontIndians/src/pages/auth/LoginPage.tsx`, commit `723400f` en `master` |
+| Certificado SSL de `sistema.indians.com.ar` (subdominio sin cubrir en el origen de Donweb) | ❌ Abierto | Requiere contactar soporte de Donweb — el self-service del panel no permite subdominios |
+| `sistema.indianstextil.com.ar` como vía de emergencia mientras el SSL sigue caído | ✅ Documentado, en uso | Mismo backend/DB/build que `indians.com.ar`, no es un sistema aparte |
+| Link de "recuperar contraseña" fijo a `SYSTEM_URL` (queda roto si `sistema.indians.com.ar` vuelve a caerse) | ❌ Abierto, sin decisión | `auth.service.ts` / `user.service.ts` |
+
 ## Actualización 2026-08-19 — cierre de los hallazgos de la auditoría de panel
 
 Lo que cerró la sesión del 2026-08-19 (informe: `documentos/AUDITORIA_PANEL_SEIS_ROLES_2026-08-19.md`):
@@ -99,6 +110,9 @@ Ninguno detectado — ambos repos están con working tree limpio y la última se
 
 ## Pendientes (planificados, no implementados)
 
+- **Terminar de unificar el cobro de la tienda en MercadoPago**: el checkout ya **oculta** transferencia y retiro en local (2026-08-24), así que la contradicción con el centro de ayuda está resuelta de cara al comprador. Lo que sigue abierto es que el ocultamiento es **solo de UI**: el backend continúa aceptando `bank_transfer` y `shipping_type: 'pickup'`, y los T&C (`legal/TermsPage.tsx`, secciones 8 y 9) siguen mencionando transferencia, efectivo y retiro — se dejaron así a propósito. Si la decisión se vuelve definitiva, falta desactivar `bank_transfer` en el backend (mismo patrón que `cash`, con su test de contrato), actualizar los T&C y decidir qué pasa con `bank_transfer_*` en Settings. Ver [02-FUNCTIONAL-MAP.md, sección 11c](02-FUNCTIONAL-MAP.md#11c-centro-de-ayuda-de-la-tienda).
+- **Definir el costo del primer cambio de talle**: el centro de ayuda dice hoy que el costo logístico de un cambio por talle o preferencia "se informa antes de confirmar la solicitud", sin fijarlo. La recomendación del documento fuente es ofrecer el primer cambio sin cargo por pedido; es una decisión comercial, no de código.
+- **Medidas reales de talles por producto**: las tablas publicadas en `/tienda/ayuda#talles` son de referencia general. Cuando existan las medidas oficiales por modelo, deberían mostrarse en la ficha del producto (la sección ya aclara que, si un producto publica su propia tabla, esa es la que vale).
 - **Integración con Andreani** (courier): sin empezar, requiere research spike de su API antes de poder desglosarse en tareas. Es el único ítem grande pendiente de la auditoría de tienda.
 - **Habilitar AFIP en producción**: requiere acción externa al código (tramitar/cargar certificado real ante ARCA, configurar `afip_enabled=true` y datos fiscales de la empresa).
 - **Configurar `store_cash_account_id`**: acción de configuración de negocio, no de código.

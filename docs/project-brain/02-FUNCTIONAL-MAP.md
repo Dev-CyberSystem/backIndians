@@ -15,6 +15,8 @@
 9. [Catálogo mayorista (Catalog)](#9-catálogo-mayorista-catalog)
 10. [Tienda online (Store)](#10-tienda-online-store)
 11. [Devoluciones de tienda](#11-devoluciones-de-tienda)
+11b. [Legales de la tienda](#11b-legales-de-la-tienda-textos-aceptación-y-arrepentimiento)
+11c. [Centro de ayuda de la tienda](#11c-centro-de-ayuda-de-la-tienda)
 12. [Facturación electrónica AFIP/ARCA](#12-facturación-electrónica-afipARCA)
 13. [Dashboard y analítica](#13-dashboard-y-analítica)
 14. [Settings](#14-settings)
@@ -189,7 +191,7 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 
 **Usuarios**: `StoreCustomer` (comprador, autenticado u opcional según endpoint); `admin`/`billing` (panel de administración de pedidos/devoluciones/cupones/configuración).
 
-**Flujo principal**: navegación de catálogo público (con filtros, búsqueda, trending, "también visto") → carrito (zustand persistido) → checkout (`checkout/quote` para presupuesto en vivo con envío incluido → `POST /checkout` con `Idempotency-Key`) → reserva de stock con vencimiento → pago (MercadoPago Checkout Pro / efectivo / transferencia con comprobante subido) → confirmación (webhook MP con verificación de firma, o carga manual del comprobante) → confirmación de stock (resta real) + registro en caja + mail de confirmación → seguimiento por token público o desde "Mis pedidos" → estado avanza (`review`→...→`shipped`/`delivered`, o `delayed`/`returned`/`cancelled`) con mail por cada transición.
+**Flujo principal**: navegación de catálogo público (con filtros, búsqueda, trending, "también visto") → carrito (zustand persistido) → checkout (`checkout/quote` para presupuesto en vivo con envío incluido → `POST /checkout` con `Idempotency-Key`) → reserva de stock con vencimiento → pago (MercadoPago Checkout Pro; **efectivo y transferencia ya no se ofrecen en el checkout** — el efectivo además está desactivado en el backend desde el 2026-08-19, la transferencia sólo oculta en el front desde el 2026-08-24, con su pantalla de comprobante todavía viva para pedidos existentes) → confirmación (webhook MP con verificación de firma, o carga manual del comprobante) → confirmación de stock (resta real) + registro en caja + mail de confirmación → seguimiento por token público o desde "Mis pedidos" → estado avanza (`review`→...→`shipped`/`delivered`, o `delayed`/`returned`/`cancelled`) con mail por cada transición.
 
 **Flujos alternativos**: cupón de descuento (uno por cliente, aplicado atómicamente), carrito abandonado (recordatorio por mail, con envío manual desde el panel admin también), wishlist, direcciones múltiples, cancelación (restituye stock y libera cupón), expiración automática de pedidos impagos a 48hs (job programado).
 
@@ -232,6 +234,38 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 **Validaciones/restricciones**: `accept_terms` es **obligatorio** en `POST /store/auth/register` y en `POST /store/checkout` (rechazo 422 sin él); el botón de arrepentimiento no exige login ni captcha y nunca rechaza por "pedido inexistente"; los datos del titular (razón social, CUIT, domicilio) salen de `company_*` en Settings, no están escritos en los textos; el logo Data Fiscal solo se muestra si está cargado `store_data_fiscal_url`.
 
 **Nivel de implementación**: **Implementado y verificado** (12 tests de API en `src/__tests__/api/legal.test.ts`). Pendiente operativo, no de código: cargar los datos fiscales reales en Settings, pegar la URL del QR de ARCA y evaluar la inscripción de la base de datos ante la AAIP. Fuente: `backIndians/src/services/legal.service.ts`, `config/legalDocs.ts`, migraciones 096-098, `frontIndians/src/pages/store/legal/`, `pages/ecommerce/LegalRequestsPage.tsx`.
+
+---
+
+## 11c. Centro de ayuda de la tienda
+
+**Objetivo**: que el comprador resuelva solo las dudas frecuentes (envíos, cambios, reembolsos, garantía, talles, cuidados, pagos, preventas, cuenta) y que atención pueda responder enlazando la respuesta exacta en vez de repetirla.
+
+**Usuarios**: comprador y visitante (público, sin login).
+
+**Flujo principal**: `/tienda/ayuda` → buscador (filtra las 63 preguntas por texto normalizado sin acentos) o índice de 11 categorías → cada categoría abre con su política destacada y sus preguntas en `<details>` → cada pregunta tiene ancla propia `#faq-<id>` con botón "copiar enlace". Las cuatro acciones rápidas del encabezado llevan a Mis pedidos, WhatsApp (cambios), la sección de reembolsos y la de contacto.
+
+**Dónde vive el contenido**: `frontIndians/src/pages/store/help/helpContent.ts` — categorías, preguntas y la constante `HELP_POLICY` con los plazos publicados. La página (`StoreHelpPage.tsx`) solo lo presenta. Para corregir un texto de atención **no hace falta tocar componentes**.
+
+**Plazos publicados** (fuente: documento "Centro de ayuda completo v1.0", agosto 2026, decisiones confirmadas con el usuario el 2026-08-24):
+
+| Tema | Valor publicado |
+|---|---|
+| Envío | 7 a 9 días hábiles desde la acreditación del pago |
+| Cambios y devoluciones | 15 días hábiles desde la recepción |
+| Reembolso | hasta 10 días hábiles + el plazo del emisor |
+| Garantía legal | 6 meses para productos nuevos (Ley 24.240) |
+| Respuesta de atención | 2 días hábiles |
+
+**Consistencia obligatoria**: estos plazos aparecen además en la barra de anuncio del `StoreLayout` (default de `store_announcement`) y deben coincidir con los T&C (`legal/TermsPage.tsx`) y con los correos al cliente. La garantía de 3 meses del brief original **no puede publicarse**: la Ley 24.240 fija 6 meses como mínimo para bienes nuevos.
+
+**Alineación con el checkout (2026-08-24)**: la ayuda publica que el medio de pago es MercadoPago y que no hay retiro en local, y el checkout se ajustó para no contradecirlo — transferencia y retiro quedaron **ocultos** (`StoreCheckoutPage.tsx`). Es ocultamiento de UI, no desactivación: el backend sigue aceptando `bank_transfer` y `pickup`, los pedidos históricos con esos valores se muestran y se gestionan igual, y los T&C se dejaron sin tocar por decisión del usuario. Cada bloque oculto lleva en el código el comentario de cómo volver a ofrecerlo. Ver [09-CURRENT-STATUS.md](09-CURRENT-STATUS.md).
+
+**SEO**: emite JSON-LD `FAQPage` con las 63 preguntas (`FaqJsonLd` en `components/seo/JsonLd.tsx`). Es válido porque las respuestas se montan siempre dentro del `<details>` colapsado, nunca se generan al abrir.
+
+**Anclas publicadas que no se pueden romper**: `#envios`, `#cambios`, `#talles` (footer y correos ya enviados) y `#faq`, que era el bloque único de preguntas de la versión anterior y hoy se redirige a `#pedidos`.
+
+**Nivel de implementación**: **Implementado y verificado** (typecheck, build, Vitest y prueba en navegador con Playwright: deep links, buscador, mobile sin scroll horizontal). Fuente: `frontIndians/src/pages/store/StoreHelpPage.tsx`, `pages/store/help/helpContent.ts`.
 
 ---
 

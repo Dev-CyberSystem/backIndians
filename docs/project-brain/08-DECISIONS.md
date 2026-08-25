@@ -268,6 +268,27 @@ La redundancia no es paranoia, es la lección de [DEC-014](#dec-014): entre el 2
 
 **Estado**: Vigente.
 
+## DEC-022 — Incidente: `sistema.indians.com.ar` caído por SSL de Donweb + bug de login preexistente; `sistema.indianstextil.com.ar` queda como vía de emergencia autorizada
+
+**Fecha**: 2026-08-24.
+
+**Qué pasó (dos problemas independientes, detectados juntos)**:
+
+1. **`sistema.indians.com.ar` sin SSL en el origen.** El dominio `indians.com.ar` tiene sus NS delegados a Cloudflare (no a Donweb). Cloudflare termina TLS en el borde con un certificado válido (wildcard `*.indians.com.ar`), pero el origen (Apache en Donweb/Ferozo) nunca tuvo un certificado Let's Encrypt propio para el subdominio `sistema.` — solo para `indians.com.ar` raíz. El registro DNS de `sistema` apunta correctamente al mismo IP que la raíz (`200.58.111.146`), así que **no es un problema de DNS**: es que el panel de "Certificados SSL" de Donweb nunca tuvo `sistema.indians.com.ar` dado de alta como entrada propia, y su formulario de autoconfiguración (`Configurar dominio`) solo acepta dominios raíz, no subdominios — no hay forma de resolverlo desde el self-service. Mismo síntoma exacto, dos días antes, en el proyecto hermano Farol Bike (`sistema.farolbike.com.ar`, mismo Donweb, cuenta separada): es un gap conocido de Donweb con subdominios, no una interferencia entre los dos proyectos.
+2. **Bug de login preexistente, sin relación con lo anterior**: `frontIndians/src/pages/auth/LoginPage.tsx` validaba `password` con `.max(10, 'Contraseña demasiado larga')`. El backend exige contraseñas de **entre 10 y 128** caracteres al crearlas/resetearlas (`PWD_REGEX` en `auth.routes.ts`, ver el cierre de S-02 en [09-CURRENT-STATUS.md](09-CURRENT-STATUS.md)) y el propio endpoint `/login` no tiene tope de longitud. Cualquier contraseña válida de 11+ caracteres quedaba **imposible de usar para loguearse** — probablemente un typo que debía reflejar el mínimo (10) y terminó puesto como máximo. Estaba latente desde que se subió el mínimo a 10 el 2026-08-19 (S-02); nadie lo notó hasta este incidente porque coincidió con la caída del dominio.
+
+**Decisión y resolución** (autorizada explícitamente por el usuario):
+1. Se sacó el `.max(10, …)` de `LoginPage.tsx` — commit `723400f` directo a `master` (fix chico y evidente, sin pasar por `npm run release` completo dado lo urgente: producción sin acceso). Buildeado y desplegado por FTP (`npm run deploy`). Verificado con `version.json` en `indianstextil.com.ar` y `sistema.indianstextil.com.ar` → `723400f`.
+2. **`sistema.indianstextil.com.ar` queda documentado como vía de acceso de emergencia** mientras el certificado de `sistema.indians.com.ar` siga sin resolverse. No es un sistema aparte: mismo backend, misma base de datos, mismo build (comparte hosting/carpeta con `indians.com.ar`, se actualiza solo con cada deploy normal), certificado SSL propio válido en Donweb, y ya estaba permitido en el CORS del backend (`FRONTEND_URL`). Los movimientos hechos ahí son los mismos que en `sistema.indians.com.ar` — no hay divergencia de datos entre los dos dominios.
+
+**Por qué es seguro usar `indianstextil.com.ar` como emergencia pero no como principal**: es sólido técnicamente (mismo backend/DB/build/CORS/SSL), pero es el dominio que el propio `CLAUDE.md` marca como *"un error que se corrigió"* — no se conoce el motivo completo (posiblemente de marca/negocio) por el que se dejó de usar como dominio canónico. Volver a `sistema.indians.com.ar` en cuanto se resuelva el certificado, no adoptar el viejo dominio de forma permanente.
+
+**Pendiente — no cerrado**:
+- Certificado SSL de `sistema.indians.com.ar` en el panel de Donweb: como el self-service no lo permite, hace falta contactar soporte de Donweb directamente (mismo pendiente sin resolver en Farol Bike, dos días antes).
+- El link de "recuperar contraseña" (`auth.service.ts`, `user.service.ts`) sigue armándose siempre con `SYSTEM_URL` fijo a `sistema.indians.com.ar` — si ese dominio vuelve a caerse, el mail de recuperación seguirá apuntando a un link roto (el workaround manual es copiar el `?token=` a mano al dominio que esté funcionando). Se propuso derivarlo del `Origin`/`Referer` de la request en vez de un valor fijo; no implementado, pendiente de decisión del usuario.
+
+**Estado**: 🟡 Abierta (login recuperado y desplegado; SSL de Donweb sigue caído).
+
 ## Actualizar este documento cuando…
 
 Se tome una decisión técnica o funcional nueva con impacto duradero, o se revierta/reemplace una decisión ya registrada (agregar entrada nueva referenciando la anterior, no editar la histórica).
