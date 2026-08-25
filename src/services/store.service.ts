@@ -148,6 +148,20 @@ export interface StoreProductFilters {
   limit?: number;
 }
 
+/**
+ * Allowlist de columnas que puede devolver la API pública (sin auth) de la
+ * tienda. `catalog_products` tiene, además de estos datos comerciales, el
+ * código interno y la ficha técnica completa (colores, materiales,
+ * sponsors...) pensados para el panel de gestión — nunca deben viajar en una
+ * respuesta pública. Ver `listStoreProducts`/`getStoreProduct`.
+ */
+const PUBLIC_PRODUCT_ATTRIBUTES = [
+  'id', 'client_id', 'title', 'description', 'price', 'public_price',
+  'discount_percentage', 'category', 'gender', 'tags', 'garment_type_id',
+  'stock_quantity', 'stock_reserved', 'show_in_store', 'active',
+  'createdAt', 'updatedAt',
+] as const;
+
 export async function listStoreProducts(filters: StoreProductFilters = {}) {
   const page = filters.page ?? 1;
   const limit = Math.min(filters.limit ?? 24, 60);
@@ -237,6 +251,7 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
   // filas y obliga a un COUNT(DISTINCT) caro. El COUNT del padre queda simple.
   const { count, rows } = await CatalogProduct.findAndCountAll({
     where,
+    attributes: [...PUBLIC_PRODUCT_ATTRIBUTES],
     include: [
       { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
       { model: CatalogProductSize,  as: 'sizes',  attributes: ['id', 'size_name', 'stock_quantity', 'stock_reserved', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
@@ -353,6 +368,7 @@ export async function getPublicStoreSettings(): Promise<Record<string, string>> 
 export async function getStoreProduct(id: number) {
   const product = await CatalogProduct.findOne({
     where: { id, show_in_store: true, active: true },
+    attributes: [...PUBLIC_PRODUCT_ATTRIBUTES],
     include: [
       { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'] },
       { model: CatalogProductSize, as: 'sizes', attributes: ['id', 'size_name', 'stock_quantity', 'stock_reserved', 'sort_order'] },

@@ -3,6 +3,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { type Includeable, Op, Transaction, UniqueConstraintError } from 'sequelize';
 import { AppError } from '../middlewares/errorHandler';
 import { invalidateCache } from '../utils/cache';
+import { CollarType, SleeveType, Sponsor } from '../types';
 import {
   CatalogProduct,
   CatalogProductImage,
@@ -85,6 +86,36 @@ export interface ProductInput {
   stock_quantity?: number;
   active?:         boolean;
   sizes?:          SizeInput[];
+
+  // Código interno de referencia (texto libre)
+  internal_code?: string | null;
+
+  // Ficha técnica — plantilla para precargar el ítem de un pedido
+  stock_fabric_ids?: number[] | null;
+  color?: string | null;
+  color_secondary?: string | null;
+  color_sleeves?: string | null;
+  color_collar?: string | null;
+  color_seam_tape?: string | null;
+  collar_type?: CollarType | null;
+  sleeve_type?: SleeveType | null;
+  short_description?: string | null;
+  socks_description?: string | null;
+  has_brand?: boolean;
+  brand_material?: string | null;
+  brand_dimensions?: string | null;
+  has_shield?: boolean;
+  shield_material?: string | null;
+  shield_dimensions?: string | null;
+  size_label_type?: string | null;
+  composition_label?: string | null;
+  fabric_composition?: string | null;
+  fabric_weight?: string | null;
+  sponsors?: Sponsor[] | null;
+  has_embroidery?: boolean;
+  embroidery_notes?: string | null;
+  has_cuff?: boolean;
+  cuff_color?: string | null;
 }
 
 export async function listClientProducts(clientId: number) {
@@ -147,6 +178,34 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
       garment_type_id: input.garment_type_id ?? null,
       stock_quantity:  input.stock_quantity ?? 0,
       active:          input.active ?? true,
+
+      internal_code:   input.internal_code || null,
+
+      stock_fabric_ids:   input.stock_fabric_ids?.length ? input.stock_fabric_ids : null,
+      color:              input.color || null,
+      color_secondary:    input.color_secondary || null,
+      color_sleeves:      input.color_sleeves || null,
+      color_collar:       input.color_collar || null,
+      color_seam_tape:    input.color_seam_tape || null,
+      collar_type:        input.collar_type ?? null,
+      sleeve_type:        input.sleeve_type ?? null,
+      short_description:  input.short_description || null,
+      socks_description:  input.socks_description || null,
+      has_brand:           input.has_brand ?? false,
+      brand_material:      input.brand_material || null,
+      brand_dimensions:    input.brand_dimensions || null,
+      has_shield:          input.has_shield ?? false,
+      shield_material:     input.shield_material || null,
+      shield_dimensions:   input.shield_dimensions || null,
+      size_label_type:     input.size_label_type || null,
+      composition_label:   input.composition_label || null,
+      fabric_composition:  input.fabric_composition || null,
+      fabric_weight:       input.fabric_weight || null,
+      sponsors:            input.sponsors?.length ? input.sponsors : null,
+      has_embroidery:      input.has_embroidery ?? false,
+      embroidery_notes:    input.embroidery_notes || null,
+      has_cuff:            input.has_cuff ?? false,
+      cuff_color:          input.cuff_color || null,
     }, { transaction: t });
 
     if (input.sizes?.length) {

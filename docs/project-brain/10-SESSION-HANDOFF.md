@@ -1,10 +1,34 @@
 # 10 — Entrega entre sesiones
 
-> Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)). Excepción puntual esta vez: se dejan **dos** secciones porque la sesión de incidente de abajo no tocó ni reemplazó el trabajo de "Centro de ayuda" — esa rama sigue exactamente como quedó, sin mergear.
+> Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)).
 
 ---
 
-## Última actualización: 2026-08-24 — Incidente `sistema.indians.com.ar` caído
+## Última actualización: 2026-08-25 — Ficha técnica + código interno en productos de catálogo
+
+**Qué se hizo**: `CatalogProduct` (catálogo mayorista) ahora guarda una plantilla de ficha técnica completa (los mismos campos que `OrderItem`: telas, colores, cuello/manga, marca/escudo, detalle de tela, sponsors, bordado, puño, accesorios — migración `099-alter-catalog-products-technical-sheet.js`, todas nullable) más un `internal_code` de texto libre único. Se carga una vez al crear/editar el producto en `CatalogPage.tsx` (nueva sección "Ficha técnica" en el modal, componente compartido `TechnicalSheetFields.tsx` reutilizado también por `OrderItemForm.tsx` para no duplicar ~300 líneas de JSX). Al presionar "Pedido" en la tarjeta del producto, `NewOrderPage.tsx` recibe todo eso por `location.state.prefillItem` (tipo `Partial<OrderItemInput>`, antes solo llevaba `garment_type_id`/`unit_price`) y precarga el primer ítem del pedido — queda editable; lo único que el usuario completa a mano es fecha de entrega, notas generales, talles y personalización. También se agregó un botón "Ver ficha técnica" (ícono en la tarjeta del producto) que abre un modal de solo lectura con todos estos datos.
+
+Hallazgo de seguridad no pedido explícitamente pero corregido en la misma tarea: `store.service.ts` — `listStoreProducts`/`getStoreProduct` (endpoints **públicos sin auth** de la tienda) devolvían **todas** las columnas de `CatalogProduct` sin `attributes` allowlist. Sin corregir esto, `internal_code` y la ficha técnica nueva habrían quedado expuestos en la API pública. Se agregó `PUBLIC_PRODUCT_ATTRIBUTES` (allowlist explícito) en ambas queries.
+
+Detalle técnico completo en [02-FUNCTIONAL-MAP.md](02-FUNCTIONAL-MAP.md) (sección 9, Catálogo mayorista) y [05-DATABASE.md](05-DATABASE.md) (fila de la migración 099).
+
+**Validación**: backend `tsc --noEmit` limpio, `npm run test:full` — **57 suites / 406 tests, todos en verde**. Frontend `tsc --noEmit` limpio, `npm run build` OK; `npm run lint` no agregó errores nuevos. **Se probó el flujo completo en navegador real** (Playwright headless contra los dev servers levantados, admin@indians.com): crear producto con ficha técnica completa + código interno → guardar → reabrir en edición (todo persiste) → "Ver ficha técnica" (modal de solo lectura correcto) → "Pedido" → `/orders/new` con el ítem precargado (telas, colores, marca/escudo, sponsors, bordado, accesorios) y talles/personalización/notas del ítem en blanco, tal como se pidió. Productos de prueba creados durante la sesión, eliminados al terminar.
+
+**3 bugs encontrados y corregidos durante la prueba en navegador** (no eran parte del pedido original, bloqueaban probar la feature):
+1. **Pre-existente, no relacionado con esta feature**: el `<select>` de Género en el modal de producto nunca dejaba crear/guardar un producto con Género "Sin especificar" — el select nativo manda `""`, pero el schema Zod (`z.enum([...]).optional().nullable()`) no acepta `""` (solo `undefined`/`null`), la validación fallaba en silencio y el foco saltaba al campo sin mostrar error. Se reprodujo *sin* tocar ningún campo de esta feature, confirmando que ya existía. Fix: `register('gender', { setValueAs: (v) => v || null })`.
+2. **Introducido por el refactor de esta sesión**: al mover Marca/Escudo a `TechnicalSheetFields.tsx` se perdieron los `id` únicos que el código original sí tenía (`brand_material-${index}` etc.), dejando dos inputs "Material"/"Dimensiones" con el mismo `id` autogenerado del label cuando Marca y Escudo están activos a la vez — rompía la asociación `label→input`. Fix: prop `idPrefix` en `TechnicalSheetFields` (`item-${index}-` en `OrderItemForm`, `product-` en `CatalogPage`).
+3. **Introducido por esta feature**: el botón "Ver ficha técnica" (ícono en la tarjeta) quedaba tapado por el overlay "Sin stock" cuando el producto no tenía stock — se renderizaba antes que el overlay en el DOM. Fix: reordenar + `z-10` explícito.
+
+**Nota sobre la base de dev**: la migración 099 llegó a aplicarse en la base local vía `sequelize.sync()` (el servidor de dev debía estar corriendo con `--respawn` y sincronizó las columnas nuevas al detectar el cambio de modelo) antes de correr `npm run migrate` explícitamente — al correr la migración dio "Duplicate column name" porque las columnas ya existían con el tipo correcto; se verificaron las 26 columnas contra la definición de la migración (coinciden exactas) y se marcó `099-...` como aplicada insertando la fila en `SequelizeMeta` a mano. `npm run migrate` quedó limpio ("database schema was already up to date") — no queda deuda pendiente, pero si esto vuelve a pasar en otra tabla conviene confirmar si `sequelize.sync()` está alterando tablas existentes en este entorno (contradice el comentario de `db.ts:56-61`, que dice que no debería).
+
+**Cómo retomar**: no queda nada a medias — el código está commiteable. Si se retoma, arrancar probando el flujo en navegador (ver "Falta" arriba). Los archivos tocados: migración `099-...`, `models/CatalogProduct.ts`, `services/catalog.service.ts`, `services/store.service.ts`, y en el frontend `components/orders/TechnicalSheetFields.tsx` (nuevo), `components/orders/OrderItemForm.tsx`, `pages/catalog/CatalogPage.tsx`, `pages/billing/NewOrderPage.tsx`, `api/catalog.ts`, `types/index.ts`.
+
+---
+
+## Sesiones anteriores — pendientes que siguen abiertos
+
+- **SSL `sistema.indians.com.ar`** (sesión 2026-08-24): el certificado del subdominio sigue sin resolverse — requiere contactar soporte de Donweb. Vía de emergencia vigente: `https://sistema.indianstextil.com.ar/`. Detalle en [DEC-022](08-DECISIONS.md#dec-022).
+- **`feature/centro-de-ayuda`** (sesión 2026-08-24, ambos repos): rama sin mergear con la reescritura de `/tienda/ayuda` (11 categorías, 63 preguntas, deep links, FAQ JSON-LD) y el checkout alineado (solo Mercado Pago, sin retiro en local). Pendiente: mergear + `npm run deploy` del frontend; decidir si se alinean los T&C (mencionan transferencia/efectivo/retiro) y si se desactiva `bank_transfer` en el backend. Retomar con `cd frontIndians && git checkout feature/centro-de-ayuda`.
 
 Ver [DEC-022](08-DECISIONS.md#dec-022) para el detalle técnico completo. Resumen para retomar:
 
