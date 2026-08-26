@@ -2,6 +2,23 @@
 
 > Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
 
+## Actualización 2026-08-26 — test de estrés pre-lanzamiento (tienda + panel)
+
+Rama `test/stress-carga-lanzamiento` (no mergeada a `master`, requiere confirmación). Prueba de carga local con k6 (`backIndians/stress/`, ver también el script previo `stress/run-stress.js` que ya existía y solo cubría lecturas públicas) buscando el punto de quiebre real del sistema antes del lanzamiento con tráfico real. Metodología: réplica local (no hay staging real desplegado — Railway/Donweb son solo producción), datos de volumen sembrados (`stress/seed-load-data.ts`: 300 productos + 200 compradores de prueba), checkout siempre por transferencia (nunca dispara MercadoPago real) y mails siempre bloqueados (`MAIL_ENABLED=0` + dominios `@example.com`, bloqueados siempre por `mailGuard.ts`).
+
+| Hallazgo | Severidad | Estado | Dónde |
+|---|---|---|---|
+| **Auto-deadlock del pool de conexiones en checkout**: `generateStoreOrderNumber` corría su `SELECT` sin la `transaction` del checkout → pedía una 2ª conexión del pool mientras la 1ª ya estaba tomada; con checkouts concurrentes ≥ `pool.max` (10), todas competían por esa 2ª conexión y ninguna la conseguía → `SequelizeConnectionAcquireTimeoutError` a los 30s, con apenas 10 usuarios comprando al mismo tiempo | 🔴 Crítico | ✅ Corregido | `store.service.ts` — se le pasa la transacción |
+| **Números de pedido duplicados bajo concurrencia**: sin lock, dos checkouts simultáneos podían calcular el mismo `order_number` — el índice único evitaba el duplicado real pero tiraba abajo uno de los dos con 409 (hasta ~45% de los checkouts fallaban con 50+ compradores concurrentes) | 🔴 Crítico | ✅ Corregido | Contador atómico nuevo, tabla `store_order_sequences` (migración 100). Un primer intento con `lock: FOR UPDATE` sobre el `SELECT` original generó deadlocks reales de InnoDB — no repetir ese patrón |
+| **Login (staff y comprador) capado a ~3 req/s pase lo que pase**: `bcryptjs` (JS puro) bloquea el único hilo de Node — con concurrencia, los logins se serializan entre sí (a 100 VUs, p50 de login llegó a ~27s) | 🔴 Crítico | ✅ Corregido | Reemplazado por `bcrypt` nativo (thread pool de libuv) en los 3 puntos de uso + seeders. Mismo formato de hash — contraseñas existentes siguen funcionando. Con `UV_THREADPOOL_SIZE` default (4) sube a ~15 req/s; con `UV_THREADPOOL_SIZE=16` a ~24 req/s — **falta cargar esta variable en Railway** |
+| Pool de conexiones a MySQL (`max: 10`) se queda corto para lecturas/checkout con 150-300 usuarios concurrentes (throughput se aplana, sin errores, solo latencia creciente) | 🟡 Capacidad | ✅ Mitigado (parcial) | Subido a `max: 25` en `db.ts` — mejora moderada (~50% más margen), no elimina el techo del todo. **Verificar el límite de conexiones del plan de MySQL en Railway antes de confiar en este número en producción** |
+| Condición de carrera de stock (venta de más unidades que el stock disponible) | — | ✅ Verificado, sin bug | `stockLedger.service.ts` ya usa `SELECT...FOR UPDATE` correctamente — burst de 50 compradores por 5 unidades: exactamente 5 ventas, ledger reconcilia |
+| `UV_THREADPOOL_SIZE` en producción (Railway) | 🟡 Pendiente | ❌ Abierto | Configurar como variable de entorno — no requiere cambio de código, ver `server.ts`/`db.ts` |
+
+**No abordado en esta sesión** (quedó fuera de alcance o requiere más tiempo): el techo real de throughput (~85-170 req/s por endpoint según el escenario) sigue estando bastante por debajo de lo ideal para un pico grande de tráfico simultáneo — probablemente limitado por ser un único proceso Node sin cluster. Evaluar `node:cluster`/múltiples instancias si el volumen esperado lo justifica.
+
+Detalle completo, tabla de resultados por escenario y metodología en `docs/project-brain/10-SESSION-HANDOFF.md`.
+
 ## Actualización 2026-08-24 — incidente: `sistema.indians.com.ar` caído (SSL Donweb) + bug de login
 
 Ver [DEC-022](08-DECISIONS.md#dec-022) para el detalle completo. Resumen:

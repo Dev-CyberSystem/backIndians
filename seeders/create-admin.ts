@@ -4,7 +4,7 @@ dotenv.config();
 import { connectDB } from '../src/config/db';
 import '../src/models/index';
 import { User } from '../src/models/User';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 
 async function createAdmin() {
   await connectDB();

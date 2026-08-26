@@ -14,9 +14,15 @@ const sharedOptions = {
   },
   pool: {
     // max 4 era muy bajo: bajo picos el pool se agotaba y las requests
-    // esperaban/timeouteaban (acquire), inflando aborted_connects. 10 da
-    // margen sin presionar el límite de conexiones de MySQL (max ~151).
-    max: 10,
+    // esperaban/timeouteaban (acquire), inflando aborted_connects. Subido a
+    // 10 en su momento, y a 25 tras el test de carga de 2026-08-26
+    // (stress/k6/): con 10, el throughput de lecturas de catálogo y de
+    // checkout se aplanaba en ~150-170 req/s pese a que la latencia crecía
+    // sin errores — señal clásica de cola en el pool, no de saturación real
+    // del servidor. 25 sigue con margen amplio contra el límite de MySQL
+    // (max ~151 acá; verificar el límite del plan de Railway en prod antes
+    // de subirlo más).
+    max: 25,
     min: 0,
     acquire: 30000,
     // Cierra conexiones idle a los 10s: MUY por debajo del wait_timeout de

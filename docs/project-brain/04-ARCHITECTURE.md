@@ -6,7 +6,7 @@
 - **Runtime**: Node.js ≥20 (`.nvmrc: 20`), TypeScript 5.6 (`strict: true`).
 - **Framework**: Express 4.19.
 - **ORM/DB**: Sequelize 6.37 + `mysql2` 3.11 → **MySQL**.
-- **Auth**: `jsonwebtoken` 9, `bcryptjs` 2.4.
+- **Auth**: `jsonwebtoken` 9, `bcrypt` 6 (nativo — hasta 2026-08-26 era `bcryptjs`, cambiado tras el test de carga: `bcryptjs` es JS puro y bloquea el hilo único de Node bajo logins concurrentes; `bcrypt` corre el hash en el thread pool de libuv, mismo formato de hash, compatible con los existentes sin resetear contraseñas).
 - **Logging**: Pino 10 + `pino-http` + `pino-pretty` (dev).
 - **AFIP/ARCA**: `node-forge` 1.4 (firma CMS/PKCS#7) + `soap` 1.10 (cliente WSAA/WSFEv1).
 - **Pagos**: `mercadopago` SDK 3.1 (Preference/Payment, Checkout Pro).

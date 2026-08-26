@@ -4,5 +4,5 @@
     "rootDir": ".",
     "outDir": "./dist-seed"
   },
-  "include": ["src/**/*", "seeders/**/*", "scripts/**/*"]
+  "include": ["src/**/*", "seeders/**/*", "scripts/**/*", "stress/**/*.ts"]
 }

@@ -13,6 +13,7 @@ import { StoreReturnItem } from './StoreReturnItem';
 import { StoreCartReminder } from './StoreCartReminder';
 import { LegalAcceptance } from './LegalAcceptance';
 import { StoreWithdrawalRequest } from './StoreWithdrawalRequest';
+import { StoreOrderSequence } from './StoreOrderSequence';
 import { WebhookEvent } from './WebhookEvent';
 import { User } from './User';
 import { Client } from './Client';
@@ -307,6 +308,7 @@ export {
   StoreCoupon,
   StoreOrder,
   StoreOrderItem,
+  StoreOrderSequence,
   StoreOrderStatusHistory,
   StoreReturn,
   StoreReturnItem,
