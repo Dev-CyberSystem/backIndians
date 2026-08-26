@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.2.2 — 2026-08-26
+
+### backIndians (5f4d971)
+
+- sin cambios desde el release anterior
+
+### frontIndians (211a78d)
+
+- delete niños y basquet
+
 ## v1.2.1 — 2026-08-26
 
 ### backIndians (10261ac)
