@@ -17,7 +17,7 @@
 // (Después, por seguridad: Remove-Item Env:\MYSQL_URL, Env:\ADMIN_PASSWORD)
 
 import { Sequelize, QueryTypes } from 'sequelize';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 
 async function main() {
   const url = process.env.MYSQL_URL || process.env.DATABASE_URL;

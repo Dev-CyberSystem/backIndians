@@ -9,7 +9,7 @@ import { Product } from '../src/models/Product';
 import { GarmentType } from '../src/models/GarmentType';
 import { FabricType } from '../src/models/FabricType';
 import { SizeChart } from '../src/models/SizeChart';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import type { UserRole } from '../src/types';
 import { seedSystemData } from './system-data';
 

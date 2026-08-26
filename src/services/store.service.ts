@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from 'crypto';
-import { Op, col, literal, UniqueConstraintError, Transaction } from 'sequelize';
+import { Op, col, literal, UniqueConstraintError, Transaction, QueryTypes } from 'sequelize';
 import { sequelize } from '../config/db';
 import {
   CatalogProduct,
@@ -107,24 +107,51 @@ async function getTrackingExpiryDays(): Promise<number> {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TRACKING_EXPIRY_DAYS;
 }
 
-async function generateStoreOrderNumber(): Promise<string> {
+/**
+ * Recibe SIEMPRE la transacción del caller (nunca abre la propia) y debe ser
+ * la PRIMERA operación de esa transacción (antes de cualquier lock de stock),
+ * para que todas las transacciones tomen sus locks en el mismo orden.
+ *
+ * Historia de este método (dos intentos fallidos antes de este, encontrados
+ * con el test de carga en stress/k6/03-checkout-transfer.js):
+ *  1. Calculaba el próximo número con SELECT último `order_number LIKE
+ *     'prefix%'` (sin `transaction`) → +1 → INSERT. Sin `transaction`, ese
+ *     SELECT pedía una SEGUNDA conexión del pool mientras la transacción de
+ *     `createStoreOrder` ya tenía la primera abierta: con N checkouts
+ *     concurrentes ≥ pool.max (10, ver config/db.ts) las N transacciones
+ *     agotaban el pool entre sí y ninguna conseguía la segunda conexión
+ *     (`SequelizeConnectionAcquireTimeoutError` a los 30s, con solo 10 VUs).
+ *  2. Pasarle la transacción + `lock: LOCK.UPDATE` a ese mismo SELECT evitaba
+ *     el problema del pool, pero al ser un rango (`LIKE` + `ORDER BY DESC
+ *     LIMIT 1`) InnoDB toma gap/next-key locks — eso generó deadlocks reales
+ *     ("Deadlock found when trying to get lock") entre checkouts concurrentes
+ *     de productos distintos.
+ *
+ * Esta versión usa `store_order_sequences` (migración 100) con el modismo
+ * estándar de MySQL para un contador atómico por clave: una única sentencia
+ * `INSERT ... ON DUPLICATE KEY UPDATE next_seq = LAST_INSERT_ID(next_seq + 1)`
+ * seguida de `SELECT LAST_INSERT_ID()`. Sin ventana de carrera (una sola
+ * sentencia) y con lock de fila EXACTA por PK (date_key), no de rango — no
+ * genera el tipo de deadlock del intento 2.
+ */
+async function generateStoreOrderNumber(transaction: Transaction): Promise<string> {
   const today = new Date();
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, '0');
   const dd = String(today.getDate()).padStart(2, '0');
-  const prefix = `ECOM-${yyyy}${mm}${dd}-`;
+  const dateKey = `${yyyy}${mm}${dd}`;
+  const prefix = `ECOM-${dateKey}-`;
 
-  const last = await StoreOrder.findOne({
-    where: { order_number: { [Op.like]: `${prefix}%` } },
-    order: [['id', 'DESC']],
-    attributes: ['order_number'],
-  });
-
-  let seq = 1;
-  if (last) {
-    const parts = last.order_number.split('-');
-    seq = parseInt(parts[parts.length - 1], 10) + 1;
-  }
+  await sequelize.query(
+    `INSERT INTO store_order_sequences (date_key, next_seq, createdAt, updatedAt)
+     VALUES (:dateKey, LAST_INSERT_ID(1), NOW(), NOW())
+     ON DUPLICATE KEY UPDATE next_seq = LAST_INSERT_ID(next_seq + 1)`,
+    { replacements: { dateKey }, transaction }
+  );
+  const [{ seq }] = await sequelize.query<{ seq: number }>(
+    'SELECT LAST_INSERT_ID() AS seq',
+    { transaction, type: QueryTypes.SELECT }
+  );
 
   return `${prefix}${String(seq).padStart(4, '0')}`;
 }
@@ -964,7 +991,7 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
   for (let attempt = 1; attempt <= MAX_ORDER_ATTEMPTS; attempt++) {
     try {
       order = await sequelize.transaction(async (t) => {
-        const orderNumber = await generateStoreOrderNumber();
+        const orderNumber = await generateStoreOrderNumber(t);
 
         const storeOrder = await StoreOrder.create(
           {

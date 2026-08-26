@@ -6,7 +6,7 @@ import { connectDB } from '../src/config/db';
 import '../src/models/index';
 import { StoreCustomer } from '../src/models/StoreCustomer';
 import { StoreAddress } from '../src/models/StoreAddress';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 
 const PASSWORD = 'Cliente123!';
 

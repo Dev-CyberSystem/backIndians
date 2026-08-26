@@ -12,7 +12,7 @@ import { Order }              from '../src/models/Order';
 import { OrderItem }          from '../src/models/OrderItem';
 import { OrderStatusHistory } from '../src/models/OrderStatusHistory';
 import { Invoice }            from '../src/models/Invoice';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import type { OrderStatus, InvoiceStatus } from '../src/types';
 
 // ── Helpers ────────────────────────────────────────────────────────────────

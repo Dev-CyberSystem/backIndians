@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { Op } from 'sequelize';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import {
   User,
   Order,

@@ -10,3 +10,6 @@ documentos/Users.txt
 
 # Backups de base y snapshots de release: contienen datos reales de produccion
 .releases/
+
+# Resultados de corridas del test de estres (stress/): no se versionan
+stress/results/
