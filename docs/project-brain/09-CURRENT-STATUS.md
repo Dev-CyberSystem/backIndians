@@ -2,6 +2,16 @@
 
 > Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
 
+## Actualización 2026-08-27 — sección de campaña "El Pulga" (tienda)
+
+Rama `feature/seccion-el-pulga` en **ambos repos** (no mergeada a `main`). Nueva landing de campaña en `/tienda/el-pulga` para el lanzamiento de dos camisetas homenaje a Luis Miguel Rodríguez.
+
+- **Sin cambio de esquema ni de contrato de API.** Los productos que muestra la sección son los del catálogo con el `tag` configurado (default "El Pulga"); usa el filtro `tag` que ya existía en `GET /store/products`. Las camisetas siguen visibles en toda la tienda (decisión confirmada con el usuario).
+- **Backend**: solo se agregaron 9 claves `store_pulga_*` a `VALID_KEYS` y `PUBLIC_SETTING_KEYS` en `settings.service.ts` (tabla key-value, sin seed ni migración). Coherente con `store-public-settings.test.ts` (todas en ambas listas; la pública sigue siendo más chica que `VALID_KEYS`).
+- **Frontend**: `StorePulgaPage.tsx` (nueva), ruta en `router/index.tsx`, ítem de menú + link de footer + franja en la home en `StoreLayout.tsx` / `StoreLandingPage.tsx` (todo condicionado a `store_pulga_enabled === 'true'`), y una sección "Sección El Pulga" en `EcommerceSettingsPage.tsx` para cargar imagen de fondo y textos. `generate-sitemap.mjs` agrega la URL solo si la sección está activa.
+- **Verificación**: `typecheck` de ambos repos + `lint` + `vite build` del front en verde. Falta la prueba manual en navegador (levantar los dos servidores, activar el toggle, taggear dos productos, comprar desde la sección).
+- **Pendiente operativo** (no de código): el admin tiene que crear las dos camisetas en el catálogo, ponerles el tag "El Pulga", activar el toggle y subir el arte de fondo.
+
 ## Actualización 2026-08-26 — test de estrés pre-lanzamiento (tienda + panel)
 
 Rama `test/stress-carga-lanzamiento` (no mergeada a `master`, requiere confirmación). Prueba de carga local con k6 (`backIndians/stress/`, ver también el script previo `stress/run-stress.js` que ya existía y solo cubría lecturas públicas) buscando el punto de quiebre real del sistema antes del lanzamiento con tráfico real. Metodología: réplica local (no hay staging real desplegado — Railway/Donweb son solo producción), datos de volumen sembrados (`stress/seed-load-data.ts`: 300 productos + 200 compradores de prueba), checkout siempre por transferencia (nunca dispara MercadoPago real) y mails siempre bloqueados (`MAIL_ENABLED=0` + dominios `@example.com`, bloqueados siempre por `mailGuard.ts`).

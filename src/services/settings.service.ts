@@ -53,6 +53,13 @@ export const VALID_KEYS: string[] = [
   'store_promo_subtitle', 'store_promo_cta',
   // Tienda — barra de promociones (pills)
   'store_promo_pills',
+  // Tienda — sección de campaña "El Pulga" (homenaje a Luis Miguel Rodríguez).
+  // Landing propia en /tienda/el-pulga que lista los productos con el tag
+  // configurado. Sin migración: son claves de la tabla key-value de settings.
+  'store_pulga_enabled', 'store_pulga_tag',
+  'store_pulga_title', 'store_pulga_subtitle', 'store_pulga_description',
+  'store_pulga_cta', 'store_pulga_instagram_url',
+  'store_pulga_hero_image_url', 'store_pulga_hero_image_mobile_url',
   // Tienda — transferencia bancaria
   'bank_transfer_cbu', 'bank_transfer_alias', 'bank_transfer_holder',
   // Tienda — chatbot de atención
@@ -131,6 +138,11 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   // Tienda — banner promo y barra de promociones
   'store_promo_image_url', 'store_promo_title', 'store_promo_subtitle', 'store_promo_cta',
   'store_promo_pills',
+  // Tienda — sección de campaña "El Pulga" (la tienda la renderiza públicamente)
+  'store_pulga_enabled', 'store_pulga_tag',
+  'store_pulga_title', 'store_pulga_subtitle', 'store_pulga_description',
+  'store_pulga_cta', 'store_pulga_instagram_url',
+  'store_pulga_hero_image_url', 'store_pulga_hero_image_mobile_url',
   // Tienda — datos para transferir (sin esto el comprador no puede pagar)
   'bank_transfer_cbu', 'bank_transfer_alias', 'bank_transfer_holder',
   // Tienda — chatbot de atención

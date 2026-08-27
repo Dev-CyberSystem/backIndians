@@ -4,7 +4,30 @@
 
 ---
 
-## Última actualización: 2026-08-26 — Test de estrés pre-lanzamiento (tienda + panel)
+## Última actualización: 2026-08-27 — Sección de campaña "El Pulga" (tienda)
+
+**Por qué**: lanzamiento de dos camisetas homenaje a Luis Miguel "Pulga" Rodríguez ("Despedida Monumental PR7"). El negocio quiere una sección con identidad propia dentro de la tienda: fondo con la foto del jugador y las camisetas al medio, listas para comprar.
+
+**Qué se hizo** (rama `feature/seccion-el-pulga` en **backIndians y frontIndians**, NO mergeada a `main`):
+
+- **Decisión con el usuario**: la sección tiene landing propia PERO las camisetas siguen visibles en todo el catálogo. Imagen/textos administrables desde el panel. Accesos: menú principal + footer + franja en la home.
+- **Enfoque**: los productos de la sección son los del catálogo con un `tag` configurable (default "El Pulga"). Se reusa el filtro `tag` de `GET /store/products` → **sin migración, sin cambio de contrato de API**.
+- **Backend** (`backIndians/src/services/settings.service.ts`): 9 claves nuevas en `VALID_KEYS` y `PUBLIC_SETTING_KEYS` — `store_pulga_enabled`, `store_pulga_tag`, `store_pulga_title`, `store_pulga_subtitle`, `store_pulga_description`, `store_pulga_cta`, `store_pulga_instagram_url`, `store_pulga_hero_image_url`, `store_pulga_hero_image_mobile_url`.
+- **Frontend**:
+  - `src/pages/store/StorePulgaPage.tsx` (nueva): hero full-bleed con la imagen de fondo + `ProductCard` de las camisetas centradas (`max-w-3xl`, 2 columnas). Si `store_pulga_enabled !== 'true'` → `<Navigate to="/tienda" />`.
+  - `src/router/index.tsx`: ruta `/tienda/el-pulga`.
+  - `src/components/store/StoreLayout.tsx`: ítem "El Pulga" (con acento clay) en el menú desktop + mobile y link en el footer, todo condicionado a `store_pulga_enabled`.
+  - `src/pages/store/StoreLandingPage.tsx`: componente `PulgaBand` (franja en la home).
+  - `src/pages/ecommerce/EcommerceSettingsPage.tsx`: sección "Sección El Pulga" (toggle + tag + textos + 2 `ImageUploadInput`).
+  - `scripts/generate-sitemap.mjs`: agrega `/tienda/el-pulga` solo si la sección está activa.
+
+**Estado**: `typecheck` (ambos repos) + `lint` + `vite build` (front) en verde. **Falta**: prueba manual en navegador y que el admin cargue los dos productos + tag + arte + toggle. No se corrió `test:full` (backend) — el cambio de backend es solo la allowlist de settings; revisar `store-public-settings.test.ts` si se corre.
+
+**Cómo retomar**: levantar `backIndians` y `frontIndians` en dev, en el panel *Tienda online → Configuración → Sección El Pulga* activar el toggle y subir una imagen, taggear dos productos de catálogo con "El Pulga", y verificar `/tienda/el-pulga` + menú + footer + franja de la home. Después, decidir merge a `main` y release.
+
+---
+
+## Sesión anterior: 2026-08-26 — Test de estrés pre-lanzamiento (tienda + panel)
 
 **Por qué**: el sistema va a producción con un flujo importante de tráfico real y nunca se había probado bajo concurrencia real de escritura (checkout, login) — solo lecturas públicas (`stress/run-stress.js`, autocannon, ya existía).
 
