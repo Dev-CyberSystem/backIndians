@@ -185,8 +185,10 @@ export async function getTrendingProducts(options: {
   const { city, days = 7, limit = 10 } = options;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
+  // "Lo más comprado de la semana": se rankea SOLO por eventos de compra
+  // (`purchase`), no por vistas — decisión de negocio 2026-08-28.
   const whereEvent: Record<string, unknown> = {
-    event_type: { [Op.in]: ['product_view', 'purchase'] },
+    event_type: 'purchase',
     product_id: { [Op.not]: null },
     createdAt: { [Op.gte]: since },
   };

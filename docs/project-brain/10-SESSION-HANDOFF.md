@@ -4,7 +4,30 @@
 
 ---
 
-## Última actualización: 2026-08-26 — Test de estrés pre-lanzamiento (tienda + panel)
+## Última actualización: 2026-08-27 — Sección destacada / lanzamiento (genérica, tienda)
+
+**Por qué**: lanzamiento de camisetas homenaje a Luis Miguel "Pulga" Rodríguez. Se pidió que la sección **no sea específica del Pulga** sino **genérica y reutilizable**: hoy "Despedida del Pulga", mañana "Nueva camiseta CAT", etc.
+
+**Qué se hizo** (rama `feature/seccion-el-pulga` en **backIndians y frontIndians**, NO mergeada a `main`):
+
+- **Decisión con el usuario**: UNA sección de campaña que el admin repurposea. Landing propia PERO los productos siguen visibles en todo el catálogo. Todo administrable desde el panel. Accesos: menú principal (pill terracota) + footer + franja en la home.
+- **Enfoque**: los productos son los del catálogo con un `tag` configurable. Se reusa el filtro `tag` de `GET /store/products` → **sin migración, sin cambio de contrato de API**.
+- **Backend** (`backIndians/src/services/settings.service.ts`): 13 claves `store_collection_*` en `VALID_KEYS` y `PUBLIC_SETTING_KEYS` — `_enabled`, `_label`, `_slug`, `_tag`, `_kicker`, `_title`, `_subtitle`, `_description`, `_cta`, `_link_url`, `_link_label`, `_hero_image_url`, `_hero_image_mobile_url`.
+- **Frontend**:
+  - `src/pages/store/StoreCollectionPage.tsx` (renombrada desde `StorePulgaPage.tsx`): hero con la imagen **entera, sin recortar** (`w-full h-auto`); textos superpuestos opcionales; `ProductCard` de los productos (2 cols si son ≤2, si no 3). Redirige a `/tienda` si no está activa; normaliza el slug a la URL canónica.
+  - `src/router/index.tsx`: rutas `/tienda/coleccion` y `/tienda/coleccion/:slug`.
+  - `src/components/store/StoreLayout.tsx`: `collectionNavItem(settings)` arma el ítem (pill terracota `bg-clay-600`) en menú desktop + mobile y el link del footer, condicionado a `store_collection_enabled === 'true'` && `_label`.
+  - `src/pages/store/StoreLandingPage.tsx`: componente `CollectionBand` (franja en la home).
+  - `src/pages/ecommerce/EcommerceSettingsPage.tsx`: sección "Sección destacada / lanzamiento".
+  - `scripts/generate-sitemap.mjs`: agrega `/tienda/coleccion/<slug>` solo si está activa.
+
+**Estado**: `typecheck` (ambos repos) + `vite build` (front) en verde. **Falta**: prueba manual en navegador. No se corrió `test:full` (backend) — el cambio de backend es solo la allowlist de settings; revisar `store-public-settings.test.ts` si se corre.
+
+**Cómo retomar**: levantar `backIndians` y `frontIndians` en dev, en *Tienda online → Configuración → Sección destacada* poner Nombre ("Despedida del Pulga") + Tag + imagen, activar el toggle; taggear productos de catálogo con ese tag; verificar `/tienda/coleccion/<slug>` + menú + footer + franja de la home. Después, decidir merge a `main` y release.
+
+---
+
+## Sesión anterior: 2026-08-26 — Test de estrés pre-lanzamiento (tienda + panel)
 
 **Por qué**: el sistema va a producción con un flujo importante de tráfico real y nunca se había probado bajo concurrencia real de escritura (checkout, login) — solo lecturas públicas (`stress/run-stress.js`, autocannon, ya existía).
 

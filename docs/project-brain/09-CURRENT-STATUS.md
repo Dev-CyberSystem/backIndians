@@ -2,6 +2,18 @@
 
 > Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
 
+## Actualización 2026-08-27 — sección destacada / lanzamiento (genérica, tienda)
+
+Rama `feature/seccion-el-pulga` en **ambos repos** (no mergeada a `main`). Nace como landing para "Despedida del Pulga" y se **generaliza en la misma sesión** a una sección de campaña reutilizable (hoy el Pulga, mañana otra) con landing propia en `/tienda/coleccion/:slug`.
+
+- **Sin cambio de esquema ni de contrato de API.** Los productos que muestra son los del catálogo con el `tag` configurado; usa el filtro `tag` que ya existía en `GET /store/products`. Los productos siguen visibles en toda la tienda (decisión confirmada con el usuario).
+- **Backend**: 13 claves `store_collection_*` en `VALID_KEYS` y `PUBLIC_SETTING_KEYS` de `settings.service.ts` (tabla key-value, sin seed ni migración): `_enabled`, `_label`, `_slug`, `_tag`, `_kicker`, `_title`, `_subtitle`, `_description`, `_cta`, `_link_url`, `_link_label`, `_hero_image_url`, `_hero_image_mobile_url`. Coherente con `store-public-settings.test.ts` (todas en ambas listas; la pública sigue más chica que `VALID_KEYS`).
+- **Frontend**: `StoreCollectionPage.tsx` (renombrada desde `StorePulgaPage.tsx`), rutas `/tienda/coleccion` + `/tienda/coleccion/:slug` en `router/index.tsx`, ítem de menú + link de footer + franja en la home en `StoreLayout.tsx` / `StoreLandingPage.tsx` (todo condicionado a `store_collection_enabled === 'true'` y a que haya `_label`), y la sección "Sección destacada / lanzamiento" en `EcommerceSettingsPage.tsx`. `generate-sitemap.mjs` agrega la URL (con el slug) solo si está activa. El hero muestra la imagen **entera, sin recortar** (`w-full h-auto`) y el texto encima es opcional.
+- **Verificación**: `typecheck` de ambos repos + `vite build` del front en verde. Falta la prueba manual en navegador.
+- **Pendiente operativo** (no de código): el admin carga nombre + tag + imagen, activa el toggle, y taggea los productos de catálogo con ese tag.
+
+**Ajustes de landing de la tienda (2026-08-28, misma rama)**: "Novedades" muestra 3 productos (antes 8); "Lo más visto de la semana" se renombró a **"Lo más comprado de la semana"** y ahora rankea SOLO por eventos `purchase` (antes `product_view` + `purchase`), limit 2 (`getTrendingProducts` en `storeAnalytics.service.ts`); "Vistos recientemente" muestra los últimos 4 (antes 8). Además, endurecido el scroll horizontal en mobile del landing (footgun de `w-[42vw]` + margen negativo en `SmartProductSections`, más `overflow-x-clip` de contención en el wrapper de `StoreLayout`).
+
 ## Actualización 2026-08-26 — test de estrés pre-lanzamiento (tienda + panel)
 
 Rama `test/stress-carga-lanzamiento` (no mergeada a `master`, requiere confirmación). Prueba de carga local con k6 (`backIndians/stress/`, ver también el script previo `stress/run-stress.js` que ya existía y solo cubría lecturas públicas) buscando el punto de quiebre real del sistema antes del lanzamiento con tráfico real. Metodología: réplica local (no hay staging real desplegado — Railway/Donweb son solo producción), datos de volumen sembrados (`stress/seed-load-data.ts`: 300 productos + 200 compradores de prueba), checkout siempre por transferencia (nunca dispara MercadoPago real) y mails siempre bloqueados (`MAIL_ENABLED=0` + dominios `@example.com`, bloqueados siempre por `mailGuard.ts`).
