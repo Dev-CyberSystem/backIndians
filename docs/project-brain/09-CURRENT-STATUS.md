@@ -12,6 +12,8 @@ Rama `feature/seccion-el-pulga` en **ambos repos** (no mergeada a `main`). Nace 
 - **Verificación**: `typecheck` de ambos repos + `vite build` del front en verde. Falta la prueba manual en navegador.
 - **Pendiente operativo** (no de código): el admin carga nombre + tag + imagen, activa el toggle, y taggea los productos de catálogo con ese tag.
 
+**Ajustes de landing de la tienda (2026-08-28, misma rama)**: "Novedades" muestra 3 productos (antes 8); "Lo más visto de la semana" se renombró a **"Lo más comprado de la semana"** y ahora rankea SOLO por eventos `purchase` (antes `product_view` + `purchase`), limit 2 (`getTrendingProducts` en `storeAnalytics.service.ts`); "Vistos recientemente" muestra los últimos 4 (antes 8). Además, endurecido el scroll horizontal en mobile del landing (footgun de `w-[42vw]` + margen negativo en `SmartProductSections`, más `overflow-x-clip` de contención en el wrapper de `StoreLayout`).
+
 ## Actualización 2026-08-26 — test de estrés pre-lanzamiento (tienda + panel)
 
 Rama `test/stress-carga-lanzamiento` (no mergeada a `master`, requiere confirmación). Prueba de carga local con k6 (`backIndians/stress/`, ver también el script previo `stress/run-stress.js` que ya existía y solo cubría lecturas públicas) buscando el punto de quiebre real del sistema antes del lanzamiento con tráfico real. Metodología: réplica local (no hay staging real desplegado — Railway/Donweb son solo producción), datos de volumen sembrados (`stress/seed-load-data.ts`: 300 productos + 200 compradores de prueba), checkout siempre por transferencia (nunca dispara MercadoPago real) y mails siempre bloqueados (`MAIL_ENABLED=0` + dominios `@example.com`, bloqueados siempre por `mailGuard.ts`).
