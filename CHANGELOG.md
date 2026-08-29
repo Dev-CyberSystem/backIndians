@@ -3,6 +3,24 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.3.0 — 2026-08-29
+
+### backIndians (f76ee6d)
+
+- feat(store): trending rankea solo por compras
+- refactor(settings): store_pulga_* -> store_collection_* (sección genérica)
+- feat(settings): claves store_pulga_* para la sección "El Pulga" de la tienda
+
+### frontIndians (eb0438f)
+
+- feat(tienda): ajustar cantidades de las secciones del landing
+- fix(tienda): endurecer el scroll horizontal en mobile (evitar desborde)
+- fix(tienda): reiniciar el scroll al navegar entre páginas
+- refactor(tienda): "El Pulga" pasa a ser sección destacada genérica
+- style(tienda): destacar "El Pulga" en el nav como pill terracota
+- fix(tienda): la imagen de "El Pulga" se muestra entera, sin recortar
+- feat(tienda): sección de campaña "El Pulga"
+
 ## v1.2.2 — 2026-08-26
 
 ### backIndians (5f4d971)
