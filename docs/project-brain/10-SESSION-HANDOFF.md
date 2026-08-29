@@ -4,11 +4,13 @@
 
 ---
 
-## Última actualización: 2026-08-27 — Sección destacada / lanzamiento (genérica, tienda)
+## Última actualización: 2026-08-29 — Sección destacada / lanzamiento (genérica) — RELEASE v1.3.0 EN PRODUCCIÓN
 
 **Por qué**: lanzamiento de camisetas homenaje a Luis Miguel "Pulga" Rodríguez. Se pidió que la sección **no sea específica del Pulga** sino **genérica y reutilizable**: hoy "Despedida del Pulga", mañana "Nueva camiseta CAT", etc.
 
-**Qué se hizo** (rama `feature/seccion-el-pulga` en **backIndians y frontIndians**, NO mergeada a `main`):
+**Estado final**: mergeado a `master` en ambos repos y **desplegado como `v1.3.0`** (backend Railway commit `70ff84f` + frontend Donweb commit `eb0438f`, verificado con `npm run release:status` / `/health` / `/version.json`). El deploy del backend en Railway quedó ~20 min "Queued" antes de tomar; terminó bien sin intervención. Backup de prod en `backIndians/.releases/db/v1.3.0-20260828-221951.sql.gz`.
+
+**Qué se hizo** (rama `feature/seccion-el-pulga`, ya mergeada a `master`):
 
 - **Decisión con el usuario**: UNA sección de campaña que el admin repurposea. Landing propia PERO los productos siguen visibles en todo el catálogo. Todo administrable desde el panel. Accesos: menú principal (pill terracota) + footer + franja en la home.
 - **Enfoque**: los productos son los del catálogo con un `tag` configurable. Se reusa el filtro `tag` de `GET /store/products` → **sin migración, sin cambio de contrato de API**.
@@ -21,9 +23,12 @@
   - `src/pages/ecommerce/EcommerceSettingsPage.tsx`: sección "Sección destacada / lanzamiento".
   - `scripts/generate-sitemap.mjs`: agrega `/tienda/coleccion/<slug>` solo si está activa.
 
-**Estado**: `typecheck` (ambos repos) + `vite build` (front) en verde. **Falta**: prueba manual en navegador. No se corrió `test:full` (backend) — el cambio de backend es solo la allowlist de settings; revisar `store-public-settings.test.ts` si se corre.
+**Validación del release**: `npm run release -- minor --yes` corrió typecheck + `test:full` (backend) y build + prerender (frontend) en verde, sacó el backup de prod y tageó `v1.3.0` en ambos repos.
 
-**Cómo retomar**: levantar `backIndians` y `frontIndians` en dev, en *Tienda online → Configuración → Sección destacada* poner Nombre ("Despedida del Pulga") + Tag + imagen, activar el toggle; taggear productos de catálogo con ese tag; verificar `/tienda/coleccion/<slug>` + menú + footer + franja de la home. Después, decidir merge a `main` y release.
+**Pendientes tras el deploy**:
+1. **Prueba del scroll horizontal en mobile en un iPhone real** — los fixes defensivos (`SmartProductSections` + `overflow-x-clip` en el wrapper de `StoreLayout`) están en producción pero no se pudieron verificar en herramientas (la emulación de Chromium miente con `window.innerWidth`).
+2. **Activar la sección** cuando el negocio lo decida: *Tienda online → Configuración → Sección destacada* → Nombre + Tag + imagen + toggle; taggear los productos de catálogo con ese tag.
+3. **"Lo más comprado de la semana"**: en producción hoy devuelve 0 productos (no hay compras de los últimos 7 días que resuelvan a productos visibles), así que `SectionShell` esconde la sección. Es el comportamiento esperado del ranking nuevo (solo `purchase`); si se quiere que siempre muestre algo, hay que ampliar el fallback de `getTrendingProducts` (hoy solo cae a "más nuevos" cuando hay CERO eventos de compra, no cuando los eventos resuelven a vacío).
 
 ---
 

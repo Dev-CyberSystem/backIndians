@@ -2,15 +2,15 @@
 
 > Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
 
-## Actualización 2026-08-27 — sección destacada / lanzamiento (genérica, tienda)
+## Actualización 2026-08-29 — sección destacada / lanzamiento (genérica) — **RELEASE v1.3.0 EN PRODUCCIÓN**
 
-Rama `feature/seccion-el-pulga` en **ambos repos** (no mergeada a `main`). Nace como landing para "Despedida del Pulga" y se **generaliza en la misma sesión** a una sección de campaña reutilizable (hoy el Pulga, mañana otra) con landing propia en `/tienda/coleccion/:slug`.
+Rama `feature/seccion-el-pulga` mergeada a `master` y **desplegada como `v1.3.0`** (back `70ff84f` + front `eb0438f`). Nace como landing para "Despedida del Pulga" y se **generalizó** a una sección de campaña reutilizable (hoy el Pulga, mañana otra) con landing propia en `/tienda/coleccion/:slug`. La sección se despliega **apagada** (`store_collection_enabled` = `false` en prod); el admin la activa desde el panel.
 
 - **Sin cambio de esquema ni de contrato de API.** Los productos que muestra son los del catálogo con el `tag` configurado; usa el filtro `tag` que ya existía en `GET /store/products`. Los productos siguen visibles en toda la tienda (decisión confirmada con el usuario).
 - **Backend**: 13 claves `store_collection_*` en `VALID_KEYS` y `PUBLIC_SETTING_KEYS` de `settings.service.ts` (tabla key-value, sin seed ni migración): `_enabled`, `_label`, `_slug`, `_tag`, `_kicker`, `_title`, `_subtitle`, `_description`, `_cta`, `_link_url`, `_link_label`, `_hero_image_url`, `_hero_image_mobile_url`. Coherente con `store-public-settings.test.ts` (todas en ambas listas; la pública sigue más chica que `VALID_KEYS`).
 - **Frontend**: `StoreCollectionPage.tsx` (renombrada desde `StorePulgaPage.tsx`), rutas `/tienda/coleccion` + `/tienda/coleccion/:slug` en `router/index.tsx`, ítem de menú + link de footer + franja en la home en `StoreLayout.tsx` / `StoreLandingPage.tsx` (todo condicionado a `store_collection_enabled === 'true'` y a que haya `_label`), y la sección "Sección destacada / lanzamiento" en `EcommerceSettingsPage.tsx`. `generate-sitemap.mjs` agrega la URL (con el slug) solo si está activa. El hero muestra la imagen **entera, sin recortar** (`w-full h-auto`) y el texto encima es opcional.
-- **Verificación**: `typecheck` de ambos repos + `vite build` del front en verde. Falta la prueba manual en navegador.
-- **Pendiente operativo** (no de código): el admin carga nombre + tag + imagen, activa el toggle, y taggea los productos de catálogo con ese tag.
+- **Verificación**: `npm run release` corrió typecheck + `test:full` (back) y build + prerender (front) en verde; backup de prod tomado; tag `v1.3.0` en ambos repos; deploy verificado por `/health` (`1.3.0`) y `/version.json`.
+- **Pendiente operativo** (no de código): el admin carga nombre + tag + imagen, activa el toggle, y taggea los productos de catálogo con ese tag. Falta también reprobar el scroll horizontal mobile en un iPhone real.
 
 **Ajustes de landing de la tienda (2026-08-28, misma rama)**: "Novedades" muestra 3 productos (antes 8); "Lo más visto de la semana" se renombró a **"Lo más comprado de la semana"** y ahora rankea SOLO por eventos `purchase` (antes `product_view` + `purchase`), limit 2 (`getTrendingProducts` en `storeAnalytics.service.ts`); "Vistos recientemente" muestra los últimos 4 (antes 8). Además, endurecido el scroll horizontal en mobile del landing (footgun de `w-[42vw]` + margen negativo en `SmartProductSections`, más `overflow-x-clip` de contención en el wrapper de `StoreLayout`).
 
