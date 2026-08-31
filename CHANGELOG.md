@@ -3,6 +3,17 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.4.0 — 2026-08-31
+
+### backIndians (ff1752a)
+
+- feat(settings): destino configurable del boton CTA del hero por slide
+- docs(brain): v1.3.1 en producción (pill celeste + solo Mercado Pago en la home)
+
+### frontIndians (1ecd3cc)
+
+- feat(tienda): CTA del hero por slide + manifiesto de marca en la landing
+
 ## v1.3.1 — 2026-08-31
 
 ### backIndians (bfd003c)
