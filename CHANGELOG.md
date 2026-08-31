@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.3.1 — 2026-08-31
+
+### backIndians (bfd003c)
+
+- docs(brain): v1.3.0 desplegado en producción (sección destacada + trending por compras)
+
+### frontIndians (dab7c8d)
+
+- feat(tienda): pill de sección destacada en celeste + solo Mercado Pago
+
 ## v1.3.0 — 2026-08-29
 
 ### backIndians (f76ee6d)
