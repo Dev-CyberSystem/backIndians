@@ -4,11 +4,13 @@
 
 ---
 
-## Última actualización: 2026-08-29 — Sección destacada / lanzamiento (genérica) — RELEASE v1.3.0 EN PRODUCCIÓN
+## Última actualización: 2026-08-31 — Sección destacada + ajustes de tienda — RELEASE v1.3.0 y v1.3.1 EN PRODUCCIÓN
 
 **Por qué**: lanzamiento de camisetas homenaje a Luis Miguel "Pulga" Rodríguez. Se pidió que la sección **no sea específica del Pulga** sino **genérica y reutilizable**: hoy "Despedida del Pulga", mañana "Nueva camiseta CAT", etc.
 
-**Estado final**: mergeado a `master` en ambos repos y **desplegado como `v1.3.0`** (backend Railway commit `70ff84f` + frontend Donweb commit `eb0438f`, verificado con `npm run release:status` / `/health` / `/version.json`). El deploy del backend en Railway quedó ~20 min "Queued" antes de tomar; terminó bien sin intervención. Backup de prod en `backIndians/.releases/db/v1.3.0-20260828-221951.sql.gz`.
+**Estado final**:
+- **v1.3.0** (2026-08-29): mergeado a `master` en ambos repos y desplegado (back `70ff84f` + front `eb0438f`). El deploy de Railway quedó ~20 min "Queued" antes de tomar; terminó bien sin intervención. Backup: `.releases/db/v1.3.0-20260828-221951.sql.gz`.
+- **v1.3.1** (2026-08-31): parche desplegado — el **pill de la sección destacada en el nav pasó de terracota a celeste** (nuevo color `celeste` en `tailwind.config.js`, tono de la camiseta de Atlético Tucumán) y el beneficio de la home dice **"Con Mercado Pago"** (antes "MercadoPago y transferencia"). El checkout y el centro de ayuda ya eran solo MP. **NO se tocó el T&C** (menciona transferencia de forma condicional; sacarlo requiere bump de versión en `legalDocs.ts`, quedó pendiente por decisión del usuario). Verificado con `release:status` (todo verde) + smoke en `indians.com.ar`. Backup: `.releases/db/v1.3.1-20260831-114905.sql.gz`.
 
 **Qué se hizo** (rama `feature/seccion-el-pulga`, ya mergeada a `master`):
 
