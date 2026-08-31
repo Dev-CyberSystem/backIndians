@@ -34,6 +34,8 @@ export const VALID_KEYS: string[] = [
   'store_hero_badge',
   'store_hero_image_url', 'store_hero_image_2_url', 'store_hero_image_3_url',
   'store_hero_image_mobile_url', 'store_hero_image_2_mobile_url', 'store_hero_image_3_mobile_url',
+  // Destino del botón CTA según el slide visible (ruta relativa, ej. /tienda/coleccion/despedida-el-pulga).
+  'store_hero_image_link', 'store_hero_image_2_link', 'store_hero_image_3_link',
   // Tienda — landing secciones
   'store_announcement',
   'store_marquee',
@@ -125,6 +127,8 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   'store_hero_badge',
   'store_hero_image_url', 'store_hero_image_2_url', 'store_hero_image_3_url',
   'store_hero_image_mobile_url', 'store_hero_image_2_mobile_url', 'store_hero_image_3_mobile_url',
+  // Destino del botón CTA según el slide visible (lo renderiza la tienda públicamente)
+  'store_hero_image_link', 'store_hero_image_2_link', 'store_hero_image_3_link',
   // Tienda — landing secciones
   'store_announcement', 'store_marquee',
   'store_categories_title', 'store_featured_title', 'store_featured_subtitle',
