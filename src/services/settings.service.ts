@@ -51,7 +51,7 @@ export const VALID_KEYS: string[] = [
   'store_carousel_3_image', 'store_carousel_3_image_mobile', 'store_carousel_3_link',
   'store_carousel_4_image', 'store_carousel_4_image_mobile', 'store_carousel_4_link',
   // Tienda — landing banner promo
-  'store_promo_image_url', 'store_promo_title',
+  'store_promo_image_url', 'store_promo_image_mobile_url', 'store_promo_title',
   'store_promo_subtitle', 'store_promo_cta',
   // Tienda — barra de promociones (pills)
   'store_promo_pills',
@@ -142,7 +142,7 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   'store_carousel_3_image', 'store_carousel_3_image_mobile', 'store_carousel_3_link',
   'store_carousel_4_image', 'store_carousel_4_image_mobile', 'store_carousel_4_link',
   // Tienda — banner promo y barra de promociones
-  'store_promo_image_url', 'store_promo_title', 'store_promo_subtitle', 'store_promo_cta',
+  'store_promo_image_url', 'store_promo_image_mobile_url', 'store_promo_title', 'store_promo_subtitle', 'store_promo_cta',
   'store_promo_pills',
   // Tienda — "sección destacada / lanzamiento" genérica (la tienda la renderiza públicamente)
   'store_collection_enabled', 'store_collection_label', 'store_collection_slug',
