@@ -4,7 +4,32 @@
 
 ---
 
-## Última actualización: 2026-08-31 — Sección destacada + ajustes de tienda — RELEASE v1.3.0 y v1.3.1 EN PRODUCCIÓN
+## Última actualización: 2026-09-01 — costo de envío por zona (Tucumán capital / interior / resto del país)
+
+**Por qué**: el envío dentro de Tucumán cuesta distinto que al resto del país, y dentro de Tucumán la capital cuesta distinto que el interior. El costo de envío era un valor único.
+
+**Qué se hizo** (ramas `feature/checkout-envio-por-zona` en **ambos** repos, **sin mergear**):
+
+- **Backend** (commit `c822d39`):
+  - `settings.service.ts`: claves nuevas `shipping_cost_tucuman_capital` y `shipping_cost_tucuman_interior` en `VALID_KEYS` + `PUBLIC_SETTING_KEYS`. `shipping_cost` queda como "resto del país". **Sin migración** (tabla key-value).
+  - `store.service.ts`: `resolveShippingZone({state, shipping_zone})` + `getShippingCostForZone(zone)` (fallback a `shipping_cost` si la clave de Tucumán está vacía → nunca 0). `computeOrderTotals` y `getCheckoutQuote` reciben `shipping_state`/`shipping_zone`; `createStoreOrder` los pasa desde `shipping_address` al recalcular → el guard de `expected_total` no da 409 por tarifa distinta entre quote y checkout.
+  - `store.routes.ts`: `shipping_zone` opcional (enum) en `quoteValidators` y `checkoutValidators`. `StoreOrder.ts`: `ShippingAddress.shipping_zone` (JSON).
+  - `checkout-quote.test.ts`: 6 casos nuevos. Suites `purchase-flow`, `checkout-idempotency`, `store-public-settings`, `audit-preprod-regressions` en verde sin tocarlas.
+- **Frontend** (commit `8c364d4`):
+  - `src/data/argentinaProvinces.ts` (nuevo): 24 jurisdicciones + `isTucuman()`.
+  - `components/store/StoreField.tsx`: `StoreSelect` nuevo (mismo estilo editorial).
+  - `StoreCheckoutPage.tsx`: "Provincia" pasa a `<select>` obligatorio para envío; si es Tucumán aparecen 2 radio-cards de zona (capital / interior). `state` y `shipping_zone` entran al `queryKey` y al payload del quote y del checkout. La zona se limpia si se cambia a provincia no-Tucumán. Direcciones guardadas: solo precargan la provincia si matchea una opción.
+  - `api/store.ts`: `ShippingZone` + `shipping_zone`. `EcommerceSettingsPage.tsx`: sección Envíos con los 3 costos. `EcommerceOrdersPage.tsx`: muestra la zona en el detalle.
+  - e2e `customer-flows.spec.ts`: los 2 tests de checkout completan provincia/dirección (el default es envío, no retiro — estaban rotos desde que se ocultó `pickup`); test nuevo del selector de zona condicional. `tsc -b` + Vitest (47) en verde.
+
+**Falta / cómo retomar**:
+1. **Probar en navegador**: cargar los 3 costos en *Configuración → Envíos*; en el checkout, elegir Tucumán + zona y verificar que el total del resumen cambia y que el checkout no da 409; elegir otra provincia y verificar que usa el costo de "resto del país".
+2. **Mergear** `feature/checkout-envio-por-zona` en ambos repos (push a `master` del back = deploy a Railway). Definir orden con las otras dos ramas de checkout sin mergear (`feature/checkout-telefono-obligatorio` toca la misma zona de `StoreCheckoutPage.tsx`; `feature/banner-promo-responsive-mobile` toca `settings.service.ts`) — conflictos triviales, pero hay que resolverlos.
+3. Nueva regla documentada: [BR-STORE-012](03-BUSINESS-RULES.md).
+
+---
+
+## Sesión anterior: 2026-08-31 (mañana) — Sección destacada + ajustes de tienda — RELEASE v1.3.0 y v1.3.1 EN PRODUCCIÓN
 
 **Por qué**: lanzamiento de camisetas homenaje a Luis Miguel "Pulga" Rodríguez. Se pidió que la sección **no sea específica del Pulga** sino **genérica y reutilizable**: hoy "Despedida del Pulga", mañana "Nueva camiseta CAT", etc.
 

@@ -197,7 +197,7 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 
 **Flujos alternativos**: cupón de descuento (uno por cliente, aplicado atómicamente), carrito abandonado (recordatorio por mail, con envío manual desde el panel admin también), wishlist, direcciones múltiples, cancelación (restituye stock y libera cupón), expiración automática de pedidos impagos a 48hs (job programado).
 
-**Validaciones/restricciones**: checkout idempotente (`Idempotency-Key` header + `idempotency_key` unique en DB); reserva de stock evita sobreventa; webhook de MP valida firma HMAC (fail-closed en producción); rate limiting en checkout y en webhook; Turnstile (captcha) en registro.
+**Validaciones/restricciones**: checkout idempotente (`Idempotency-Key` header + `idempotency_key` unique en DB); reserva de stock evita sobreventa; webhook de MP valida firma HMAC (fail-closed en producción); rate limiting en checkout y en webhook; Turnstile (captcha) en registro. Para envío a domicilio, la **provincia** es un `<select>` obligatorio (24 jurisdicciones AR) y, si es **Tucumán**, se pide además la **zona** (San Miguel de Tucumán / interior) porque la tarifa de envío difiere por zona — ver [BR-STORE-012](03-BUSINESS-RULES.md).
 
 **Estados de `StoreOrder`**: ENUM de 10 valores — confirmado en migraciones 033/040/066: incluye al menos `pending_payment`, `paid`, `processing`, `review`, `awaiting_courier`, `shipped`, `delivered`, `cancelled`, `delayed`, `returned`. Transiciones configurables en `backIndians/src/config/storeOrderFlow.ts` (**atención**: replicado también en `frontIndians/src/api/store.ts`, deuda técnica anotada — ver [09-CURRENT-STATUS.md](09-CURRENT-STATUS.md)).
 
@@ -305,9 +305,11 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 
 ## 14. Settings
 
-**Objetivo**: configuración key-value de la empresa, facturación, AFIP y tienda (landing, banners, cupón popup, datos bancarios para transferencia, chatbot, redes sociales).
+**Objetivo**: configuración key-value de la empresa, facturación, AFIP y tienda (landing, banners, cupón popup, datos bancarios para transferencia, chatbot, redes sociales, **costos de envío por zona**).
 
 **Usuarios**: `admin`/`billing` (escritura vía `/settings` y `/store/settings` admin); lectura pública para settings de tienda no sensibles (`GET /store/settings`, cacheado 60s).
+
+**Envíos**: `shipping_cost` (resto del país), `shipping_cost_tucuman_capital`, `shipping_cost_tucuman_interior` y `free_shipping_min` (umbral de envío gratis, global). Las tres primeras son las tarifas por zona — ver [BR-STORE-012](03-BUSINESS-RULES.md). Todas están en `VALID_KEYS` y `PUBLIC_SETTING_KEYS`.
 
 **Nivel de implementación**: **Implementado y verificado**. Fuente: `backIndians/src/models/Settings.ts` (PK=`key`), `routes/settings.routes.ts`, múltiples seeds de settings en migraciones (011, 034, 036, 038, 078).
 
