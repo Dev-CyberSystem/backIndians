@@ -4,7 +4,38 @@
 
 ---
 
-## Última actualización: 2026-09-01 — RELEASE v1.5.0 EN PRODUCCIÓN (envío por zona + banner promo mobile + teléfono obligatorio)
+## Última actualización: 2026-09-01 (tarde) — Fix del prerender + destino configurable del popup de cupón — RELEASE v1.6.0 PREPARADO (sin deployar)
+
+Sesión disparada por un bug en producción: **el popup de cupón no se cerraba al tocar la X**. Causa real: el `index.html` publicado tenía `<link rel="modulepreload" href="http://127.0.0.1:49641/assets/...">` para los chunks lazy de `/tienda/productos`. Los inyecta Vite en runtime con URL absoluta al origen, y el **prerender** (`scripts/prerender.mjs`) corre la SPA contra un server local y guardaba ese HTML tal cual. En prod esos assets daban `ERR_CONNECTION_REFUSED`, el `import()` dinámico fallaba y **la SPA quedaba muerta** (ningún `setState` re-renderizaba → el popup, el chatbot y los filtros no respondían). El usuario ya redeployó el fix del prerender por su cuenta y se resolvió; esta sesión lo formaliza en el release.
+
+### 1. Fix del prerender — `fix/prerender-localhost-urls` (`frontIndians`, ya en `master`)
+
+- `scripts/prerender.mjs`: antes de escribir cada `.html`, normaliza las URLs del server de prerender (`http://127.0.0.1:<port>`) a root-relative, más una red de seguridad para cualquier otro `localhost:<port>`.
+- `scripts/deploy-ftp.mjs`: **aborta el deploy** si algún `.html` del build todavía referencia `localhost` (anti-regresión).
+
+### 2. Destino configurable del popup de cupón — `feature/cupon-popup-link` (ambos repos, ya en `master`)
+
+**Por qué**: el botón "Ver la colección" del popup iba siempre a `/tienda/productos`; se pidió que lleve a la sección/producto que se está publicando, configurable desde el panel de Cupones.
+
+- **Backend**: migración **101** — `store_coupons.link_url` VARCHAR(500) nullable (+ `ensureSchema.ts` en paralelo). `getPromoPopupCoupon` lo devuelve; `createCoupon`/`updateCoupon` lo aceptan (allowlist tipada). Test `coupon-per-customer` en verde.
+- **Frontend**: `src/utils/links.ts` nuevo — `resolveStoreLink` (extraído del `resolveHeroLink` local de `StoreLandingPage`, que ahora lo reusa). `StoreLayout` (`CouponPopup`) navega al `link_url` resuelto — `<Link>` interno o `<a target="_blank">` externo. `CouponsPage`: campo "Destino del botón" dentro del bloque de popup. `api/store.ts`: `link_url` en `StoreCoupon` y `StorePromoPopup`.
+
+### Estado del release
+
+- Ramas mergeadas con `--no-ff` a `master` en ambos repos. **Todavía NO se corrió `npm run release`** ni se deployó.
+- Versión propuesta: **v1.6.0** (`minor` — funcionalidad nueva). Migración 101 es **aditiva** → rollback solo de código si hiciera falta.
+- `backIndians/master` tiene además 3 commits doc de v1.5.0 sin pushear (entran con el push del release).
+
+### Falta
+
+1. Correr `npm run release -- minor` en `backIndians` (typecheck + `test:full` + build/prerender + backup de prod + tags `v1.6.0`).
+2. Deployar: push de ambos repos + `npm run migrate` en Railway (migración 101) + `npm run deploy:release -- v1.6.0` en el front.
+3. Smoke: cargar un cupón con popup + `link_url` a una sección, abrir la tienda, tocar "Ver la colección" → tiene que ir ahí y cerrarse.
+4. Borrar ramas locales `feature/cupon-popup-link` (x2) y `fix/prerender-localhost-urls`.
+
+---
+
+## Sesión anterior: 2026-09-01 (mañana) — RELEASE v1.5.0 EN PRODUCCIÓN (envío por zona + banner promo mobile + teléfono obligatorio)
 
 Las tres ramas se mergearon a `master` en ambos repos y **se desplegó `v1.5.0`** con `npm run release -- minor`: back `/health` → `1.5.0` (commit `d18d8db`), front `/version.json` → `1.5.0`. Ninguna toca esquema de DB (todo `settings` key-value + JSON de `shipping_address`) → sin migración, rollback solo de código si hiciera falta.
 
