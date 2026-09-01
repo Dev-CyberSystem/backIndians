@@ -3,6 +3,21 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.6.0 — 2026-09-01
+
+### backIndians (f388d0e)
+
+- docs(brain): migración 101 (store_coupons.link_url) + handoff de sesión
+- feat(tienda): link_url configurable en cupones para el popup
+- docs(brain): BR-STORE-012 pasa a "desplegado en v1.5.0"
+- docs(brain): v1.5.0 desplegado en producción
+- docs(brain): 09-CURRENT-STATUS al día con el release v1.5.0 integrado
+
+### frontIndians (0d41a45)
+
+- feat(tienda): destino configurable del botón del popup de cupón
+- fix(seo): el prerender ya no deja URLs a 127.0.0.1 en el HTML publicado
+
 ## v1.5.0 — 2026-09-01
 
 ### backIndians (4f5b70a)
