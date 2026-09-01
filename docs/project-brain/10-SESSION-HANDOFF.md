@@ -4,9 +4,9 @@
 
 ---
 
-## Última actualización: 2026-09-01 — RELEASE que junta 3 features (envío por zona + banner promo mobile + teléfono obligatorio)
+## Última actualización: 2026-09-01 — RELEASE v1.5.0 EN PRODUCCIÓN (envío por zona + banner promo mobile + teléfono obligatorio)
 
-Las tres ramas se mergearon a `master` en ambos repos y quedó listo para `npm run release -- minor` (→ v1.5.0). Ninguna toca esquema de DB (todo `settings` key-value + JSON de `shipping_address`).
+Las tres ramas se mergearon a `master` en ambos repos y **se desplegó `v1.5.0`** con `npm run release -- minor`: back `/health` → `1.5.0` (commit `d18d8db`), front `/version.json` → `1.5.0`. Ninguna toca esquema de DB (todo `settings` key-value + JSON de `shipping_address`) → sin migración, rollback solo de código si hiciera falta.
 
 ### 1. Costo de envío por zona — `feature/checkout-envio-por-zona` (ambos repos)
 
@@ -23,11 +23,12 @@ El banner promo de la landing se veía todo negro en mobile (la imagen se oculta
 
 `StoreCheckoutPage.tsx` — `customer_phone` requerido en el esquema Zod (backend lo sigue aceptando `optional`, sin cambio de contrato). `vite.config.ts` — `strictPort: true` (si 5173 está ocupado, Vite falla en vez de saltar a 5174 y romper CORS). `.gitignore` — `+.env.development` (ahí va `VITE_GOOGLE_CLIENT_ID` de dev; `vite build` no lo toma).
 
-### Falta / cómo retomar
+### Falta tras el deploy (operativo, no de código)
 
-1. **Correr `npm run release -- minor`** en `backIndians` (PowerShell, Windows) — valida ambos repos (typecheck + `test:full` + build + prerender), backup de prod, tag `v1.5.0` en los dos. Ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md).
-2. **Probar en navegador** después del deploy: cargar los 3 costos de envío en *Configuración → Envíos* + una imagen mobile del banner promo; en el checkout elegir Tucumán + zona y verificar que el total cambia y que no da 409; ver la home mobile con el banner.
-3. **Google OAuth en dev**: `VITE_GOOGLE_CLIENT_ID` (front, `.env.development`) = `GOOGLE_CLIENT_ID` (back, `.env`), y `http://localhost:5173` autorizado en Google Cloud Console.
+1. **Cargar en el panel** *Configuración → Envíos*: `shipping_cost_tucuman_capital` y `shipping_cost_tucuman_interior`. Hasta cargarlos, un envío a Tucumán cobra el de "resto del país" (fallback de `getShippingCostForZone`). Subir también una imagen mobile del banner promo.
+2. **Smoke en producción**: checkout eligiendo Tucumán + zona → el total del resumen tiene que cambiar y el checkout no debe dar 409; otra provincia → costo de "resto del país". Home en mobile con el banner.
+3. **Ramas `feature/*` locales** (`checkout-envio-por-zona`, `banner-promo-responsive-mobile`, `checkout-telefono-obligatorio`) ya mergeadas — se pueden borrar.
+4. **Google OAuth en dev** (no bloquea el release): `VITE_GOOGLE_CLIENT_ID` (front, `.env.development`) = `GOOGLE_CLIENT_ID` (back, `.env`), y `http://localhost:5173` autorizado en Google Cloud Console.
 
 ---
 
