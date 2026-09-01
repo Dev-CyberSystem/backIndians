@@ -4,7 +4,7 @@
 
 ---
 
-## Última actualización: 2026-09-01 (tarde) — Popup de cupón: dos bugs de prerender + destino configurable — v1.6.0 EN PRODUCCIÓN, v1.6.1 EN CURSO
+## Última actualización: 2026-09-01 (tarde) — Popup de cupón: dos bugs de prerender + destino configurable — v1.6.1 EN PRODUCCIÓN
 
 Sesión disparada por un bug en producción: **el popup de cupón no se cerraba al tocar la X**. Resultaron ser **dos** bugs distintos, los dos del prerender (`scripts/prerender.mjs`), más una feature nueva pedida en el medio.
 
@@ -39,14 +39,12 @@ Migración **101** — `store_coupons.link_url` VARCHAR(500) nullable (+ `ensure
 ### Estado del release
 
 - **v1.6.0**: EN PRODUCCIÓN. back `/health` → 1.6.0, front `/version.json` → 1.6.0 (commit `0d41a45`). Migración 101 aplicada por Railway. Backup: `.releases/db/v1.6.0-20260901-135324.sql.gz`.
-- **v1.6.1** (Bug B): rama `fix/prerender-body-overlays` mergeada a `master` (frontIndians). Falta correr `npm run release -- patch` y deployar. El fix ya está vivo en prod por el deploy accidental — el release es para tagearlo y dejar back+front en la misma versión.
+- **v1.6.1** (Bug B): EN PRODUCCIÓN. `npm run release:status` todo verde — back `/health` → 1.6.1 (`694b7f5`), front sistema+tienda → 1.6.1 (`fb24927`), "la release tageada es exactamente la que está en producción". Backup: `.releases/db/v1.6.1-20260901-153421.sql.gz`. Smoke: `curl` de `/tienda/` y `/tienda/productos/` → 0 rastros del popup en el HTML, `<body>` arranca con `#root`. Backend v1.6.1 no cambió código respecto de v1.6.0 (solo bump + tag).
 
 ### Falta
 
-1. `npm run release -- patch` en `backIndians` → tag `v1.6.1` en ambos repos.
-2. Deployar con OK del usuario: front `npm run deploy:release -- v1.6.1` (idempotente, ya está el fix); back push → Railway (funcionalmente no-op, sube `/health` a 1.6.1).
-3. Smoke: recargar `indians.com.ar/tienda/` (con barra) → el popup cierra con la X. Cargar `link_url` en un cupón con popup → "Ver la colección" lleva ahí.
-4. Borrar ramas locales `feature/cupon-popup-link` (x2), `fix/prerender-localhost-urls`, `fix/prerender-body-overlays`.
+1. Confirmación visual del usuario en navegador: recargar `indians.com.ar/tienda/` (con barra, Ctrl+Shift+R) → la X cierra el popup. Cargar `link_url` en un cupón con popup → "Ver la colección" lleva ahí.
+2. Borrar ramas locales `feature/cupon-popup-link` (x2), `fix/prerender-localhost-urls`, `fix/prerender-body-overlays`.
 
 ---
 
