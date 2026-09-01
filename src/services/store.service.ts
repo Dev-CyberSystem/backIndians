@@ -505,6 +505,7 @@ export async function getPromoPopupCoupon() {
     value: Number(coupon.value),
     min_purchase: coupon.min_purchase != null ? Number(coupon.min_purchase) : null,
     popup_image_url: coupon.popup_image_url,
+    link_url: coupon.link_url,
     expires_at: coupon.expires_at,
   };
 }
@@ -524,6 +525,7 @@ export async function createCoupon(data: {
   max_uses?: number;
   show_popup?: boolean;
   popup_image_url?: string | null;
+  link_url?: string | null;
   starts_at?: string;
   expires_at?: string;
 }) {
@@ -534,6 +536,7 @@ export async function createCoupon(data: {
     ...data,
     code: data.code.toUpperCase(),
     popup_image_url: data.popup_image_url ?? null,
+    link_url: data.link_url || null,
     starts_at: data.starts_at ? new Date(data.starts_at) : null,
     expires_at: data.expires_at ? new Date(data.expires_at) : null,
   });
@@ -551,6 +554,7 @@ export async function updateCoupon(
     active: boolean;
     show_popup: boolean;
     popup_image_url: string | null;
+    link_url: string | null;
     starts_at: string;
     expires_at: string;
   }>

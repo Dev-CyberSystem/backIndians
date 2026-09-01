@@ -22,6 +22,8 @@ export class StoreCoupon extends Model<
   declare active: CreationOptional<boolean>;
   declare show_popup: CreationOptional<boolean>;
   declare popup_image_url: CreationOptional<string | null>;
+  /** Destino del botón "Ver la colección" del popup. Vacío → /tienda/productos. */
+  declare link_url: CreationOptional<string | null>;
   declare starts_at: CreationOptional<Date | null>;
   declare expires_at: CreationOptional<Date | null>;
   declare createdAt: CreationOptional<Date>;
@@ -55,6 +57,7 @@ StoreCoupon.init(
     active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     show_popup: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     popup_image_url: { type: DataTypes.STRING(500), allowNull: true },
+    link_url: { type: DataTypes.STRING(500), allowNull: true },
     starts_at: { type: DataTypes.DATE, allowNull: true },
     expires_at: { type: DataTypes.DATE, allowNull: true },
     createdAt: DataTypes.DATE,
