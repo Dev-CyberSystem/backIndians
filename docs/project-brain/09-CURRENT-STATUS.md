@@ -2,6 +2,14 @@
 
 > Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
 
+## Actualización 2026-08-31 — banner promo responsive + teléfono obligatorio en checkout + fixes de entorno de dev
+
+Tres cambios chicos, **ninguno mergeado a `master` todavía**:
+
+- **Banner promocional de la landing con imagen mobile** (ramas `feature/banner-promo-responsive-mobile` en **ambos** repos). Antes el banner promo solo tenía imagen desktop y en mobile se ocultaba (`hidden md:block`) → fondo negro con solo el texto. Nueva clave `store_promo_image_mobile_url` en `VALID_KEYS` + `PUBLIC_SETTING_KEYS` de `settings.service.ts` (tabla key-value, sin migración; mismo patrón que hero/carrusel/sección destacada). `EcommerceSettingsPage.tsx`: segundo `ImageUploadInput` "— mobile (opcional)". `StoreLandingPage.tsx`: `<picture>` con `<source media="(max-width: 767px)">`; sin mobile cae a la de desktop (`object-cover`) en vez de ocultarse. Typecheck limpio en los dos repos. **Falta**: probar en navegador (vista mobile de la home) y mergear/desplegar (el back va a Railway con push a `master`).
+- **Teléfono obligatorio en el checkout de la tienda** (rama `feature/checkout-telefono-obligatorio`, `frontIndians`). `StoreCheckoutPage.tsx`: `customer_phone` pasa de opcional a requerido en el esquema Zod + label "Teléfono *". **Solo front** — el backend sigue aceptando `customer_phone` `optional` (`store.routes.ts`), no hay cambio de contrato. Los dos tests e2e que envían el checkout por UI (`customer-flows.spec.ts`) ahora completan el teléfono. 2 commits en esa rama; incluye también los fixes de entorno del punto siguiente.
+- **Fixes de entorno de desarrollo** (misma rama del punto anterior). `vite.config.ts`: `strictPort: true` — si 5173 está ocupado Vite fallaba en silencio saltando a 5174 y el backend lo bloqueaba por CORS (`allowedOrigins` = `FRONTEND_URL`, default `localhost:5173`). `.gitignore`: se agregó `.env.development` para poder poner ahí `VITE_GOOGLE_CLIENT_ID` de dev sin que se filtre al build de producción (`vite build` no lee `.env.development`). El 403 del flujo Google GSI que se vio en dev era por el origen `http://localhost:5173` no estando en "Orígenes de JavaScript autorizados" del cliente OAuth — se resuelve en Google Cloud Console, no en código. Ver [06-API-AND-INTEGRATIONS.md](06-API-AND-INTEGRATIONS.md) y [07-DEVELOPMENT-GUIDE.md](07-DEVELOPMENT-GUIDE.md).
+
 ## Actualización 2026-08-29 — sección destacada / lanzamiento (genérica) — **RELEASE v1.3.0 EN PRODUCCIÓN**
 
 Rama `feature/seccion-el-pulga` mergeada a `master` y **desplegada como `v1.3.0`** (back `70ff84f` + front `eb0438f`). Nace como landing para "Despedida del Pulga" y se **generalizó** a una sección de campaña reutilizable (hoy el Pulga, mañana otra) con landing propia en `/tienda/coleccion/:slug`. La sección se despliega **apagada** (`store_collection_enabled` = `false` en prod); el admin la activa desde el panel.

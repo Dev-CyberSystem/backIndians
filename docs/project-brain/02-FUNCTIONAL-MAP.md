@@ -197,7 +197,7 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 
 **Flujos alternativos**: cupón de descuento (uno por cliente, aplicado atómicamente), carrito abandonado (recordatorio por mail, con envío manual desde el panel admin también), wishlist, direcciones múltiples, cancelación (restituye stock y libera cupón), expiración automática de pedidos impagos a 48hs (job programado).
 
-**Validaciones/restricciones**: checkout idempotente (`Idempotency-Key` header + `idempotency_key` unique en DB); reserva de stock evita sobreventa; webhook de MP valida firma HMAC (fail-closed en producción); rate limiting en checkout y en webhook; Turnstile (captcha) en registro.
+**Validaciones/restricciones**: checkout idempotente (`Idempotency-Key` header + `idempotency_key` unique en DB); reserva de stock evita sobreventa; webhook de MP valida firma HMAC (fail-closed en producción); rate limiting en checkout y en webhook; Turnstile (captcha) en registro. El formulario de checkout (`StoreCheckoutPage.tsx`) exige nombre, email y **teléfono** (este último obligatorio desde 2026-08-31; el backend lo sigue aceptando `optional` — es una restricción solo de front), más la aceptación de T&C (ver módulo 12).
 
 **Estados de `StoreOrder`**: ENUM de 10 valores — confirmado en migraciones 033/040/066: incluye al menos `pending_payment`, `paid`, `processing`, `review`, `awaiting_courier`, `shipped`, `delivered`, `cancelled`, `delayed`, `returned`. Transiciones configurables en `backIndians/src/config/storeOrderFlow.ts` (**atención**: replicado también en `frontIndians/src/api/store.ts`, deuda técnica anotada — ver [09-CURRENT-STATUS.md](09-CURRENT-STATUS.md)).
 
@@ -306,6 +306,8 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 ## 14. Settings
 
 **Objetivo**: configuración key-value de la empresa, facturación, AFIP y tienda (landing, banners, cupón popup, datos bancarios para transferencia, chatbot, redes sociales).
+
+**Imágenes de la landing con variante mobile**: el hero (`store_hero_image_*_mobile_url`), el carrusel (`store_carousel_N_image_mobile`), la sección destacada (`store_collection_hero_image_mobile_url`) y el **banner promocional** (`store_promo_image_mobile_url`, agregado 2026-08-31) tienen cada uno una imagen desktop + una mobile opcional. El front sirve la mobile con `<picture>`/`<source media="(max-width: 767px)">`; si no hay mobile cargada, cae a la de desktop. Cada clave `*_mobile*` tiene que estar en `VALID_KEYS` **y** `PUBLIC_SETTING_KEYS` de `settings.service.ts` (allowlist explícita, ver [BR-STORE-011](03-BUSINESS-RULES.md)).
 
 **Usuarios**: `admin`/`billing` (escritura vía `/settings` y `/store/settings` admin); lectura pública para settings de tienda no sensibles (`GET /store/settings`, cacheado 60s).
 

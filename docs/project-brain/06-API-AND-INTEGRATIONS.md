@@ -115,7 +115,7 @@ CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso 
 ### Google OAuth (login social de tienda)
 - **Estado**: Implementado y verificado, opcional (si no hay `client_id` configurado, el botón no aparece).
 - **Regla**: exige `email_verified=true` del lado de Google — ver [BR-AUTH-004](03-BUSINESS-RULES.md).
-- **Env vars**: `GOOGLE_CLIENT_ID` (backend); `VITE_GOOGLE_CLIENT_ID` (frontend).
+- **Env vars**: `GOOGLE_CLIENT_ID` (backend); `VITE_GOOGLE_CLIENT_ID` (frontend). **Tienen que ser el MISMO valor exacto** — el backend valida `id_token.aud` contra su `GOOGLE_CLIENT_ID` (`store.auth.service.ts`), si difieren el token se rechaza con 401. En desarrollo el del frontend va en `frontIndians/.env.development` (no en `.env`), así Vite lo inyecta solo en `vite` dev y nunca en `vite build`/`npm run deploy` (2026-08-31). El origen del dev server (`http://localhost:5173`) tiene que estar en "Orígenes de JavaScript autorizados" del cliente OAuth en Google Cloud, o el flujo GSI devuelve 403.
 
 ### Cloudflare Turnstile (anti-bot)
 - **Estado**: Implementado, opcional (graceful no-op sin site key).

@@ -4,7 +4,31 @@
 
 ---
 
-## Última actualización: 2026-08-31 — Sección destacada + ajustes de tienda — RELEASE v1.3.0 y v1.3.1 EN PRODUCCIÓN
+## Última actualización: 2026-08-31 (tarde) — banner promo responsive + teléfono obligatorio en checkout + fixes de entorno de dev
+
+**Por qué**: el banner promocional de la landing se veía todo negro en mobile (la imagen se ocultaba abajo de `md`); en el checkout se pidió que el teléfono sea obligatorio; y en el camino aparecieron dos problemas de entorno local (CORS por Vite saltando de puerto, login con Google fallando en dev).
+
+**Qué se hizo** (nada mergeado a `master`):
+
+1. **Banner promo con imagen mobile** — ramas `feature/banner-promo-responsive-mobile` en **ambos** repos.
+   - Backend (`settings.service.ts`): clave `store_promo_image_mobile_url` agregada a `VALID_KEYS` y `PUBLIC_SETTING_KEYS`. Sin migración (tabla key-value). Commit `8c32974`.
+   - Frontend: `EcommerceSettingsPage.tsx` — segundo `ImageUploadInput` "Imagen del banner — mobile (opcional)"; `StoreLandingPage.tsx` — `<picture>` con `<source media="(max-width: 767px)">`, y sin versión mobile ya no se oculta: cae a la de desktop con `object-cover`. Commit `8efccf9`.
+   - Typecheck limpio en los dos repos. **No se probó en navegador todavía.**
+2. **Teléfono obligatorio en checkout** — rama `feature/checkout-telefono-obligatorio` (`frontIndians`, 2 commits).
+   - `StoreCheckoutPage.tsx`: `customer_phone` requerido en el esquema Zod (antes `optional`), label "Teléfono *". **Solo front**: el backend sigue con `customer_phone` `optional`, sin cambio de contrato.
+   - `e2e/tests/customer-flows.spec.ts`: los 2 tests que mandan el checkout por UI ahora completan el teléfono (sin eso, `handleSubmit` no dispara y cuelgan).
+3. **Fixes de entorno de dev** — misma rama del punto 2.
+   - `vite.config.ts`: `strictPort: true`. Si 5173 está ocupado, Vite ahora falla con error en vez de saltar a 5174 (que el backend rechaza por CORS: `allowedOrigins` = `FRONTEND_URL`, default `localhost:5173`).
+   - `.gitignore`: `+.env.development`. Ahí va `VITE_GOOGLE_CLIENT_ID` de desarrollo, para que `vite build` (producción) no lo tome.
+
+**Falta / cómo retomar**:
+1. **Probar el banner promo en navegador**: panel → Configuración de la tienda → "Landing — Banner promocional" → subir imagen mobile, guardar; abrir la home en vista <768px y confirmar que no queda negro. Después mergear las dos ramas `feature/banner-promo-responsive-mobile` y desplegar (el back va a Railway con push a `master`, seguir `11-RELEASE-Y-ROLLBACK.md`).
+2. **Google OAuth en dev**: `VITE_GOOGLE_CLIENT_ID` (front, en `.env.development`) y `GOOGLE_CLIENT_ID` (back, en `.env`) tienen que ser el mismo valor exacto; y `http://localhost:5173` tiene que estar en "Orígenes de JavaScript autorizados" del cliente OAuth en Google Cloud Console (el 403 de GSI que se vio era por eso). `ts-node-dev` no reinicia al cambiar `.env` — reiniciar el backend a mano si se toca.
+3. **Rama `feature/checkout-telefono-obligatorio`** sin mergear: mezcla el cambio de teléfono con los fixes de entorno en la misma rama (2 commits separados). Decidir si va junto o se parte.
+
+---
+
+## Sesión anterior: 2026-08-31 (mañana) — Sección destacada + ajustes de tienda — RELEASE v1.3.0 y v1.3.1 EN PRODUCCIÓN
 
 **Por qué**: lanzamiento de camisetas homenaje a Luis Miguel "Pulga" Rodríguez. Se pidió que la sección **no sea específica del Pulga** sino **genérica y reutilizable**: hoy "Despedida del Pulga", mañana "Nueva camiseta CAT", etc.
 

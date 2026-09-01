@@ -24,11 +24,14 @@ Copiar `.env.example` → `.env` en `backIndians/` y en `frontIndians/`, complet
 # Backend (puerto por defecto según PORT, típicamente 3000)
 cd backIndians && npm run dev      # ts-node-dev con hot reload
 
-# Frontend (Vite, típicamente 5173)
+# Frontend (Vite, puerto 5173 fijo — `strictPort: true`)
 cd frontIndians && npm run dev
 ```
 
 En `localhost`, el frontend sirve tanto el sistema de gestión como la tienda (`/tienda/*`) desde el mismo build — no hace falta simular subdominios en desarrollo (ver `frontIndians/src/utils/host.ts`).
+
+- **Puerto 5173 fijo** (`vite.config.ts`, `strictPort: true`, 2026-08-31): si 5173 está ocupado, Vite **falla con error** en vez de saltar a 5174 en silencio. Antes ese salto rompía el login por CORS: el backend solo permite el origen de `FRONTEND_URL` (default `http://localhost:5173`). Si necesitás otro puerto, agregalo al CSV de `FRONTEND_URL` en `backIndians/.env`.
+- **`frontIndians/.env.development`** (git-ignored): variables solo para el dev server, que `vite build` ignora. Hoy se usa para `VITE_GOOGLE_CLIENT_ID` (que no debe filtrarse al build de producción). Después de editarlo hay que reiniciar el dev server.
 
 ## Cómo crear o actualizar la base de datos
 
