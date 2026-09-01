@@ -337,4 +337,19 @@ export async function ensureLegalSchema(): Promise<void> {
   } catch (err) {
     logger.error('ensureSchema.legalAcceptance', err, { meta: { fatal: false } });
   }
+
+  try {
+    const storeCoupons = await qi.describeTable('store_coupons');
+
+    if (!storeCoupons.link_url) {
+      await qi.addColumn('store_coupons', 'link_url', {
+        type: DataTypes.STRING(500),
+        allowNull: true,
+        defaultValue: null,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_coupons', column: 'link_url' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.storeCouponsLinkUrl', err, { meta: { fatal: false } });
+  }
 }
