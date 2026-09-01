@@ -258,6 +258,8 @@ export async function checkoutQuote(req: Request, res: Response, next: NextFunct
       items: req.body.items,
       coupon_code: req.body.coupon_code,
       shipping_type: req.body.shipping_type ?? 'pickup',
+      shipping_state: req.body.shipping_state,
+      shipping_zone: req.body.shipping_zone,
       customerId: req.storeCustomerId,
       customerEmail: req.storeCustomerEmail,
     });

@@ -27,8 +27,11 @@ export const VALID_KEYS: string[] = [
   'store_name', 'store_description', 'store_active',
   'store_logo_url', 'store_footer_logo_url', 'store_banner_url', 'store_primary_color',
   'store_whatsapp', 'store_instagram', 'store_facebook',
-  // Tienda — envíos
-  'shipping_cost', 'free_shipping_min', 'store_pickup_address',
+  // Tienda — envíos. `shipping_cost` = resto del país; los dos de Tucumán son
+  // por zona (San Miguel de Tucumán vs. resto de la provincia). Si una clave de
+  // Tucumán está vacía, el cálculo cae a `shipping_cost` (ver `getShippingCostForZone`).
+  'shipping_cost', 'shipping_cost_tucuman_capital', 'shipping_cost_tucuman_interior',
+  'free_shipping_min', 'store_pickup_address',
   // Tienda — landing hero
   'store_hero_title', 'store_hero_subtitle', 'store_hero_cta',
   'store_hero_badge',
@@ -121,7 +124,8 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   'store_logo_url', 'store_footer_logo_url', 'store_banner_url', 'store_primary_color',
   'store_whatsapp', 'store_instagram', 'store_facebook',
   // Tienda — envíos (el checkout los muestra antes de pedir la dirección)
-  'shipping_cost', 'free_shipping_min', 'store_pickup_address',
+  'shipping_cost', 'shipping_cost_tucuman_capital', 'shipping_cost_tucuman_interior',
+  'free_shipping_min', 'store_pickup_address',
   // Tienda — landing hero
   'store_hero_title', 'store_hero_subtitle', 'store_hero_cta',
   'store_hero_badge',

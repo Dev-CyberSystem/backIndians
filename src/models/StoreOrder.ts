@@ -28,6 +28,8 @@ export interface ShippingAddress {
   state?: string;
   zip_code?: string;
   country?: string;
+  /** Zona de envío elegida en el checkout, para saber qué tarifa se aplicó. */
+  shipping_zone?: 'national' | 'tucuman_capital' | 'tucuman_interior';
 }
 
 export class StoreOrder extends Model<

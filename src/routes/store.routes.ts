@@ -66,6 +66,9 @@ const checkoutValidators = [
   body('items.*.quantity').isInt({ min: 1, max: 1000 }).withMessage('Cantidad inválida'),
   body('items.*.size_name').optional({ nullable: true }).isString().isLength({ max: 60 }),
   body('shipping_type').optional().isIn(['pickup', 'delivery']).withMessage('Tipo de envío inválido'),
+  body('shipping_address.state').optional({ nullable: true }).isString().isLength({ max: 100 }),
+  body('shipping_address.shipping_zone').optional({ nullable: true })
+    .isIn(['national', 'tucuman_capital', 'tucuman_interior']).withMessage('Zona de envío inválida'),
   // 'cash' se dejó de aceptar en el checkout de tienda online (pago en efectivo
   // desactivado) — el valor sigue siendo válido en el ENUM de la DB solo para
   // no romper pedidos históricos ya creados con ese método.
@@ -97,6 +100,9 @@ const quoteValidators = [
   body('items.*.quantity').isInt({ min: 1, max: 1000 }).withMessage('Cantidad inválida'),
   body('items.*.size_name').optional({ nullable: true }).isString().isLength({ max: 60 }),
   body('shipping_type').optional().isIn(['pickup', 'delivery']).withMessage('Tipo de envío inválido'),
+  body('shipping_state').optional({ nullable: true }).isString().isLength({ max: 100 }),
+  body('shipping_zone').optional({ nullable: true })
+    .isIn(['national', 'tucuman_capital', 'tucuman_interior']).withMessage('Zona de envío inválida'),
   body('coupon_code').optional({ nullable: true }).isString().isLength({ max: 64 }),
   validate,
 ];

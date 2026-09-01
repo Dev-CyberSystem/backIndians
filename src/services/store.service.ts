@@ -30,7 +30,7 @@ import { enqueueEmail } from '../utils/emailQueue';
 import { generateInvoicePdf } from '../utils/store.pdf';
 import { getAllSettings, PUBLIC_SETTING_KEYS } from './settings.service';
 import { recordLegalAcceptance } from './legal.service';
-import { StoreOrderStatus } from '../models/StoreOrder';
+import { StoreOrderStatus, type ShippingAddress } from '../models/StoreOrder';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
 import { CashTransaction } from '../models/CashTransaction';
 import { CashAccount } from '../models/CashAccount';
@@ -587,13 +587,7 @@ export interface CheckoutInput {
   customerPhone?: string;
   items: CartItem[];
   shipping_type: 'pickup' | 'delivery';
-  shipping_address?: {
-    street: string;
-    city: string;
-    state?: string;
-    zip_code?: string;
-    country?: string;
-  };
+  shipping_address?: ShippingAddress;
   coupon_code?: string;
   notes?: string;
   payment_method?: 'mercadopago' | 'cash' | 'bank_transfer';
@@ -675,6 +669,52 @@ interface ComputedOrderTotals extends OrderQuote {
   couponRecord: StoreCoupon | null;
 }
 
+// ─── Zona de envío (precio por zona) ────────────────────────────────────────
+//
+// Tres zonas: `national` (resto del país), `tucuman_capital` (San Miguel de
+// Tucumán) y `tucuman_interior` (resto de la provincia de Tucumán). La primera
+// distinción sale de la provincia elegida en el checkout
+// (`shipping_address.state`); la segunda, de un selector de zona explícito
+// (`shipping_address.shipping_zone`), porque la ciudad es texto libre y no
+// alcanza para saber si es la capital.
+export type ShippingZone = 'national' | 'tucuman_capital' | 'tucuman_interior';
+
+export const SHIPPING_ZONE_VALUES: ShippingZone[] = ['national', 'tucuman_capital', 'tucuman_interior'];
+
+/**
+ * "Tucumán" / "Tucuman" / " TUCUMAN " → true. La provincia sale de un <select>
+ * fijo en el checkout (valor exacto "Tucumán"); las otras formas cubren datos
+ * de texto libre de pedidos viejos.
+ */
+function isTucumanProvince(state?: string | null): boolean {
+  const s = (state ?? '').trim().toLowerCase();
+  return s === 'tucumán' || s === 'tucuman';
+}
+
+/**
+ * Zona efectiva a partir de la provincia y del selector de zona. Si la
+ * provincia no es Tucumán → siempre `national` (el selector se ignora). Si es
+ * Tucumán → se respeta el selector; sin selector válido cae a
+ * `tucuman_interior` (el más caro de los dos, para no subfacturar).
+ */
+export function resolveShippingZone(input: { state?: string | null; shipping_zone?: string | null }): ShippingZone {
+  if (!isTucumanProvince(input.state)) return 'national';
+  return input.shipping_zone === 'tucuman_capital' ? 'tucuman_capital' : 'tucuman_interior';
+}
+
+/**
+ * Costo de envío para una zona. `shipping_cost` es el del resto del país y
+ * también el fallback: si la clave de la zona de Tucumán no está cargada
+ * (vacía / no numérica / negativa), se usa `shipping_cost` en vez de cobrar 0.
+ */
+async function getShippingCostForZone(zone: ShippingZone): Promise<number> {
+  const national = roundPrice(parseFloat(await getStoreSetting('shipping_cost')) || 0);
+  if (zone === 'national') return national;
+  const key = zone === 'tucuman_capital' ? 'shipping_cost_tucuman_capital' : 'shipping_cost_tucuman_interior';
+  const raw = parseFloat(await getStoreSetting(key));
+  return Number.isFinite(raw) && raw >= 0 ? roundPrice(raw) : national;
+}
+
 /**
  * Calcula el desglose completo de un pedido (precios, cupón, envío, total) a
  * partir del carrito — SIN escribir nada en la base. Único punto de cálculo:
@@ -690,6 +730,13 @@ async function computeOrderTotals(input: {
   items: CartItem[];
   coupon_code?: string;
   shipping_type: 'pickup' | 'delivery';
+  /**
+   * Provincia y zona para elegir el precio de envío (resto del país vs. San
+   * Miguel de Tucumán vs. resto de Tucumán). Opcionales: sin provincia el
+   * cálculo usa `shipping_cost` (comportamiento previo a la feature).
+   */
+  shipping_state?: string | null;
+  shipping_zone?: string | null;
   /**
    * Identidad del comprador para el chequeo "1 uso por cliente" (2.8). En el
    * quote anónimo (sin sesión) suelen venir undefined — el quote no lleva
@@ -828,11 +875,13 @@ async function computeOrderTotals(input: {
     couponRecord = coupon;
   }
 
-  // 3. Envío
+  // 3. Envío. El precio depende de la zona (provincia + selector de zona); el
+  // umbral de envío gratis es global, igual para las tres zonas.
   let shippingCost = 0;
   if (input.shipping_type === 'delivery') {
     const freeMin = parseFloat(await getStoreSetting('free_shipping_min')) || 0;
-    const cost = roundPrice(parseFloat(await getStoreSetting('shipping_cost')) || 0);
+    const zone = resolveShippingZone({ state: input.shipping_state, shipping_zone: input.shipping_zone });
+    const cost = await getShippingCostForZone(zone);
     shippingCost = subtotal - discountAmount >= freeMin && freeMin > 0 ? 0 : cost;
   }
 
@@ -865,6 +914,8 @@ export async function getCheckoutQuote(input: {
   items: CartItem[];
   coupon_code?: string;
   shipping_type: 'pickup' | 'delivery';
+  shipping_state?: string | null;
+  shipping_zone?: string | null;
   customerId?: number | null;
   customerEmail?: string | null;
 }): Promise<OrderQuote> {
@@ -937,6 +988,8 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
     items: input.items,
     coupon_code: input.coupon_code,
     shipping_type: input.shipping_type,
+    shipping_state: input.shipping_address?.state,
+    shipping_zone: input.shipping_address?.shipping_zone,
     customerId: input.customerId,
     customerEmail: input.customerEmail,
   });
