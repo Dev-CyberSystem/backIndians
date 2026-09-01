@@ -4,27 +4,30 @@
 
 ---
 
-## Última actualización: 2026-08-31 (tarde) — banner promo responsive + teléfono obligatorio en checkout + fixes de entorno de dev
+## Última actualización: 2026-09-01 — RELEASE que junta 3 features (envío por zona + banner promo mobile + teléfono obligatorio)
 
-**Por qué**: el banner promocional de la landing se veía todo negro en mobile (la imagen se ocultaba abajo de `md`); en el checkout se pidió que el teléfono sea obligatorio; y en el camino aparecieron dos problemas de entorno local (CORS por Vite saltando de puerto, login con Google fallando en dev).
+Las tres ramas se mergearon a `master` en ambos repos y quedó listo para `npm run release -- minor` (→ v1.5.0). Ninguna toca esquema de DB (todo `settings` key-value + JSON de `shipping_address`).
 
-**Qué se hizo** (nada mergeado a `master`):
+### 1. Costo de envío por zona — `feature/checkout-envio-por-zona` (ambos repos)
 
-1. **Banner promo con imagen mobile** — ramas `feature/banner-promo-responsive-mobile` en **ambos** repos.
-   - Backend (`settings.service.ts`): clave `store_promo_image_mobile_url` agregada a `VALID_KEYS` y `PUBLIC_SETTING_KEYS`. Sin migración (tabla key-value). Commit `8c32974`.
-   - Frontend: `EcommerceSettingsPage.tsx` — segundo `ImageUploadInput` "Imagen del banner — mobile (opcional)"; `StoreLandingPage.tsx` — `<picture>` con `<source media="(max-width: 767px)">`, y sin versión mobile ya no se oculta: cae a la de desktop con `object-cover`. Commit `8efccf9`.
-   - Typecheck limpio en los dos repos. **No se probó en navegador todavía.**
-2. **Teléfono obligatorio en checkout** — rama `feature/checkout-telefono-obligatorio` (`frontIndians`, 2 commits).
-   - `StoreCheckoutPage.tsx`: `customer_phone` requerido en el esquema Zod (antes `optional`), label "Teléfono *". **Solo front**: el backend sigue con `customer_phone` `optional`, sin cambio de contrato.
-   - `e2e/tests/customer-flows.spec.ts`: los 2 tests que mandan el checkout por UI ahora completan el teléfono (sin eso, `handleSubmit` no dispara y cuelgan).
-3. **Fixes de entorno de dev** — misma rama del punto 2.
-   - `vite.config.ts`: `strictPort: true`. Si 5173 está ocupado, Vite ahora falla con error en vez de saltar a 5174 (que el backend rechaza por CORS: `allowedOrigins` = `FRONTEND_URL`, default `localhost:5173`).
-   - `.gitignore`: `+.env.development`. Ahí va `VITE_GOOGLE_CLIENT_ID` de desarrollo, para que `vite build` (producción) no lo tome.
+**Por qué**: el envío dentro de Tucumán cuesta distinto que al resto del país, y la capital distinto que el interior. Era un valor único.
 
-**Falta / cómo retomar**:
-1. **Probar el banner promo en navegador**: panel → Configuración de la tienda → "Landing — Banner promocional" → subir imagen mobile, guardar; abrir la home en vista <768px y confirmar que no queda negro. Después mergear las dos ramas `feature/banner-promo-responsive-mobile` y desplegar (el back va a Railway con push a `master`, seguir `11-RELEASE-Y-ROLLBACK.md`).
-2. **Google OAuth en dev**: `VITE_GOOGLE_CLIENT_ID` (front, en `.env.development`) y `GOOGLE_CLIENT_ID` (back, en `.env`) tienen que ser el mismo valor exacto; y `http://localhost:5173` tiene que estar en "Orígenes de JavaScript autorizados" del cliente OAuth en Google Cloud Console (el 403 de GSI que se vio era por eso). `ts-node-dev` no reinicia al cambiar `.env` — reiniciar el backend a mano si se toca.
-3. **Rama `feature/checkout-telefono-obligatorio`** sin mergear: mezcla el cambio de teléfono con los fixes de entorno en la misma rama (2 commits separados). Decidir si va junto o se parte.
+- **Backend**: `settings.service.ts` — claves `shipping_cost_tucuman_capital` y `shipping_cost_tucuman_interior` en `VALID_KEYS` + `PUBLIC_SETTING_KEYS` (`shipping_cost` = resto del país). `store.service.ts` — `resolveShippingZone({state, shipping_zone})` + `getShippingCostForZone(zone)` (fallback a `shipping_cost` si la clave de Tucumán está vacía → nunca 0); `computeOrderTotals` y `getCheckoutQuote` reciben `shipping_state`/`shipping_zone`; `createStoreOrder` los pasa desde `shipping_address` al recalcular → el guard de `expected_total` no da 409. `store.routes.ts` — `shipping_zone` opcional (enum) en quote y checkout. `StoreOrder.ts` — `ShippingAddress.shipping_zone`. `checkout-quote.test.ts` — 6 casos nuevos. Regla nueva: [BR-STORE-012](03-BUSINESS-RULES.md).
+- **Frontend**: `src/data/argentinaProvinces.ts` (nuevo, 24 jurisdicciones + `isTucuman()`); `StoreSelect` nuevo en `components/store/StoreField.tsx`; `StoreCheckoutPage.tsx` — provincia = `<select>` obligatorio para envío, si es Tucumán aparecen 2 radio-cards de zona, `state`+`shipping_zone` en el `queryKey` y el payload del quote/checkout; `api/store.ts` tipos; `EcommerceSettingsPage.tsx` sección Envíos con 3 costos; `EcommerceOrdersPage.tsx` muestra la zona.
+
+### 2. Imagen mobile del banner promo — `feature/banner-promo-responsive-mobile` (ambos repos)
+
+El banner promo de la landing se veía todo negro en mobile (la imagen se ocultaba abajo de `md`). `settings.service.ts` — clave `store_promo_image_mobile_url` en `VALID_KEYS` + `PUBLIC_SETTING_KEYS`. `EcommerceSettingsPage.tsx` — 2º `ImageUploadInput` "Imagen del banner — mobile (opcional)". `StoreLandingPage.tsx` — `<picture>` con `<source media="(max-width: 767px)">`; sin versión mobile cae a la de desktop con `object-cover`.
+
+### 3. Teléfono obligatorio + fixes de entorno de dev — `feature/checkout-telefono-obligatorio` (`frontIndians`)
+
+`StoreCheckoutPage.tsx` — `customer_phone` requerido en el esquema Zod (backend lo sigue aceptando `optional`, sin cambio de contrato). `vite.config.ts` — `strictPort: true` (si 5173 está ocupado, Vite falla en vez de saltar a 5174 y romper CORS). `.gitignore` — `+.env.development` (ahí va `VITE_GOOGLE_CLIENT_ID` de dev; `vite build` no lo toma).
+
+### Falta / cómo retomar
+
+1. **Correr `npm run release -- minor`** en `backIndians` (PowerShell, Windows) — valida ambos repos (typecheck + `test:full` + build + prerender), backup de prod, tag `v1.5.0` en los dos. Ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md).
+2. **Probar en navegador** después del deploy: cargar los 3 costos de envío en *Configuración → Envíos* + una imagen mobile del banner promo; en el checkout elegir Tucumán + zona y verificar que el total cambia y que no da 409; ver la home mobile con el banner.
+3. **Google OAuth en dev**: `VITE_GOOGLE_CLIENT_ID` (front, `.env.development`) = `GOOGLE_CLIENT_ID` (back, `.env`), y `http://localhost:5173` autorizado en Google Cloud Console.
 
 ---
 

@@ -16,6 +16,8 @@ describe('Total correcto en el checkout (quote) — API', () => {
   let productId: number;
   let originalShippingCost: string | undefined;
   let originalFreeShippingMin: string | undefined;
+  let originalTucCapital: string | undefined;
+  let originalTucInterior: string | undefined;
 
   beforeAll(async () => {
     admin = await loginAs('admin');
@@ -25,9 +27,13 @@ describe('Total correcto en el checkout (quote) — API', () => {
     const currentSettings = await api().get(`${API}/settings`).set(...auth(admin));
     originalShippingCost = currentSettings.body.data?.shipping_cost;
     originalFreeShippingMin = currentSettings.body.data?.free_shipping_min;
+    originalTucCapital = currentSettings.body.data?.shipping_cost_tucuman_capital;
+    originalTucInterior = currentSettings.body.data?.shipping_cost_tucuman_interior;
 
     await api().put(`${API}/settings`).set(...auth(admin)).send({
       shipping_cost: '500',
+      shipping_cost_tucuman_capital: '200',
+      shipping_cost_tucuman_interior: '350',
       free_shipping_min: '0',
     });
 
@@ -46,6 +52,8 @@ describe('Total correcto en el checkout (quote) — API', () => {
   afterAll(async () => {
     await api().put(`${API}/settings`).set(...auth(admin)).send({
       shipping_cost: originalShippingCost ?? '0',
+      shipping_cost_tucuman_capital: originalTucCapital ?? '',
+      shipping_cost_tucuman_interior: originalTucInterior ?? '',
       free_shipping_min: originalFreeShippingMin ?? '0',
     });
   });
@@ -74,6 +82,71 @@ describe('Total correcto en el checkout (quote) — API', () => {
     const quote = res.body.data;
     expect(quote.shipping_cost).toBe(500);
     expect(quote.total).toBe(10500);
+  });
+
+  describe('costo de envío por zona (Tucumán capital / interior / resto del país)', () => {
+    const quoteDelivery = (extra: Record<string, unknown>) =>
+      api().post(`${API}/store/checkout/quote`).send({
+        items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
+        shipping_type: 'delivery',
+        ...extra,
+      });
+
+    it('San Miguel de Tucumán usa shipping_cost_tucuman_capital', async () => {
+      const res = await quoteDelivery({ shipping_state: 'Tucumán', shipping_zone: 'tucuman_capital' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.shipping_cost).toBe(200);
+      expect(res.body.data.total).toBe(10200);
+    });
+
+    it('resto de Tucumán usa shipping_cost_tucuman_interior', async () => {
+      const res = await quoteDelivery({ shipping_state: 'Tucumán', shipping_zone: 'tucuman_interior' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.shipping_cost).toBe(350);
+    });
+
+    it('Tucumán sin selector de zona cae a interior (el más caro de los dos)', async () => {
+      const res = await quoteDelivery({ shipping_state: 'Tucumán' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.shipping_cost).toBe(350);
+    });
+
+    it('otra provincia usa shipping_cost y el selector de zona se ignora', async () => {
+      const res = await quoteDelivery({ shipping_state: 'Salta', shipping_zone: 'tucuman_capital' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.shipping_cost).toBe(500);
+    });
+
+    it('si la clave de la zona de Tucumán está vacía, cae a shipping_cost', async () => {
+      await api().put(`${API}/settings`).set(...auth(admin)).send({ shipping_cost_tucuman_capital: '' });
+      try {
+        const res = await quoteDelivery({ shipping_state: 'Tucumán', shipping_zone: 'tucuman_capital' });
+        expect(res.status).toBe(200);
+        expect(res.body.data.shipping_cost).toBe(500);
+      } finally {
+        await api().put(`${API}/settings`).set(...auth(admin)).send({ shipping_cost_tucuman_capital: '200' });
+      }
+    });
+
+    it('el checkout aplica la misma tarifa por zona que el quote (sin 409) y guarda la zona', async () => {
+      const quoteRes = await quoteDelivery({ shipping_state: 'Tucumán', shipping_zone: 'tucuman_capital' });
+      const total = quoteRes.body.data.total;
+
+      const checkout = await api().post(`${API}/store/checkout`).send({
+        accept_terms: true,
+        customerName: 'Robot QA Zona',
+        customerEmail: `qa-zona+${Date.now()}@test.local`,
+        customerPhone: '1100000000',
+        items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
+        shipping_type: 'delivery',
+        shipping_address: { street: 'Av. Aconquija 100', city: 'Yerba Buena', state: 'Tucumán', shipping_zone: 'tucuman_capital' },
+        payment_method: 'bank_transfer',
+        expected_total: total,
+      });
+      expect(checkout.status).toBe(201);
+      expect(Number(checkout.body.data.order.shipping_cost)).toBe(200);
+      expect(checkout.body.data.order.shipping_address.shipping_zone).toBe('tucuman_capital');
+    });
   });
 
   it('caso 5 — un ítem sin stock queda marcado no disponible con motivo, sin frenar el resto', async () => {
