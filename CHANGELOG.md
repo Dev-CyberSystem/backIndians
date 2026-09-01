@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.6.1 — 2026-09-01
+
+### backIndians (7d77276)
+
+- docs(brain): bug B del prerender (overlays en body), incidente de deploy, regla de autorización
+
+### frontIndians (fb24927)
+
+- fix(seo): el prerender ya no serializa overlays portaleados en el <body>
+
 ## v1.6.0 — 2026-09-01
 
 ### backIndians (f388d0e)
