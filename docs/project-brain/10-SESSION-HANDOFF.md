@@ -4,9 +4,21 @@
 
 ---
 
-## Última actualización: 2026-09-01 (tarde) — Fix del prerender + destino configurable del popup de cupón — RELEASE v1.6.0 PREPARADO (sin deployar)
+## Última actualización: 2026-09-01 (tarde) — Popup de cupón: dos bugs de prerender + destino configurable — v1.6.0 EN PRODUCCIÓN, v1.6.1 EN CURSO
 
-Sesión disparada por un bug en producción: **el popup de cupón no se cerraba al tocar la X**. Causa real: el `index.html` publicado tenía `<link rel="modulepreload" href="http://127.0.0.1:49641/assets/...">` para los chunks lazy de `/tienda/productos`. Los inyecta Vite en runtime con URL absoluta al origen, y el **prerender** (`scripts/prerender.mjs`) corre la SPA contra un server local y guardaba ese HTML tal cual. En prod esos assets daban `ERR_CONNECTION_REFUSED`, el `import()` dinámico fallaba y **la SPA quedaba muerta** (ningún `setState` re-renderizaba → el popup, el chatbot y los filtros no respondían). El usuario ya redeployó el fix del prerender por su cuenta y se resolvió; esta sesión lo formaliza en el release.
+Sesión disparada por un bug en producción: **el popup de cupón no se cerraba al tocar la X**. Resultaron ser **dos** bugs distintos, los dos del prerender (`scripts/prerender.mjs`), más una feature nueva pedida en el medio.
+
+### Bug A — `modulepreload` a `127.0.0.1` (arreglado en v1.6.0)
+
+El `index.html` publicado tenía `<link rel="modulepreload" href="http://127.0.0.1:49641/assets/...">` para los chunks lazy de la ruta. Los inyecta Vite en runtime con URL absoluta al origen, y el prerender corría la SPA contra un server local y guardaba ese HTML tal cual. En prod esos assets daban `ERR_CONNECTION_REFUSED`, el `import()` dinámico fallaba y la SPA quedaba muerta (ningún `setState` re-renderizaba). Fix: `prerender.mjs` normaliza esas URLs a root-relative + `deploy-ftp.mjs` aborta si algún `.html` referencia `localhost`.
+
+### Bug B — overlays portaleados serializados en el `<body>` (arreglado en v1.6.1)
+
+`CouponPopup` (y chatbot, drawer del carrito, modales) se montan con `createPortal(document.body)`. `page.content()` los serializaba **abiertos** dentro del `<body>` del HTML estático. Al entrar a `indians.com.ar/tienda/` (con barra → Apache sirve el prerender) se veía ese popup congelado, **sin listeners de React**: la X no cerraba nada hasta que React remontaba su copia encima. Navegando por dentro (sin recargar) no pasaba, porque no se usa el archivo estático. Fix: `prerender.mjs` borra de `document.body` todo lo que no sea `#root` + scripts antes de serializar; `deploy-ftp.mjs` tiene guard nuevo (`assertPrerenderBodySane`) que exige que el `<body>` del snapshot arranque con `#root`.
+
+### Incidente: deploy accidental a prod
+
+Validando el guard nuevo se corrió `node scripts/deploy-ftp.mjs --from=dist | head -5` — el pipe no lo corta, subió todo `dist/` a producción sin autorización. Salió bien (JS idéntico, HTML ya corregido) y de hecho dejó el Bug B arreglado en prod antes del tag. Regla reforzada en `11-RELEASE-Y-ROLLBACK.md` ("Ningún deploy a producción sin autorización explícita") y en memoria (`feedback-never-deploy-prod-without-authorization`).
 
 ### 1. Fix del prerender — `fix/prerender-localhost-urls` (`frontIndians`, ya en `master`)
 
@@ -20,18 +32,21 @@ Sesión disparada por un bug en producción: **el popup de cupón no se cerraba 
 - **Backend**: migración **101** — `store_coupons.link_url` VARCHAR(500) nullable (+ `ensureSchema.ts` en paralelo). `getPromoPopupCoupon` lo devuelve; `createCoupon`/`updateCoupon` lo aceptan (allowlist tipada). Test `coupon-per-customer` en verde.
 - **Frontend**: `src/utils/links.ts` nuevo — `resolveStoreLink` (extraído del `resolveHeroLink` local de `StoreLandingPage`, que ahora lo reusa). `StoreLayout` (`CouponPopup`) navega al `link_url` resuelto — `<Link>` interno o `<a target="_blank">` externo. `CouponsPage`: campo "Destino del botón" dentro del bloque de popup. `api/store.ts`: `link_url` en `StoreCoupon` y `StorePromoPopup`.
 
+### Feature — destino configurable del popup de cupón (en v1.6.0)
+
+Migración **101** — `store_coupons.link_url` VARCHAR(500) nullable (+ `ensureSchema.ts`). `getPromoPopupCoupon` lo devuelve; `createCoupon`/`updateCoupon` lo aceptan (allowlist tipada). Front: `src/utils/links.ts` (`resolveStoreLink`, extraído del `resolveHeroLink` de `StoreLandingPage`); `CouponPopup` navega al `link_url` resuelto; `CouponsPage` campo "Destino del botón". Aditiva → rollback solo de código.
+
 ### Estado del release
 
-- Ramas mergeadas con `--no-ff` a `master` en ambos repos. **Todavía NO se corrió `npm run release`** ni se deployó.
-- Versión propuesta: **v1.6.0** (`minor` — funcionalidad nueva). Migración 101 es **aditiva** → rollback solo de código si hiciera falta.
-- `backIndians/master` tiene además 3 commits doc de v1.5.0 sin pushear (entran con el push del release).
+- **v1.6.0**: EN PRODUCCIÓN. back `/health` → 1.6.0, front `/version.json` → 1.6.0 (commit `0d41a45`). Migración 101 aplicada por Railway. Backup: `.releases/db/v1.6.0-20260901-135324.sql.gz`.
+- **v1.6.1** (Bug B): rama `fix/prerender-body-overlays` mergeada a `master` (frontIndians). Falta correr `npm run release -- patch` y deployar. El fix ya está vivo en prod por el deploy accidental — el release es para tagearlo y dejar back+front en la misma versión.
 
 ### Falta
 
-1. Correr `npm run release -- minor` en `backIndians` (typecheck + `test:full` + build/prerender + backup de prod + tags `v1.6.0`).
-2. Deployar: push de ambos repos + `npm run migrate` en Railway (migración 101) + `npm run deploy:release -- v1.6.0` en el front.
-3. Smoke: cargar un cupón con popup + `link_url` a una sección, abrir la tienda, tocar "Ver la colección" → tiene que ir ahí y cerrarse.
-4. Borrar ramas locales `feature/cupon-popup-link` (x2) y `fix/prerender-localhost-urls`.
+1. `npm run release -- patch` en `backIndians` → tag `v1.6.1` en ambos repos.
+2. Deployar con OK del usuario: front `npm run deploy:release -- v1.6.1` (idempotente, ya está el fix); back push → Railway (funcionalmente no-op, sube `/health` a 1.6.1).
+3. Smoke: recargar `indians.com.ar/tienda/` (con barra) → el popup cierra con la X. Cargar `link_url` en un cupón con popup → "Ver la colección" lleva ahí.
+4. Borrar ramas locales `feature/cupon-popup-link` (x2), `fix/prerender-localhost-urls`, `fix/prerender-body-overlays`.
 
 ---
 

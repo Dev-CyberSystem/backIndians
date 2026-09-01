@@ -26,6 +26,16 @@ Las consecuencias no fueron sólo los tests rojos:
 
 "Es un cambio chico" es exactamente el caso que nadie mira. Ver [DEC-018](08-DECISIONS.md).
 
+## Ningún deploy a producción sin autorización explícita del usuario
+
+Vale para personas y **para agentes**. Un deploy no se ejecuta "de paso", "para probar" ni "porque ya estaba todo listo": se pide OK puntual para esa corrida.
+
+Cuentan como deploy a producción: `npm run deploy` / `npm run deploy:release` / `node scripts/deploy-ftp.mjs` (FTP a Ferozo), `git push origin master` del backend (Railway deploya solo al recibir el push), `git push origin <tag>`, y cualquier `db:exec` / `db:restore --target=prod`. **`--from=dist` y `deploy:release -- vX` NO son dry-runs.**
+
+`npm run release` (sin push) **sí** se puede correr con autorización previa: valida, saca el backup de prod y crea los tags locales, pero **no deploya**. El deploy es siempre el paso siguiente, aparte, con su propio OK.
+
+El 2026-09-01, "probando" que el guard nuevo de `deploy-ftp.mjs` no diera falso positivo, se corrió `node scripts/deploy-ftp.mjs --from=dist | head -5` creyendo que el pipe lo cortaba — subió todo `dist/` a producción. Salió bien de casualidad. Para validar un script de deploy sin publicar: leerlo, `node --check`, y si hay que ejecutar algo, aislar la función pura, nunca el entrypoint real.
+
 ## Modelo mental: el rollback tiene tres planos
 
 Confundirlos es la forma habitual de empeorar una caída. De más fácil a más difícil de revertir:
