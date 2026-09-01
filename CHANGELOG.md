@@ -3,6 +3,22 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.5.0 — 2026-09-01
+
+### backIndians (4f5b70a)
+
+- docs(brain): costo de envío por zona (BR-STORE-012)
+- feat(tienda): costo de envío por zona (resto del país / Tucumán capital / interior)
+- docs(brain): banner promo mobile, teléfono obligatorio en checkout, entorno de dev
+- feat(tienda): permitir setting store_promo_image_mobile_url
+
+### frontIndians (6b664cd)
+
+- feat(tienda): provincia seleccionable + zona de envío en el checkout
+- feat(tienda): imagen mobile opcional para el banner promocional de la landing
+- chore(dev): fijar puerto 5173 del dev server y aislar env de desarrollo
+- feat(tienda): teléfono obligatorio en el checkout
+
 ## v1.4.0 — 2026-08-31
 
 ### backIndians (ff1752a)
