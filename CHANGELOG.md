@@ -3,6 +3,18 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.7.0 — 2026-09-02
+
+### backIndians (dac6c1e)
+
+- docs(brain): pedidos de tienda — pago que revivía (v1.6.2) + fix TZ del filtro de fecha + paginación/filtro admin
+- test(tienda): regresión del filtro por fecha en el listado admin de pedidos
+- fix(tienda): filtro por fecha de pedidos dejaba fuera el día indicado
+
+### frontIndians (22db6d7)
+
+- feat(tienda): paginación real + filtro por fecha en Pedidos de la tienda
+
 ## v1.6.2 — 2026-09-02
 
 ### backIndians (8bd57a9)
