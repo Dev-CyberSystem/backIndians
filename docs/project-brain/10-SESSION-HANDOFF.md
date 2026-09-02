@@ -4,47 +4,37 @@
 
 ---
 
-## Última actualización: 2026-09-01 (tarde) — Popup de cupón: dos bugs de prerender + destino configurable — v1.6.1 EN PRODUCCIÓN
+## Última actualización: 2026-09-02 — Pedidos de tienda: pago que "revivía" + paginación/filtro de fecha rotos
 
-Sesión disparada por un bug en producción: **el popup de cupón no se cerraba al tocar la X**. Resultaron ser **dos** bugs distintos, los dos del prerender (`scripts/prerender.mjs`), más una feature nueva pedida en el medio.
+Tres cosas, todas sobre pedidos de la tienda online. La primera ya salió en **v1.6.2**; las otras dos están mergeadas a `master` (ambos repos) **sin releasear** — arman el próximo release.
 
-### Bug A — `modulepreload` a `127.0.0.1` (arreglado en v1.6.0)
+### 1. Un pedido volvía solo a "Pagado" — `fix/store-order-status-revert-pagado` (backIndians) — EN v1.6.2
 
-El `index.html` publicado tenía `<link rel="modulepreload" href="http://127.0.0.1:49641/assets/...">` para los chunks lazy de la ruta. Los inyecta Vite en runtime con URL absoluta al origen, y el prerender corría la SPA contra un server local y guardaba ese HTML tal cual. En prod esos assets daban `ERR_CONNECTION_REFUSED`, el `import()` dinámico fallaba y la SPA quedaba muerta (ningún `setState` re-renderizaba). Fix: `prerender.mjs` normaliza esas URLs a root-relative + `deploy-ftp.mjs` aborta si algún `.html` referencia `localhost`.
+Al pasar un pedido de "Pagado" a "En preparación", a veces volvía solo a "Pagado" (reescribía historial + reenviaba el mail de pago). Causa: `applyPaymentResult` (`store.service.ts`) reaplicaba `mapMpStatusToOrderStatus('approved') = 'paid'` sin mirar el estado actual — un webhook `approved` repetido, la confirmación del cliente al recargar la página de éxito, o el job de reconciliación, lo empujaban de `processing` de vuelta a `paid`. El único freno era comparar fechas de pago (`<` estricto), que no cubre un re-`approved` con la misma fecha.
 
-### Bug B — overlays portaleados serializados en el `<body>` (arreglado en v1.6.1)
+**Fix**: guarda anti-retroceso en `applyPaymentResult` — si el pedido ya salió de `pending_payment`, un resultado que mapea a `paid`/`pending_payment` solo refresca los metadatos de MP y loguea `store.webhook.staleForwardIgnored`, sin tocar el estado. El camino `pending_payment → paid` y el de cancelación por rechazo/contracargo quedan intactos. Test nuevo en `webhook-robustness.test.ts` (caso "processing + webhook approved repetido → sigue en processing"). Documentado en `06-API-AND-INTEGRATIONS.md`.
 
-`CouponPopup` (y chatbot, drawer del carrito, modales) se montan con `createPortal(document.body)`. `page.content()` los serializaba **abiertos** dentro del `<body>` del HTML estático. Al entrar a `indians.com.ar/tienda/` (con barra → Apache sirve el prerender) se veía ese popup congelado, **sin listeners de React**: la X no cerraba nada hasta que React remontaba su copia encima. Navegando por dentro (sin recargar) no pasaba, porque no se usa el archivo estático. Fix: `prerender.mjs` borra de `document.body` todo lo que no sea `#root` + scripts antes de serializar; `deploy-ftp.mjs` tiene guard nuevo (`assertPrerenderBodySane`) que exige que el `<body>` del snapshot arranque con `#root`.
+### 2. Filtro por fecha del listado admin de pedidos — `fix/store-orders-date-filter-timezone` (backIndians) — mergeado, SIN releasear
 
-### Incidente: deploy accidental a prod
+`listStoreOrders` armaba el tope superior con `new Date(date_to)` (parsea `YYYY-MM-DD` como medianoche **UTC**) + `setHours(23,59,59,999)`. En Argentina (UTC−3) eso corre el día hacia atrás: "hasta el 2/9" quedaba topado en la madrugada del 2/9 UTC y **excluía todos los pedidos de esa jornada** (verificado en dev: `date_from=date_to=hoy` → 0 filas; post-fix → 86). Se alineó con `invoice.service`/`order.service`: `new Date(`${date_to}T23:59:59.999`)` (fin de jornada en la zona del server). Test `store-orders-list.test.ts` (3 casos: sobre paginado, rango de hoy incluye pedido de hoy, rango futuro vacío).
 
-Validando el guard nuevo se corrió `node scripts/deploy-ftp.mjs --from=dist | head -5` — el pipe no lo corta, subió todo `dist/` a producción sin autorización. Salió bien (JS idéntico, HTML ya corregido) y de hecho dejó el Bug B arreglado en prod antes del tag. Regla reforzada en `11-RELEASE-Y-ROLLBACK.md` ("Ningún deploy a producción sin autorización explícita") y en memoria (`feedback-never-deploy-prod-without-authorization`).
+### 3. Paginación real + filtro por fecha en "Pedidos de la tienda" — `feature/pedidos-tienda-paginacion-fecha` (frontIndians) — mergeado, SIN releasear
 
-### 1. Fix del prerender — `fix/prerender-localhost-urls` (`frontIndians`, ya en `master`)
+- **Paginación estaba muerta**: `EcommerceOrdersPage` leía `data.meta.total_pages`, pero el interceptor de `axios` aplana la respuesta a `{ data, total, page, per_page, total_pages }` (sin `meta`) → el bloque de paginación nunca se renderizaba por más pedidos que hubiera. Corregido a la forma plana de `PaginatedResponse`. El **mismo bug** estaba en el tab "Tienda Online" de `InvoicesPage` — corregido también.
+- **Filtro Desde/Hasta** (rango sobre la fecha del pedido) cableado a los params `date_from`/`date_to` que el backend ya soportaba. Botón "Limpiar filtros" cuando hay alguno activo; cualquier cambio de filtro vuelve a la página 1. El contador de pedidos ahora se muestra siempre.
+- El backend **no necesitó cambios de contrato** para esto (los params ya existían); lo único de backend es el fix de TZ del punto 2, del que este filtro depende para servir en producción.
 
-- `scripts/prerender.mjs`: antes de escribir cada `.html`, normaliza las URLs del server de prerender (`http://127.0.0.1:<port>`) a root-relative, más una red de seguridad para cualquier otro `localhost:<port>`.
-- `scripts/deploy-ftp.mjs`: **aborta el deploy** si algún `.html` del build todavía referencia `localhost` (anti-regresión).
-
-### 2. Destino configurable del popup de cupón — `feature/cupon-popup-link` (ambos repos, ya en `master`)
-
-**Por qué**: el botón "Ver la colección" del popup iba siempre a `/tienda/productos`; se pidió que lleve a la sección/producto que se está publicando, configurable desde el panel de Cupones.
-
-- **Backend**: migración **101** — `store_coupons.link_url` VARCHAR(500) nullable (+ `ensureSchema.ts` en paralelo). `getPromoPopupCoupon` lo devuelve; `createCoupon`/`updateCoupon` lo aceptan (allowlist tipada). Test `coupon-per-customer` en verde.
-- **Frontend**: `src/utils/links.ts` nuevo — `resolveStoreLink` (extraído del `resolveHeroLink` local de `StoreLandingPage`, que ahora lo reusa). `StoreLayout` (`CouponPopup`) navega al `link_url` resuelto — `<Link>` interno o `<a target="_blank">` externo. `CouponsPage`: campo "Destino del botón" dentro del bloque de popup. `api/store.ts`: `link_url` en `StoreCoupon` y `StorePromoPopup`.
-
-### Feature — destino configurable del popup de cupón (en v1.6.0)
-
-Migración **101** — `store_coupons.link_url` VARCHAR(500) nullable (+ `ensureSchema.ts`). `getPromoPopupCoupon` lo devuelve; `createCoupon`/`updateCoupon` lo aceptan (allowlist tipada). Front: `src/utils/links.ts` (`resolveStoreLink`, extraído del `resolveHeroLink` de `StoreLandingPage`); `CouponPopup` navega al `link_url` resuelto; `CouponsPage` campo "Destino del botón". Aditiva → rollback solo de código.
+Verificado end-to-end en navegador (Playwright, 813 pedidos reales en dev): paginación "1/41", avance de página, filtro a "hoy" → "87 pedidos / 1-5", rango futuro → "No hay pedidos", "Limpiar filtros" restaura.
 
 ### Estado del release
 
-- **v1.6.0**: EN PRODUCCIÓN. back `/health` → 1.6.0, front `/version.json` → 1.6.0 (commit `0d41a45`). Migración 101 aplicada por Railway. Backup: `.releases/db/v1.6.0-20260901-135324.sql.gz`.
-- **v1.6.1** (Bug B): EN PRODUCCIÓN. `npm run release:status` todo verde — back `/health` → 1.6.1 (`694b7f5`), front sistema+tienda → 1.6.1 (`fb24927`), "la release tageada es exactamente la que está en producción". Backup: `.releases/db/v1.6.1-20260901-153421.sql.gz`. Smoke: `curl` de `/tienda/` y `/tienda/productos/` → 0 rastros del popup en el HTML, `<body>` arranca con `#root`. Backend v1.6.1 no cambió código respecto de v1.6.0 (solo bump + tag).
+- **v1.6.2**: contiene el punto 1. `npm run release` corrió y creó tag `v1.6.2` en ambos repos (`chore(release): v1.6.2`). Confirmar con `npm run release:status` si ya está desplegado en producción (back `/health` mostraba 1.6.1 en el dev server local, que es otra cosa).
+- **Próximo release** (puntos 2 y 3): ambos repos en `master`, limpios, merges `--no-ff` confirmados (backIndians `a418ab2`, frontIndians `22db6d7`). Sin migración (solo lógica + UI) → rollback solo de código. Sugerido `npm run release -- minor` (v1.6.2 → v1.7.0: hay funcionalidad nueva, el filtro de fecha).
 
 ### Falta
 
-1. Confirmación visual del usuario en navegador: recargar `indians.com.ar/tienda/` (con barra, Ctrl+Shift+R) → la X cierra el popup. Cargar `link_url` en un cupón con popup → "Ver la colección" lleva ahí.
-2. Borrar ramas locales `feature/cupon-popup-link` (x2), `fix/prerender-localhost-urls`, `fix/prerender-body-overlays`.
+1. Correr `npm run release -- minor` en una terminal interactiva real (el prompt de confirmación no corre por pipe/background; `--yes` lo salta pero quedó bloqueado por el clasificador de permisos del agente). Después: deploy con los comandos que imprime + `npm run release:status`.
+2. Borrar ramas locales `fix/store-order-status-revert-pagado`, `fix/store-orders-date-filter-timezone`, `feature/pedidos-tienda-paginacion-fecha`.
 
 ---
 
