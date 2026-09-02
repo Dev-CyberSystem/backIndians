@@ -2300,13 +2300,14 @@ export async function listStoreOrders(filters: {
   if (filters.status) where.status = filters.status;
 
   if (filters.date_from || filters.date_to) {
+    // `date_to` cubre todo el día indicado: se interpreta como fin de jornada
+    // en la zona horaria del server (mismo criterio que invoice.service /
+    // order.service). El `new Date(fecha)` a secas parsea `YYYY-MM-DD` como
+    // medianoche UTC, y `setHours()` sobre eso corre el día hacia atrás en
+    // zonas al oeste de UTC (Argentina) — dejaba fuera los pedidos del día.
     const dateRange: Record<string, Date> = {};
     if (filters.date_from) dateRange[Op.gte as unknown as string] = new Date(filters.date_from);
-    if (filters.date_to) {
-      const end = new Date(filters.date_to);
-      end.setHours(23, 59, 59, 999);
-      dateRange[Op.lte as unknown as string] = end;
-    }
+    if (filters.date_to) dateRange[Op.lte as unknown as string] = new Date(`${filters.date_to}T23:59:59.999`);
     where.createdAt = dateRange;
   }
 
