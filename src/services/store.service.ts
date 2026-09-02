@@ -2061,6 +2061,36 @@ async function applyPaymentResult(
     const mpStatus = payment.status ?? 'unknown';
     const newStatus = mapMpStatusToOrderStatus(mpStatus, locked.status);
 
+    // Anti-retroceso: la reconciliación de pago solo puede SACAR al pedido de
+    // "pending_payment". Si el admin ya lo movió a "processing"/"shipped"/etc.,
+    // un webhook o una confirmación repetidos con el mismo pago 'approved'
+    // (MP reenvía notificaciones, el cliente recarga la página de éxito, corre
+    // el job de reconciliación) NO deben devolverlo a "Pagado" ni a
+    // "Pendiente de pago". Solo se refrescan los metadatos de MP.
+    // Bug: "al pasar de Pagado a En preparación, a veces vuelve solo a Pagado".
+    if (
+      (newStatus === 'paid' || newStatus === 'pending_payment') &&
+      locked.status !== 'pending_payment'
+    ) {
+      if (newStatus !== locked.status) {
+        logger.warn('store.webhook.staleForwardIgnored', {
+          meta: {
+            orderId: locked.id, orderNumber: locked.order_number, paymentId,
+            currentStatus: locked.status, mappedStatus: newStatus, mpStatus,
+          },
+        });
+      }
+      await locked.update(
+        {
+          mp_payment_id: paymentId ? String(paymentId) : locked.mp_payment_id,
+          mp_status: mpStatus,
+          mp_payment_date: paymentDate ?? locked.mp_payment_date,
+        },
+        { transaction: t }
+      );
+      return { order: locked, changed: false, needsReview: false };
+    }
+
     if (newStatus === 'paid') {
       const expectedAmount = Number(locked.total_amount);
       const amountOk = payment.transaction_amount != null && Math.abs(payment.transaction_amount - expectedAmount) < 1;

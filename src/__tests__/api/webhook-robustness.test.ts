@@ -131,4 +131,36 @@ describe('Robustez de webhooks de MercadoPago — 1.5', () => {
     order = await StoreOrder.findByPk(orderId);
     expect(order!.status).toBe('paid'); // no retrocedió a pending_payment
   });
+
+  it('bug — un pedido ya en "processing" no vuelve a "paid" por un webhook approved repetido', async () => {
+    const { orderId, orderNumber, total } = await createOrder(1);
+    const uniq = `${Date.now()}-${Math.random()}`;
+
+    // 1) El pago se acredita: pending_payment → paid.
+    jest.spyOn(mpService, 'getPaymentInfo').mockResolvedValue({
+      id: 5, status: 'approved', external_reference: orderNumber,
+      transaction_amount: total, currency_id: 'ARS',
+      date_approved: new Date().toISOString(), date_last_updated: new Date().toISOString(),
+    });
+    await handleStoreWebhook(`qa-approved-1-${uniq}`);
+
+    let order = await StoreOrder.findByPk(orderId);
+    expect(order!.status).toBe('paid');
+
+    // 2) El admin avanza el pedido a "En preparación".
+    await order!.update({ status: 'processing' });
+
+    // 3) MP reenvía la MISMA notificación 'approved' (otro event_id, fecha más
+    //    nueva → no la filtra el guard de "evento desordenado").
+    jest.spyOn(mpService, 'getPaymentInfo').mockResolvedValue({
+      id: 6, status: 'approved', external_reference: orderNumber,
+      transaction_amount: total, currency_id: 'ARS',
+      date_approved: new Date(Date.now() + 60_000).toISOString(),
+      date_last_updated: new Date(Date.now() + 60_000).toISOString(),
+    });
+    await handleStoreWebhook(`qa-approved-2-${uniq}`);
+
+    order = await StoreOrder.findByPk(orderId);
+    expect(order!.status).toBe('processing'); // NO volvió a 'paid'
+  });
 });
