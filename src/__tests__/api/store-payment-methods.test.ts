@@ -26,7 +26,7 @@ describe('Medios de pago aceptados por POST /store/checkout', () => {
   function checkoutBody(paymentMethod: string) {
     return {
       accept_terms: true,
-      customerName: 'Robot QA Medios de Pago',
+      customerName: 'Robot QA Medios de Pago', customerDni: '30123456',
       customerEmail: `qa-medios+${Date.now()}-${Math.random()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],

@@ -43,7 +43,7 @@ describe('Idempotencia del checkout — API', () => {
     productId = await createTestProduct(10);
     const key = randomUUID();
     const body = {
-      customerName: 'Robot QA Idem Secuencial',
+      customerName: 'Robot QA Idem Secuencial', customerDni: '30123456',
       customerEmail: `qa-idem-seq+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 3 }],
@@ -71,7 +71,7 @@ describe('Idempotencia del checkout — API', () => {
     productId = await createTestProduct(10);
     const key = randomUUID();
     const body = {
-      customerName: 'Robot QA Idem Concurrente',
+      customerName: 'Robot QA Idem Concurrente', customerDni: '30123456',
       customerEmail: `qa-idem-conc+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 4 }],
@@ -99,7 +99,7 @@ describe('Idempotencia del checkout — API', () => {
   it('sin Idempotency-Key, dos POST idénticos crean dos pedidos distintos (comportamiento sin cambios)', async () => {
     productId = await createTestProduct(10);
     const body = {
-      customerName: 'Robot QA Sin Idem',
+      customerName: 'Robot QA Sin Idem', customerDni: '30123456',
       customerEmail: `qa-no-idem+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],

@@ -19,7 +19,7 @@ describe('Flujo de compra — API (transferencia)', () => {
       .post(`${API}/store/checkout`)
       .send({
       accept_terms: true,
-        customerName: 'Robot QA',
+        customerName: 'Robot QA', customerDni: '30123456',
         customerEmail: `qa+${Date.now()}@test.local`,
         customerPhone: '1100000000',
         items: [{ catalog_product_id: target.id, size_name: target.size, quantity: 1 }],

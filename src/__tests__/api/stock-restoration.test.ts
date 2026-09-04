@@ -57,7 +57,7 @@ describe('Restitución de stock al cancelar — API', () => {
   it('cancelar un pedido por transferencia restituye stock y libera el cupón', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Restore',
+      customerName: 'Robot QA Restore', customerDni: '30123456',
       customerEmail: `qa-restore+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 4 }],
@@ -119,7 +119,7 @@ describe('Restitución de stock al cancelar — API', () => {
   it('restoreStoreOrderStock es idempotente: llamarla dos veces no duplica la restitución', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Restore Idempotencia',
+      customerName: 'Robot QA Restore Idempotencia', customerDni: '30123456',
       customerEmail: `qa-restore-idem+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],

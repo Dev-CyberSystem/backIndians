@@ -41,7 +41,7 @@ describe('Robustez de webhooks de MercadoPago — 1.5', () => {
   async function createOrder(quantity = 1): Promise<{ orderId: number; orderNumber: string; total: number }> {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Webhook',
+      customerName: 'Robot QA Webhook', customerDni: '30123456',
       customerEmail: `qa-webhook+${Date.now()}-${Math.random()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity }],

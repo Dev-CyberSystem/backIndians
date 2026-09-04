@@ -40,7 +40,7 @@ describe('Job de expiración de pedidos impagos — 2.2', () => {
   ): Promise<{ orderId: number; orderNumber: string }> {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Expiracion',
+      customerName: 'Robot QA Expiracion', customerDni: '30123456',
       customerEmail: `qa-expira+${Date.now()}-${Math.random()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],

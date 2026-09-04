@@ -287,7 +287,7 @@ describe('AUD-15 — editar los talles de un producto no pierde las reservas viv
     // Un pedido sin pagar deja 3 unidades RESERVADAS en el talle M.
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot AUD15',
+      customerName: 'Robot AUD15', customerDni: '30123456',
       customerEmail: `aud15+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: 'M', quantity: 3 }],

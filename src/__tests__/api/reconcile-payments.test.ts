@@ -21,7 +21,7 @@ describe('Job de reconciliación de pagos — 1.8', () => {
 
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Reconcile',
+      customerName: 'Robot QA Reconcile', customerDni: '30123456',
       customerEmail: `qa-reconcile+${Date.now()}-${Math.random()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: target.id, size_name: target.size, quantity: 1 }],

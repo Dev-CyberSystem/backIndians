@@ -225,7 +225,7 @@ export async function storeResetPasswordService(token: string, newPassword: stri
 
 export async function storeGetProfileService(customerId: number) {
   const customer = await StoreCustomer.findByPk(customerId, {
-    attributes: ['id', 'email', 'name', 'phone', 'avatar_url', 'email_verified', 'createdAt'],
+    attributes: ['id', 'email', 'name', 'phone', 'dni', 'avatar_url', 'email_verified', 'createdAt'],
     include: [{ model: StoreAddress, as: 'addresses' }],
   });
   if (!customer) throw new AppError('Cliente no encontrado', 404);
@@ -234,13 +234,14 @@ export async function storeGetProfileService(customerId: number) {
 
 export async function storeUpdateProfileService(
   customerId: number,
-  data: { name?: string; phone?: string }
+  data: { name?: string; phone?: string; dni?: string }
 ) {
   const customer = await StoreCustomer.findByPk(customerId);
   if (!customer) throw new AppError('Cliente no encontrado', 404);
 
   if (data.name) customer.name = data.name;
   if (data.phone !== undefined) customer.phone = data.phone;
+  if (data.dni !== undefined && data.dni !== '') customer.dni = data.dni;
   await customer.save();
 
   const { password_hash: _, verification_token: __, ...safe } = customer.toJSON();

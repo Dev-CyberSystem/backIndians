@@ -4,7 +4,35 @@
 
 ---
 
-## Última actualización: 2026-09-02 — Pedidos de tienda: pago que "revivía" + paginación/filtro de fecha rotos
+## Última actualización: 2026-09-04 — DNI obligatorio en el checkout de la tienda
+
+Rama nueva **`feature/checkout-dni-obligatorio`** en **ambos repos**, salida de `master` (v1.7.0), **sin mergear**. El comprador ahora tiene que informar su DNI para poder despachar el envío.
+
+### Qué se hizo
+
+- **Migración `102`** (`20260904-102-checkout-dni-columns.js`): agrega `store_orders.customer_dni` y `store_customers.dni` (VARCHAR 15, nullable). Replicada en `src/config/ensureSchema.ts`.
+- **Modelos**: `StoreOrder.customer_dni`, `StoreCustomer.dni`.
+- **Validación (backend)**: `checkoutValidators` en `store.routes.ts` — `customerDni` **obligatorio**, se limpian puntos/espacios y se exige `^\d{7,9}$` (→ 422). `PUT /store/me` acepta además `dni` opcional con la misma regla.
+- **Servicio**: `CheckoutInput.customerDni` → `store_orders.customer_dni`; tras crear el pedido, si el comprador está logueado y **no** tenía DNI en el perfil, se copia a `store_customers.dni` (nunca pisa uno cargado, nunca corta el checkout). `storeGetProfileService`/`storeUpdateProfileService` y los `include` de `customer` en el panel ahora traen `dni`.
+- **PDF**: `store.pdf.ts` imprime el campo "DNI" en el comprobante de compra.
+- **Frontend**: `StoreCheckoutPage` (campo "DNI *" al lado del teléfono, zod 7–9 dígitos; **teléfono y DNI se precargan del perfil** — `defaultValues` con el `customer` del store de auth + un `useEffect` que completa desde el fetch fresco de `/me` si el campo sigue vacío, igual que la dirección), `StoreAccountPage` ("Mis datos": DNI editable), `EcommerceOrdersPage` (DNI en el detalle del pedido y en la **etiqueta de envío**). Tipos en `api/store.ts`.
+- **Tests**: `src/__tests__/api/checkout-dni.test.ts` nuevo (5 casos: sin DNI → 422, corto → 422, no numérico → 422, con puntos → 201 y normalizado, replica al perfil). Se agregó `customerDni: '30123456'` a los **51** payloads de checkout de los tests existentes (21 archivos).
+
+### Validación corrida
+
+- Backend: `npm run typecheck` limpio. `npx jest` de los **22** archivos que tocan `/store/checkout` + el nuevo → **todo verde** (no se corrió `test:full` completo).
+- Frontend: `tsc -b` limpio, `eslint` sin errores nuevos (mismo conteo que master), `vitest run` 47/47.
+
+### Falta
+
+1. Probar el checkout en navegador (Vitest no cubre componentes): que el campo DNI valide y que el pedido quede con `customer_dni`.
+2. Merge a `master` de **ambos** repos + release. **Contrato no aditivo** (back y front van juntos) + migración → el rollback incluye plano de base. Sugerido `minor` (v1.7.0 → v1.8.0).
+3. Borrar la rama local `feature/checkout-dni-obligatorio` en ambos repos después del merge.
+4. Actualizar `documentos/GOOGLE_ANALYTICS.md`/evento `begin_checkout` no hace falta — el DNI no cambia la métrica.
+
+---
+
+## 2026-09-02 — Pedidos de tienda: pago que "revivía" + paginación/filtro de fecha rotos
 
 Tres cosas, todas sobre pedidos de la tienda online. La primera ya salió en **v1.6.2**; las otras dos están mergeadas a `master` (ambos repos) **sin releasear** — arman el próximo release.
 

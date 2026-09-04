@@ -34,7 +34,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
   it('el checkout reserva stock sin descontar stock_quantity real', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Reserva',
+      customerName: 'Robot QA Reserva', customerDni: '30123456',
       customerEmail: `qa-reserva+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 3 }],
@@ -65,7 +65,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
   it('confirmar el pago convierte la reserva en descuento definitivo de stock_quantity', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Confirmar',
+      customerName: 'Robot QA Confirmar', customerDni: '30123456',
       customerEmail: `qa-confirmar+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
@@ -110,7 +110,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
 
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Cancelar Antes',
+      customerName: 'Robot QA Cancelar Antes', customerDni: '30123456',
       customerEmail: `qa-cancelar-antes+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
@@ -162,7 +162,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
 
     const first = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Agota Stock',
+      customerName: 'Robot QA Agota Stock', customerDni: '30123456',
       customerEmail: `qa-agota+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: soldOutProductId, size_name: null, quantity: 2 }],
@@ -173,7 +173,7 @@ describe('Reserva de stock al hacer checkout — API', () => {
 
     const second = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Sin Stock',
+      customerName: 'Robot QA Sin Stock', customerDni: '30123456',
       customerEmail: `qa-sinstock+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: soldOutProductId, size_name: null, quantity: 1 }],

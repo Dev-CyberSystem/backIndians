@@ -85,7 +85,7 @@ describe('Ingreso en caja/banco al confirmar el pago de un pedido de tienda — 
     const productId = await createTestProduct();
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: `Robot QA ${label}`,
+      customerName: `Robot QA ${label}`, customerDni: '30123456',
       customerEmail: `qa-${label.toLowerCase().replace(/\s+/g, '-')}+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
@@ -128,7 +128,7 @@ describe('Ingreso en caja/banco al confirmar el pago de un pedido de tienda — 
     const productId = await createTestProduct();
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA MercadoPago',
+      customerName: 'Robot QA MercadoPago', customerDni: '30123456',
       customerEmail: `qa-mp+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],

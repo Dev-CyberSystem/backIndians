@@ -39,7 +39,7 @@ describe('Legales — aceptación de términos y arrepentimiento', () => {
 
   function checkoutBody(productId: number, email: string) {
     return {
-      customerName: 'Robot QA Legal',
+      customerName: 'Robot QA Legal', customerDni: '30123456',
       customerEmail: email,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],

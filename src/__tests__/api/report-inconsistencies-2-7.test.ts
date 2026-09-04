@@ -40,7 +40,7 @@ describe('Reporte diario de inconsistencias — ampliado (2.7)', () => {
     });
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Conciliacion', customerEmail: `qa-conciliacion+${Date.now()}-${Math.random()}@test.local`,
+      customerName: 'Robot QA Conciliacion', customerDni: '30123456', customerEmail: `qa-conciliacion+${Date.now()}-${Math.random()}@test.local`,
       customerPhone: '1100000000', items: [{ catalog_product_id: product.body.data.id, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'bank_transfer',
     });

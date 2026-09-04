@@ -133,6 +133,31 @@ export async function ensureSchema(): Promise<void> {
     logger.error('ensureSchema.storeTracking', err, { meta: { fatal: false } });
   }
 
+  // ─── DNI obligatorio en el checkout de la tienda (migración 102) ────────────
+  // La obligatoriedad se aplica en el validador del checkout; acá solo se agrega
+  // la columna (NULL-able: pedidos/cuentas previos no tienen DNI).
+  try {
+    const storeOrders = await qi.describeTable('store_orders');
+    if (!storeOrders.customer_dni) {
+      await qi.addColumn('store_orders', 'customer_dni', {
+        type: DataTypes.STRING(15),
+        allowNull: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_orders', column: 'customer_dni' } });
+    }
+
+    const storeCustomers = await qi.describeTable('store_customers');
+    if (!storeCustomers.dni) {
+      await qi.addColumn('store_customers', 'dni', {
+        type: DataTypes.STRING(15),
+        allowNull: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'store_customers', column: 'dni' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.checkoutDni', err, { meta: { fatal: false } });
+  }
+
   // ─── Inmutabilidad y reversión de caja (migración 091) ──────────────────────
   try {
     const cashTransactions = await qi.describeTable('cash_transactions');
