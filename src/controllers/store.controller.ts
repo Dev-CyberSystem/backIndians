@@ -544,6 +544,17 @@ export async function downloadInvoiceAdmin(req: Request, res: Response, next: Ne
   }
 }
 
+export async function downloadReceiptLabelAdmin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { buffer, orderNumber } = await store.getStoreOrderReceiptLabelPdfBuffer(Number(req.params.id));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="comprobante-etiqueta-${orderNumber}.pdf"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function downloadMyInvoice(req: Request, res: Response, next: NextFunction) {
   try {
     const order = await store.getStoreOrderByNumberForCustomer(

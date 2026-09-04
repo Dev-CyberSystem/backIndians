@@ -4,7 +4,25 @@
 
 ---
 
-## Última actualización: 2026-09-04 — DNI obligatorio en el checkout (v1.8.0) + fix del login con Google (v1.8.1)
+## Última actualización: 2026-09-04 (tarde) — Comprobante de pago / etiqueta de envío en ticket 100x150mm (rama `claude/pago-etiqueta-envio-e051ex`, ambos repos, **sin mergear**)
+
+El usuario trajo un diseño (PDF, ticket 100x150mm) para que sirva a la vez de **comprobante de pago no fiscal** (cuando no se emite factura AFIP/ARCA) y de **etiqueta de envío descargable**. Decisiones confirmadas con el usuario antes de implementar: (1) convive con el comprobante A4 existente (`store.pdf.ts` / `generateInvoicePdf`), no lo reemplaza; (2) reemplaza al botón "Etiqueta de envío" que antes generaba HTML client-side con `window.print()` — ahora descarga este PDF; (3) el bloque "Datos del comercio" del diseño alcanza como remitente (se completa con los `settings` `company_*`, sin agregar campos nuevos al diseño); (4) alcance solo panel admin (`EcommerceOrdersPage`), no se expone al comprador.
+
+**Backend**: `src/utils/store.pdf.ts` — nueva función `generateReceiptLabelPdf(data: ReceiptLabelData)`, documento PDFKit tamaño `[100mm, 150mm]` en puntos, replica el layout del diseño (cabecera con logo, datos del comercio, datos del cliente con domicilio de envío, tabla de ítems, pedido/pago, totales, datos del pago con medio/ID de operación/fecha-hora/importe/estado, pie "COMPROBANTE DE PAGO - NO VÁLIDO COMO FACTURA"). `src/services/store.service.ts` — `getStoreOrderReceiptLabelPdfBuffer(orderId)`: arma los datos igual que `buildInvoiceData` + `payment_method`/`mp_payment_id`/`STORE_STATUS_LABELS[order.status]` + fecha del primer cambio a `paid` en `StoreOrderStatusHistory` (no hay columna `paid_at` en `StoreOrder`). `src/controllers/store.controller.ts` — `downloadReceiptLabelAdmin`. `src/routes/store.routes.ts` — `GET /store/admin/orders/:id/receipt-label` (mismos roles que `/invoice`: `admin`, `billing`).
+
+**Frontend**: `src/api/store.ts` — `storeAdminApi.orders.downloadReceiptLabel(id)`. `src/pages/ecommerce/EcommerceOrdersPage.tsx` — se eliminó `printShippingLabel` (generaba HTML + `window.open` + `window.print()`, ~110 líneas) y el `useQuery` de `settings` que solo alimentaba esa función; el botón "Etiqueta de envío" ahora usa una mutation (`downloadReceiptLabel`) que descarga `comprobante-etiqueta-<order_number>.pdf`, mismo patrón que `downloadInvoice`.
+
+**Validación corrida**: backend `npm run typecheck` limpio (el único error de `tsc` es preexistente, `moduleResolution=node10` deprecado, no relacionado). Frontend `npx tsc -b` limpio, `npm run lint` sin errores nuevos en los archivos tocados (los 166 errores/11 warnings son preexistentes, mismo conteo que sesiones anteriores). **No se corrió `npm run test:full`** (no hay MySQL disponible en este entorno) ni prueba en navegador real — pendiente antes de mergear.
+
+### Falta
+
+1. **Correr `npm run test:full` (backend)** y probar en navegador real la descarga del comprobante/etiqueta desde `EcommerceOrdersPage` (pedido con envío `delivery`, con y sin pago de Mercado Pago, con y sin cupón) — no se hizo en esta sesión por falta de MySQL en el entorno.
+2. Confirmar con el usuario si el layout generado (adaptación a PDFKit del diseño original) es fiel a lo esperado antes de mergear — no se pudo comparar visualmente con el PDF de referencia dentro de esta sesión.
+3. Mergear `claude/pago-etiqueta-envio-e051ex` a `master` en ambos repos y releasear cuando el usuario lo apruebe.
+
+---
+
+## Sesión anterior: 2026-09-04 (mañana) — DNI obligatorio en el checkout (v1.8.0) + fix del login con Google (v1.8.1)
 
 ### Estado del release
 

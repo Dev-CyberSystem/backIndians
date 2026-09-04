@@ -27,7 +27,7 @@ import {
   statusNotifiesCustomer,
 } from '../utils/email.service';
 import { enqueueEmail } from '../utils/emailQueue';
-import { generateInvoicePdf } from '../utils/store.pdf';
+import { generateInvoicePdf, generateReceiptLabelPdf } from '../utils/store.pdf';
 import { getAllSettings, PUBLIC_SETTING_KEYS } from './settings.service';
 import { recordLegalAcceptance } from './legal.service';
 import { StoreOrderStatus, type ShippingAddress } from '../models/StoreOrder';
@@ -2475,6 +2475,48 @@ async function buildInvoiceData(orderId: number) {
 export async function getStoreOrderInvoicePdfBuffer(orderId: number): Promise<{ buffer: Buffer; orderNumber: string }> {
   const { order, invoiceData } = await buildInvoiceData(orderId);
   const buffer = await generateInvoicePdf(invoiceData);
+  return { buffer, orderNumber: order.order_number };
+}
+
+// ─── Comprobante de pago / etiqueta de envío (ticket 100x150mm) ────────────────
+
+export async function getStoreOrderReceiptLabelPdfBuffer(orderId: number): Promise<{ buffer: Buffer; orderNumber: string }> {
+  const order = await getStoreOrderById(orderId);
+  const items = (order as any).items as StoreOrderItem[];
+  const settings = await getAllSettings();
+
+  const firstPaidChange = await StoreOrderStatusHistory.findOne({
+    where: { store_order_id: orderId, new_status: 'paid' },
+    order: [['createdAt', 'ASC']],
+  });
+
+  const buffer = await generateReceiptLabelPdf({
+    settings,
+    orderNumber: order.order_number,
+    createdAt: order.createdAt as Date,
+    customerName: order.customer_name,
+    customerEmail: order.customer_email,
+    customerPhone: order.customer_phone,
+    customerDni: order.customer_dni,
+    shippingType: order.shipping_type ?? 'pickup',
+    shippingAddress: order.shipping_address,
+    couponCode: order.coupon_code,
+    items: items.map((i) => ({
+      product_title: i.product_title,
+      size_name: i.size_name,
+      quantity: Number(i.quantity),
+      unit_price: Number(i.unit_price),
+      subtotal: Number(i.subtotal),
+    })),
+    subtotal: Number(order.subtotal),
+    discountAmount: Number(order.discount_amount),
+    shippingCost: Number(order.shipping_cost),
+    totalAmount: Number(order.total_amount),
+    paymentMethod: order.payment_method,
+    paymentOperationId: order.mp_payment_id,
+    paidAt: firstPaidChange?.createdAt ?? null,
+    orderStatusLabel: STORE_STATUS_LABELS[order.status],
+  });
   return { buffer, orderNumber: order.order_number };
 }
 

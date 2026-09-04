@@ -2,6 +2,12 @@ import PDFDocument from 'pdfkit';
 import { drawIndiansLogo } from './logo';
 import { formatPriceNumber } from './money';
 
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  mercadopago: 'Mercado Pago',
+  bank_transfer: 'Transferencia bancaria',
+  cash: 'Efectivo',
+};
+
 export interface InvoiceItem {
   product_title: string;
   size_name?: string | null;
@@ -254,6 +260,182 @@ export function generateInvoicePdf(data: InvoiceData): Promise<Buffer> {
     doc.lineWidth(0.5).moveTo(L, BOTTOM - 24).lineTo(R, BOTTOM - 24).stroke('#CCCCCC');
     doc.fontSize(8).font('Helvetica').fillColor('#333333')
       .text(contactLine, L, BOTTOM - 18, { width: W, align: 'center' });
+
+    doc.end();
+  });
+}
+
+export interface ReceiptLabelData {
+  settings?: Record<string, string>;
+  orderNumber: string;
+  createdAt: Date;
+  customerName: string;
+  customerEmail: string;
+  customerPhone?: string | null;
+  customerDni?: string | null;
+  shippingType: 'pickup' | 'delivery';
+  shippingAddress?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zip_code?: string;
+  } | null;
+  couponCode?: string | null;
+  items: InvoiceItem[];
+  subtotal: number;
+  discountAmount: number;
+  shippingCost: number;
+  totalAmount: number;
+  paymentMethod: string;
+  paymentOperationId?: string | null;
+  paidAt?: Date | null;
+  orderStatusLabel: string;
+}
+
+const MM = 2.834645669; // 1mm en puntos PDF (72 dpi / 25.4mm)
+
+// Genera el ticket 100x150mm que sirve a la vez de comprobante de pago (cuando
+// no se emite factura AFIP/ARCA) y de etiqueta de envío descargable: el bloque
+// "Datos del comercio" funciona como remitente y "Datos del cliente" trae el
+// domicilio de destino. No es un documento fiscal (no tiene CAE ni numeración
+// oficial de ARCA) — lo aclara el pie de página. Formato pensado en base al
+// diseño 100x150 provisto (comprobante de pago ticket-size).
+export function generateReceiptLabelPdf(data: ReceiptLabelData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const W = 100 * MM;
+    const H = 150 * MM;
+    const doc = new PDFDocument({ size: [W, H], margin: 0 });
+
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const s = data.settings ?? {};
+    const addr = data.shippingAddress || {};
+    const L = 8, R = W - 8, CW = R - L;
+
+    doc.lineWidth(1).strokeColor('#000000').rect(2, 2, W - 4, H - 4).stroke();
+
+    // ── Cabecera ──────────────────────────────────────────────────────────────
+    drawIndiansLogo(doc, L, 10, 16);
+    doc.fillColor('#000000').fontSize(11).font('Helvetica-Bold')
+      .text('COMPROBANTE', L + 40, 9, { width: CW - 40 })
+      .text('DE PAGO', L + 40, 21, { width: CW - 40 });
+    doc.fontSize(7).font('Helvetica').fillColor('#333333')
+      .text(`N° ${data.orderNumber}`, L + 40, 34, { width: CW - 40 })
+      .text(`Fecha: ${new Date(data.createdAt).toLocaleDateString('es-AR')}`, L + 40, 43, { width: CW - 40 });
+
+    let y = 62;
+    doc.lineWidth(0.75).moveTo(L, y).lineTo(R, y).stroke('#000000');
+    y += 5;
+
+    // ── Sección con fondo gris ───────────────────────────────────────────────
+    const sectionBg = (top: number, height: number) => {
+      doc.rect(2, top, W - 4, height).fill('#F2F2F2');
+      doc.fillColor('#000000');
+    };
+    const field = (label: string, value: string | null | undefined, x: number, fy: number, w: number) => {
+      doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#000000').text(`${label}:`, x, fy, { width: w });
+      doc.fontSize(6.5).font('Helvetica').fillColor('#222222')
+        .text(value || '—', x, fy + 8, { width: w, ellipsis: true });
+    };
+
+    // Datos del comercio (funciona como remitente para la etiqueta de envío)
+    sectionBg(y, 46);
+    doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#000000').text('DATOS DEL COMERCIO', L, y + 3);
+    const halfW = CW / 2 - 3;
+    field('Razón social / Nombre', s.company_name || 'INDIANS', L, y + 14, CW);
+    field('CUIT', s.company_cuit, L, y + 30, halfW);
+    field('Teléfono', s.company_phone, L + halfW + 6, y + 30, halfW);
+    y += 46 + 4;
+
+    doc.lineWidth(0.5).moveTo(L, y).lineTo(R, y).stroke('#CCCCCC');
+    y += 4;
+
+    // Datos del cliente (funciona como destinatario para la etiqueta de envío)
+    sectionBg(y, 60);
+    doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#000000').text('DATOS DEL CLIENTE', L, y + 3);
+    doc.fontSize(6.5).font('Helvetica').fillColor('#222222').text('Canal: Tienda Online', L, y + 3, { width: CW, align: 'right' });
+    field('Nombre', data.customerName, L, y + 14, CW);
+    field('CUIT/DNI', data.customerDni, L, y + 30, halfW);
+    field('Tel.', data.customerPhone, L + halfW + 6, y + 30, halfW);
+    const domicilio = data.shippingType === 'delivery'
+      ? [addr.street, addr.city, addr.state, addr.zip_code].filter(Boolean).join(', ')
+      : 'Retiro en tienda';
+    field('Domicilio', domicilio, L, y + 46, CW);
+    y += 60 + 4;
+
+    // ── Tabla de ítems ────────────────────────────────────────────────────────
+    const cols = [
+      { label: 'CANT.', x: L, w: 20, align: 'center' as const },
+      { label: 'DESCRIPCIÓN', x: L + 20, w: CW - 20 - 45 - 40, align: 'left' as const },
+      { label: 'P. UNIT.', x: R - 85, w: 40, align: 'right' as const },
+      { label: 'IMPORTE', x: R - 45, w: 45, align: 'right' as const },
+    ];
+    doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#000000');
+    for (const c of cols) doc.text(c.label, c.x, y, { width: c.w, align: c.align });
+    y += 9;
+    doc.lineWidth(0.5).moveTo(L, y).lineTo(R, y).stroke('#000000');
+    y += 3;
+
+    doc.font('Helvetica').fontSize(6.5).fillColor('#000000');
+    for (const item of data.items) {
+      const desc = `${item.product_title}${item.size_name ? ` (${item.size_name})` : ''}`;
+      const descH = doc.heightOfString(desc, { width: cols[1].w });
+      const rowH = Math.max(9, descH + 1);
+      doc.text(String(item.quantity), cols[0].x, y, { width: cols[0].w, align: 'center' });
+      doc.text(desc, cols[1].x, y, { width: cols[1].w, align: 'left' });
+      doc.text(money(Number(item.unit_price)), cols[2].x, y, { width: cols[2].w, align: 'right' });
+      doc.text(money(Number(item.subtotal)), cols[3].x, y, { width: cols[3].w, align: 'right' });
+      y += rowH;
+      if (y > H - 130) break;
+    }
+    y += 2;
+    doc.lineWidth(0.5).moveTo(L, y).lineTo(R, y).stroke('#000000');
+    y += 5;
+
+    // ── Pedido / pago + totales ──────────────────────────────────────────────
+    const leftColW = CW * 0.45, rightColX = L + leftColW + 4, rightColW = CW - leftColW - 4;
+    doc.fontSize(6.5).font('Helvetica').fillColor('#000000');
+    doc.text(`Pedido: ${data.orderNumber}`, L, y, { width: leftColW });
+    doc.text(`Pago: ${PAYMENT_METHOD_LABELS[data.paymentMethod] || data.paymentMethod}`, L, y + 10, { width: leftColW });
+
+    const totalRow = (label: string, value: string, ty: number, bold = false) => {
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 8.5 : 6.5).fillColor('#000000');
+      doc.text(label, rightColX, ty, { width: rightColW * 0.5, align: 'left' });
+      doc.text(value, rightColX + rightColW * 0.5, ty, { width: rightColW * 0.5, align: 'right' });
+    };
+    let ty = y;
+    totalRow('Subtotal', money(Number(data.subtotal)), ty); ty += 9;
+    if (Number(data.discountAmount) > 0) { totalRow('Descuento', `-${money(Number(data.discountAmount))}`, ty); ty += 9; }
+    totalRow('Envío', Number(data.shippingCost) > 0 ? money(Number(data.shippingCost)) : 'Gratis', ty); ty += 9;
+    doc.lineWidth(0.5).moveTo(rightColX, ty).lineTo(R, ty).stroke('#000000'); ty += 2;
+    totalRow('TOTAL', money(Number(data.totalAmount)), ty, true);
+
+    y = Math.max(y + 24, ty + 12) + 4;
+    doc.lineWidth(0.75).moveTo(L, y).lineTo(R, y).stroke('#000000');
+    y += 4;
+
+    // ── Datos del pago ───────────────────────────────────────────────────────
+    sectionBg(y, 56);
+    doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#000000').text('DATOS DEL PAGO', L, y + 3);
+    doc.fontSize(6.5).font('Helvetica').fillColor('#222222')
+      .text(`Estado: ${data.orderStatusLabel}`, L, y + 3, { width: CW, align: 'right' });
+    field('Medio de pago', PAYMENT_METHOD_LABELS[data.paymentMethod] || data.paymentMethod, L, y + 14, halfW);
+    field('ID de operación', data.paymentOperationId, L + halfW + 6, y + 14, halfW);
+    const paidAtStr = data.paidAt
+      ? `${new Date(data.paidAt).toLocaleDateString('es-AR')} ${new Date(data.paidAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
+      : '—';
+    field('Fecha y hora', paidAtStr, L, y + 30, halfW);
+    field('Importe recibido', money(Number(data.totalAmount)), L + halfW + 6, y + 30, halfW);
+    y += 56 + 6;
+
+    // ── Pie ───────────────────────────────────────────────────────────────────
+    const footH = 16;
+    doc.rect(2, H - 2 - footH, W - 4, footH).fill('#000000');
+    doc.fillColor('#FFFFFF').fontSize(6.5).font('Helvetica-Bold')
+      .text('COMPROBANTE DE PAGO - NO VÁLIDO COMO FACTURA', 2, H - 2 - footH + 5, { width: W - 4, align: 'center' });
 
     doc.end();
   });

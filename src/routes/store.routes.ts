@@ -247,6 +247,7 @@ router.patch('/admin/orders/:id/status', authenticate, authorize('admin', 'billi
 router.post('/admin/orders/:id/regenerate-tracking', authenticate, authorize('admin', 'billing'), param('id').isInt({ min: 1 }), validate, ctrl.regenerateOrderTracking);
 router.post('/admin/orders/:id/send-invoice', authenticate, authorize('admin', 'billing'), ctrl.sendInvoice);
 router.get('/admin/orders/:id/invoice', authenticate, authorize('admin', 'billing'), ctrl.downloadInvoiceAdmin);
+router.get('/admin/orders/:id/receipt-label', authenticate, authorize('admin', 'billing'), ctrl.downloadReceiptLabelAdmin);
 
 // ─── Admin: devoluciones (2.4) ────────────────────────────────────────────────
 const createReturnValidators = [
