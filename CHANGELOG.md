@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.8.0 — 2026-09-04
+
+### backIndians (aa327d3)
+
+- feat(tienda): DNI obligatorio en el checkout
+
+### frontIndians (a72690c)
+
+- feat(tienda): DNI obligatorio en el checkout
+
 ## v1.7.0 — 2026-09-02
 
 ### backIndians (dac6c1e)
