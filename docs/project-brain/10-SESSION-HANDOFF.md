@@ -4,11 +4,14 @@
 
 ---
 
-## Última actualización: 2026-09-04 — DNI obligatorio en el checkout de la tienda
+## Última actualización: 2026-09-04 — DNI obligatorio en el checkout (v1.8.0) + fix del login con Google (v1.8.1)
 
-Rama nueva **`feature/checkout-dni-obligatorio`** en **ambos repos**, salida de `master` (v1.7.0), **sin mergear**. El comprador ahora tiene que informar su DNI para poder despachar el envío.
+### Estado del release
 
-### Qué se hizo
+- **v1.8.0 — EN PRODUCCIÓN.** DNI obligatorio en el checkout (ver abajo). Mergeado `--no-ff` a `master` en ambos repos, `npm run release -- minor`, pusheado y deployado.
+- **v1.8.1 — fix de entorno del frontend.** El build de producción salía **sin `VITE_GOOGLE_CLIENT_ID`** → el botón "Continuar con Google" de la tienda tiraba "Login con Google no configurado". Regresión vieja (desde v1.5.0, 2026-09-01): al mover el client ID de dev a `.env.development` se comentó la línea en `.env` y **nunca se agregó a `.env.production`**. Vite en modo `build` carga `.env` + `.env.production` (no `.env.development`), así que la variable quedaba `undefined` y se inlineaba vacía. **Fix**: agregar `VITE_GOOGLE_CLIENT_ID=<client ID de producción>` a `frontIndians/.env.production` (mismo valor que `GOOGLE_CLIENT_ID` en el backend de Railway). No hay cambio de código: es solo el `.env.production` (gitignored) + regenerar el build. Salió como **v1.8.1** (`patch`). **Para no repetirlo: cualquier `VITE_*` que tenga que existir en producción va en `.env.production`, no alcanza con `.env` o `.env.development`.**
+
+### DNI obligatorio en el checkout — qué se hizo (v1.8.0)
 
 - **Migración `102`** (`20260904-102-checkout-dni-columns.js`): agrega `store_orders.customer_dni` y `store_customers.dni` (VARCHAR 15, nullable). Replicada en `src/config/ensureSchema.ts`.
 - **Modelos**: `StoreOrder.customer_dni`, `StoreCustomer.dni`.
@@ -25,10 +28,8 @@ Rama nueva **`feature/checkout-dni-obligatorio`** en **ambos repos**, salida de 
 
 ### Falta
 
-1. Probar el checkout en navegador (Vitest no cubre componentes): que el campo DNI valide y que el pedido quede con `customer_dni`.
-2. Merge a `master` de **ambos** repos + release. **Contrato no aditivo** (back y front van juntos) + migración → el rollback incluye plano de base. Sugerido `minor` (v1.7.0 → v1.8.0).
-3. Borrar la rama local `feature/checkout-dni-obligatorio` en ambos repos después del merge.
-4. Actualizar `documentos/GOOGLE_ANALYTICS.md`/evento `begin_checkout` no hace falta — el DNI no cambia la métrica.
+1. Deployar **v1.8.1** (push de ambos repos + `npm run deploy:release -- v1.8.1`) y verificar en producción que el botón "Continuar con Google" de la tienda vuelve a funcionar.
+2. Borrar la rama local `feature/checkout-dni-obligatorio` en ambos repos (ya mergeada).
 
 ---
 
