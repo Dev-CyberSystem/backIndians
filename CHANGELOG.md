@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.8.1 — 2026-09-04
+
+### backIndians (a91c664)
+
+- docs(brain): fix del login con Google en prod + release v1.8.1
+
+### frontIndians (c663f86)
+
+- sin cambios desde el release anterior
+
 ## v1.8.0 — 2026-09-04
 
 ### backIndians (aa327d3)
