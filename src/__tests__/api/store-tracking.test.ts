@@ -31,7 +31,7 @@ async function createOrder() {
     .post(`${API}/store/checkout`)
     .send({
       accept_terms: true,
-      customerName: 'Robot Tracking',
+      customerName: 'Robot Tracking', customerDni: '30123456',
       customerEmail: `track+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: target.id, size_name: target.size, quantity: 1 }],

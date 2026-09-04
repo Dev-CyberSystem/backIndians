@@ -72,7 +72,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
 
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: `Robot QA Fase4 ${label}`,
+      customerName: `Robot QA Fase4 ${label}`, customerDni: '30123456',
       customerEmail: `qa-fase4-${label.toLowerCase().replace(/\s+/g, '-')}+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity }],
@@ -148,7 +148,7 @@ describe('Reversión automática de caja en cancelaciones/devoluciones — Fase 
     });
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Fase4 Sin Pagar',
+      customerName: 'Robot QA Fase4 Sin Pagar', customerDni: '30123456',
       customerEmail: `qa-fase4-sinpagar+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: product.body.data.id, size_name: null, quantity: 1 }],

@@ -42,6 +42,8 @@ export class StoreOrder extends Model<
   declare customer_name: string;
   declare customer_email: string;
   declare customer_phone: CreationOptional<string | null>;
+  /** DNI del comprador con el que se hizo esta compra (dato de despacho del envío). NULL en pedidos previos a la migración 102. */
+  declare customer_dni: CreationOptional<string | null>;
   declare status: CreationOptional<StoreOrderStatus>;
   declare subtotal: number;
   declare discount_amount: CreationOptional<number>;
@@ -107,6 +109,7 @@ StoreOrder.init(
     customer_name: { type: DataTypes.STRING(200), allowNull: false },
     customer_email: { type: DataTypes.STRING(255), allowNull: false },
     customer_phone: { type: DataTypes.STRING(50), allowNull: true },
+    customer_dni: { type: DataTypes.STRING(15), allowNull: true },
     status: {
       type: DataTypes.ENUM('pending_payment', 'paid', 'processing', 'review', 'awaiting_courier', 'shipped', 'delivered', 'cancelled', 'delayed', 'returned'),
       allowNull: false,

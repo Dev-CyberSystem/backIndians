@@ -331,6 +331,13 @@
 **Contrato de API**: cambio **aditivo y opcional** — `checkout/quote` y `checkout` aceptan `shipping_state`/`shipping_zone` (quote) y `shipping_address.shipping_zone` (checkout) opcionales; un cliente que no los manda usa `shipping_cost` como antes. `computeOrderTotals` se llama con los mismos parámetros desde el quote y desde `createStoreOrder`, para que el guard de `expected_total` (`BR-STORE-005`) no dé 409 por una tarifa distinta entre uno y otro.
 **Estado**: Vigente — desplegado en **v1.5.0** (2026-09-01). Pendiente operativo: cargar `shipping_cost_tucuman_capital` y `shipping_cost_tucuman_interior` en el panel (hasta entonces, Tucumán cobra el fallback = `shipping_cost`).
 
+### BR-STORE-013 — El checkout exige el DNI del comprador
+**Descripción**: `POST /store/checkout` **rechaza con 422** cualquier pedido sin DNI. El validador limpia puntos y espacios y exige **7 a 9 dígitos** (DNI argentino). El valor normalizado (solo dígitos) se guarda en `store_orders.customer_dni` y es el dato que va en la **etiqueta de envío** y en el comprobante PDF. Se pide **siempre**, sin depender del `shipping_type` (hoy 'pickup' está oculto y 'delivery' es la única opción). Para un comprador con cuenta que todavía no tiene DNI cargado, el checkout lo copia a `store_customers.dni` (sin pisar uno ya cargado) para autocompletarlo la próxima; ese DNI de perfil también es editable en "Mis datos" (`PUT /store/me`, campo `dni` opcional con la misma validación). El DNI **no** se expone en el seguimiento público por token (`getStoreOrderTrackingByToken` usa allowlist).
+**Módulo**: Tienda (10).
+**Fuente**: `backIndians/src/routes/store.routes.ts` (`checkoutValidators`, `PUT /me`), `src/services/store.service.ts` (`CheckoutInput.customerDni`, `createStoreOrder`), `src/services/store.auth.service.ts` (`storeUpdateProfileService`), `src/utils/store.pdf.ts`, `frontIndians/src/pages/store/StoreCheckoutPage.tsx` + `StoreAccountPage.tsx` + `pages/ecommerce/EcommerceOrdersPage.tsx`. Migración `102`. Tests: `src/__tests__/api/checkout-dni.test.ts`.
+**Contrato de API**: cambio **no aditivo** — `customerDni` pasa a ser **obligatorio** en `POST /store/checkout`. Los pedidos y cuentas previos a la migración 102 quedan con `customer_dni`/`dni` en `NULL` (la columna es NULL-able a nivel base; la obligatoriedad vive solo en el validador).
+**Estado**: Vigente — rama `feature/checkout-dni-obligatorio` (ambos repos), **sin mergear**.
+
 ### BR-STORE-006 — Los webhooks de pago se procesan una sola vez por evento
 **Descripción**: `webhook_events` tiene unique compuesto `(provider, event_id)`; un webhook duplicado (reenvío de MP) no se reprocesa dos veces.
 **Módulo**: Tienda (10).

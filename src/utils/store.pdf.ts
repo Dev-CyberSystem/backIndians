@@ -18,6 +18,7 @@ export interface InvoiceData {
   customerName: string;
   customerEmail: string;
   customerPhone?: string | null;
+  customerDni?: string | null;
   shippingType: 'pickup' | 'delivery';
   shippingAddress?: {
     street?: string;
@@ -132,6 +133,8 @@ export function generateInvoicePdf(data: InvoiceData): Promise<Buffer> {
     formField('Teléfono', data.customerPhone, colLX, fy, colLW);
     formField('Provincia', addr.state, colRX, fy, colRW - 90);
     formField('C.P.', addr.zip_code, colRX + colRW - 80, fy, 80);
+    fy += 22;
+    formField('DNI', data.customerDni, colLX, fy, colLW);
 
     const clientBottom = fy + 22;
     doc.lineWidth(1).moveTo(L, clientBottom).lineTo(R, clientBottom).stroke('#000000');

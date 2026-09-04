@@ -21,6 +21,8 @@ export class StoreCustomer extends Model<
   declare token_expires_at: CreationOptional<Date | null>;
   declare avatar_url: CreationOptional<string | null>;
   declare phone: CreationOptional<string | null>;
+  /** Último DNI usado por este comprador en un checkout. Solo para autocompletar; el DNI del envío es `store_orders.customer_dni`. */
+  declare dni: CreationOptional<string | null>;
   declare active: CreationOptional<boolean>;
   declare session_version: CreationOptional<number>;
   /** Última aceptación de T&C/Privacidad (el detalle vive en `legal_acceptances`). */
@@ -42,6 +44,7 @@ StoreCustomer.init(
     token_expires_at: { type: DataTypes.DATE, allowNull: true },
     avatar_url: { type: DataTypes.STRING(500), allowNull: true },
     phone: { type: DataTypes.STRING(50), allowNull: true },
+    dni: { type: DataTypes.STRING(15), allowNull: true },
     active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     session_version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     terms_accepted_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },

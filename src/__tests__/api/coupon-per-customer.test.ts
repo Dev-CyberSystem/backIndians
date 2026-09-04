@@ -42,7 +42,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
 
     const first = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Cupon', customerEmail: email, customerPhone: '1100000000',
+      customerName: 'Robot QA Cupon', customerDni: '30123456', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
@@ -51,7 +51,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
 
     const second = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Cupon', customerEmail: email, customerPhone: '1100000000',
+      customerName: 'Robot QA Cupon', customerDni: '30123456', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
@@ -66,7 +66,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
     const email1 = `qa-cupon-a+${Date.now()}@test.local`;
     const first = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Cupon A', customerEmail: email1, customerPhone: '1100000000',
+      customerName: 'Robot QA Cupon A', customerDni: '30123456', customerEmail: email1, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
@@ -75,7 +75,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
     const email2 = `qa-cupon-b+${Date.now()}@test.local`;
     const second = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Cupon B', customerEmail: email2, customerPhone: '1100000000',
+      customerName: 'Robot QA Cupon B', customerDni: '30123456', customerEmail: email2, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
@@ -89,7 +89,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
 
     const first = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Cupon Cancelado', customerEmail: email, customerPhone: '1100000000',
+      customerName: 'Robot QA Cupon Cancelado', customerDni: '30123456', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
@@ -102,7 +102,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
 
     const second = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Cupon Cancelado', customerEmail: email, customerPhone: '1100000000',
+      customerName: 'Robot QA Cupon Cancelado', customerDni: '30123456', customerEmail: email, customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
     });
@@ -131,7 +131,7 @@ describe('Cupón — 1 uso por cliente (2.8)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
       accept_terms: true,
-        customerName: customer.name, customerEmail: customer.email, customerPhone: '1100000000',
+        customerName: customer.name, customerDni: '30123456', customerEmail: customer.email, customerPhone: '1100000000',
         items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],
         shipping_type: 'pickup', payment_method: 'bank_transfer', coupon_code: couponCode,
       });

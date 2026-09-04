@@ -97,7 +97,7 @@ describe('Ledger de stock (catalog_stock_movements) — API', () => {
   it('el checkout de la tienda (transferencia) deja un movimiento reserve/store con store_order_id (2.1: reserva, no descuenta todavía)', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Ledger',
+      customerName: 'Robot QA Ledger', customerDni: '30123456',
       customerEmail: `qa-ledger+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],

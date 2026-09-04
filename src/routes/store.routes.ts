@@ -61,6 +61,14 @@ const checkoutValidators = [
   body('customerName').trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 120 }),
   body('customerEmail').trim().isEmail().withMessage('Email inválido').isLength({ max: 254 }),
   body('customerPhone').optional({ nullable: true }).isString().isLength({ max: 40 }),
+  // DNI del comprador: OBLIGATORIO para poder despachar el envío. Se limpian
+  // puntos y espacios y se exige entre 7 y 9 dígitos (DNI argentino). Se guarda
+  // en `store_orders.customer_dni` y se replica al perfil (`store_customers.dni`).
+  body('customerDni')
+    .customSanitizer((v) => (typeof v === 'string' ? v.replace(/[.\s]/g, '') : v))
+    .isString().withMessage('DNI requerido')
+    .bail()
+    .matches(/^\d{7,9}$/).withMessage('DNI inválido: debe tener entre 7 y 9 dígitos'),
   body('items').isArray({ min: 1 }).withMessage('El carrito está vacío'),
   body('items.*.catalog_product_id').isInt({ min: 1 }).withMessage('Producto inválido'),
   body('items.*.quantity').isInt({ min: 1, max: 1000 }).withMessage('Cantidad inválida'),
@@ -163,7 +171,16 @@ router.post('/auth/reset-password', authLimiter, [body('token').isString().notEm
 
 // ─── Perfil del comprador (requiere auth de tienda) ─────────────────────────
 router.get('/me', requireStoreAuth, ctrl.getProfile);
-router.put('/me', requireStoreAuth, ctrl.updateProfile);
+router.put(
+  '/me',
+  requireStoreAuth,
+  // Solo se valida el DNI si viene: el resto del perfil no cambió su contrato.
+  body('dni').optional({ nullable: true, checkFalsy: true })
+    .customSanitizer((v) => (typeof v === 'string' ? v.replace(/[.\s]/g, '') : v))
+    .matches(/^\d{7,9}$/).withMessage('DNI inválido: debe tener entre 7 y 9 dígitos'),
+  validate,
+  ctrl.updateProfile
+);
 router.post('/me/addresses', requireStoreAuth, ctrl.upsertAddress);
 router.delete('/me/addresses/:addressId', requireStoreAuth, ctrl.deleteAddress);
 router.get('/me/orders', requireStoreAuth, ctrl.getMyOrders);

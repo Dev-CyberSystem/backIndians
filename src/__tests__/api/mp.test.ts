@@ -21,7 +21,7 @@ describe('MercadoPago — API', () => {
       .post(`${API}/store/checkout`)
       .send({
       accept_terms: true,
-        customerName: 'Robot QA MP',
+        customerName: 'Robot QA MP', customerDni: '30123456',
         customerEmail: `qa-mp+${Date.now()}@test.local`,
         customerPhone: '1100000000',
         items: [{ catalog_product_id: target.id, size_name: target.size, quantity: 1 }],

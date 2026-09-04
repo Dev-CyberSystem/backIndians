@@ -134,7 +134,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
 
       const checkout = await api().post(`${API}/store/checkout`).send({
         accept_terms: true,
-        customerName: 'Robot QA Zona',
+        customerName: 'Robot QA Zona', customerDni: '30123456',
         customerEmail: `qa-zona+${Date.now()}@test.local`,
         customerPhone: '1100000000',
         items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
@@ -190,7 +190,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
 
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Precio Cero',
+      customerName: 'Robot QA Precio Cero', customerDni: '30123456',
       customerEmail: `qa-precio-cero+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: zeroPriceProductId, size_name: null, quantity: 1 }],
@@ -226,7 +226,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
 
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Precio Negativo',
+      customerName: 'Robot QA Precio Negativo', customerDni: '30123456',
       customerEmail: `qa-precio-negativo+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: negativePriceProductId, size_name: null, quantity: 1 }],
@@ -239,7 +239,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
   it('el checkout con expected_total desincronizado devuelve 409 con el desglose nuevo', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Quote',
+      customerName: 'Robot QA Quote', customerDni: '30123456',
       customerEmail: `qa-quote+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 2 }],
@@ -263,7 +263,7 @@ describe('Total correcto en el checkout (quote) — API', () => {
 
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Quote OK',
+      customerName: 'Robot QA Quote OK', customerDni: '30123456',
       customerEmail: `qa-quote-ok+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity: 1 }],

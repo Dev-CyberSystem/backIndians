@@ -33,7 +33,7 @@ describe('Devoluciones con revisión — 2.4', () => {
 
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Devolucion',
+      customerName: 'Robot QA Devolucion', customerDni: '30123456',
       customerEmail: `qa-devolucion+${Date.now()}-${Math.random()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: null, quantity }],
@@ -153,7 +153,7 @@ describe('Devoluciones con revisión — 2.4', () => {
     });
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA No Entregado', customerEmail: `qa-noentregado+${Date.now()}@test.local`,
+      customerName: 'Robot QA No Entregado', customerDni: '30123456', customerEmail: `qa-noentregado+${Date.now()}@test.local`,
       customerPhone: '1100000000', items: [{ catalog_product_id: product.body.data.id, size_name: null, quantity: 1 }],
       shipping_type: 'pickup', payment_method: 'bank_transfer',
     });

@@ -43,7 +43,7 @@ describe('catalog_product_size_id en store_order_items — API', () => {
   it('el checkout guarda catalog_product_size_id en el ítem del pedido', async () => {
     const checkout = await api().post(`${API}/store/checkout`).send({
       accept_terms: true,
-      customerName: 'Robot QA Talle',
+      customerName: 'Robot QA Talle', customerDni: '30123456',
       customerEmail: `qa-talle+${Date.now()}@test.local`,
       customerPhone: '1100000000',
       items: [{ catalog_product_id: productId, size_name: 'M', quantity: 3 }],

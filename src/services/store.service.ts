@@ -589,6 +589,8 @@ export interface CheckoutInput {
   customerName: string;
   customerEmail: string;
   customerPhone?: string;
+  /** DNI del comprador (obligatorio; lo valida la ruta). Dato de despacho del envío. */
+  customerDni: string;
   items: CartItem[];
   shipping_type: 'pickup' | 'delivery';
   shipping_address?: ShippingAddress;
@@ -1057,6 +1059,7 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
             customer_name: input.customerName,
             customer_email: input.customerEmail,
             customer_phone: input.customerPhone ?? null,
+            customer_dni: input.customerDni,
             status: 'pending_payment',
             tracking_token: generateTrackingToken(),
             stock_reserved_at: new Date(),
@@ -1180,6 +1183,20 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
   }
 
   if (!order) throw new AppError('No se pudo generar el pedido. Intentá nuevamente.', 500);
+
+  // Guardar el DNI en el perfil del comprador logueado si todavía no tiene uno,
+  // para autocompletarlo en la próxima compra. No pisa un DNI ya cargado y nunca
+  // corta el checkout.
+  if (input.customerId && input.customerDni) {
+    try {
+      await StoreCustomer.update(
+        { dni: input.customerDni },
+        { where: { id: input.customerId, dni: null } }
+      );
+    } catch {
+      /* no crítico */
+    }
+  }
 
   // Notificar al sistema (admin/billing) que entró un pedido nuevo desde la
   // tienda, para cualquier método de pago. Fire-and-forget: nunca corta el
@@ -2342,7 +2359,7 @@ export async function listStoreOrders(filters: {
           { model: CatalogProduct, as: 'product', attributes: ['id', 'title', 'public_price', 'price'] },
         ],
       },
-      { model: StoreCustomer, as: 'customer', attributes: ['id', 'name', 'email', 'phone'] },
+      { model: StoreCustomer, as: 'customer', attributes: ['id', 'name', 'email', 'phone', 'dni'] },
     ],
     order: [['createdAt', 'DESC']],
     limit,
@@ -2368,7 +2385,7 @@ export async function getStoreOrderById(id: number) {
           },
         ],
       },
-      { model: StoreCustomer, as: 'customer', attributes: ['id', 'name', 'email', 'phone'] },
+      { model: StoreCustomer, as: 'customer', attributes: ['id', 'name', 'email', 'phone', 'dni'] },
       {
         model: StoreOrderStatusHistory,
         as: 'status_history',
@@ -2434,6 +2451,7 @@ async function buildInvoiceData(orderId: number) {
       customerName: order.customer_name,
       customerEmail: order.customer_email,
       customerPhone: order.customer_phone,
+      customerDni: order.customer_dni,
       shippingType: order.shipping_type ?? 'pickup',
       shippingAddress: order.shipping_address,
       couponCode: order.coupon_code,
