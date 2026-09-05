@@ -2515,7 +2515,7 @@ export async function getStoreOrderReceiptLabelPdfBuffer(orderId: number): Promi
     paymentMethod: order.payment_method,
     paymentOperationId: order.mp_payment_id,
     paidAt: firstPaidChange?.createdAt ?? null,
-    orderStatusLabel: STORE_STATUS_LABELS[order.status],
+    orderStatusLabel: STORE_STATUS_LABELS[order.status as StoreOrderStatus],
   });
   return { buffer, orderNumber: order.order_number };
 }

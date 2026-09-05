@@ -17,13 +17,15 @@ const MARK_PATHS = [
  * @param x        borde izquierdo del logo
  * @param y        borde superior del logo
  * @param markSize alto/ancho del isotipo (px). El wordmark se escala en proporción.
+ * @returns coordenada x justo después del wordmark, para ubicar contenido a
+ *          su derecha sin solaparlo (el ancho de "indians" varía con markSize).
  */
 export function drawIndiansLogo(
   doc: PDFKit.PDFDocument,
   x: number,
   y: number,
   markSize = 30,
-): void {
+): number {
   // Isotipo (molinete) — vector escalado al cuadro markSize x markSize.
   doc.save();
   doc.translate(x, y)
@@ -37,10 +39,12 @@ export function drawIndiansLogo(
   // Wordmark "indians" a la derecha del isotipo.
   const fontSize = markSize * 0.9;
   const gap = markSize * 0.28;
+  const wordmarkX = x + markSize + gap;
   doc.fillColor('#000000')
     .font('Helvetica-BoldOblique')
     .fontSize(fontSize)
-    .text('indians', x + markSize + gap, y + (markSize - fontSize) / 2 + fontSize * 0.06, {
+    .text('indians', wordmarkX, y + (markSize - fontSize) / 2 + fontSize * 0.06, {
       lineBreak: false,
     });
+  return wordmarkX + doc.widthOfString('indians');
 }

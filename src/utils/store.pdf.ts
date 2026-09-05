@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { drawIndiansLogo } from './logo';
+import { drawIndiansLogoImage } from './indiansLogoImage';
 import { formatPriceNumber } from './money';
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -318,62 +319,133 @@ export function generateReceiptLabelPdf(data: ReceiptLabelData): Promise<Buffer>
     doc.lineWidth(1).strokeColor('#000000').rect(2, 2, W - 4, H - 4).stroke();
 
     // ── Cabecera ──────────────────────────────────────────────────────────────
-    drawIndiansLogo(doc, L, 10, 16);
+    // Logo como imagen (idéntica a la del manual de marca), no como trazo
+    // vectorial aproximado. Altura 28pt para que el wordmark quede por
+    // encima del cuerpo 19pt mínimo que exige el manual.
+    const logoEndX = drawIndiansLogoImage(doc, L, 8, 28);
+    const headerTextX = logoEndX + 8;
+    const headerTextW = R - headerTextX;
     doc.fillColor('#000000').fontSize(11).font('Helvetica-Bold')
-      .text('COMPROBANTE', L + 40, 9, { width: CW - 40 })
-      .text('DE PAGO', L + 40, 21, { width: CW - 40 });
+      .text('COMPROBANTE', headerTextX, 9, { width: headerTextW })
+      .text('DE PAGO', headerTextX, 21, { width: headerTextW });
     doc.fontSize(7).font('Helvetica').fillColor('#333333')
-      .text(`N° ${data.orderNumber}`, L + 40, 34, { width: CW - 40 })
-      .text(`Fecha: ${new Date(data.createdAt).toLocaleDateString('es-AR')}`, L + 40, 43, { width: CW - 40 });
+      .text(`N° ${data.orderNumber}`, headerTextX, 34, { width: headerTextW })
+      .text(`Fecha: ${new Date(data.createdAt).toLocaleDateString('es-AR')}`, headerTextX, 43, { width: headerTextW });
 
     let y = 62;
     doc.lineWidth(0.75).moveTo(L, y).lineTo(R, y).stroke('#000000');
     y += 5;
 
     // ── Sección con fondo gris ───────────────────────────────────────────────
+    // Mismo margen L/R que el resto del contenido (no el del marco exterior a
+    // secas) — pegado al marco se veía como si la caja "se saliera" de él.
     const sectionBg = (top: number, height: number) => {
-      doc.rect(2, top, W - 4, height).fill('#F2F2F2');
+      doc.rect(L, top, CW, height).fill('#F2F2F2');
       doc.fillColor('#000000');
     };
-    const field = (label: string, value: string | null | undefined, x: number, fy: number, w: number) => {
-      doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#000000').text(`${label}:`, x, fy, { width: w });
-      doc.fontSize(6.5).font('Helvetica').fillColor('#222222')
-        .text(value || '—', x, fy + 8, { width: w, ellipsis: true });
+
+    // Campo "Label: valor" en una sola línea (como el diseño provisto), con
+    // wrap del valor si no entra — la altura real se mide antes de dibujar
+    // nada para que la fila (y la caja gris que la contiene) crezca con el
+    // contenido en vez de recortarlo o superponerlo con lo que sigue.
+    interface FieldSpec { label: string; value: string | null | undefined; x: number; w: number; bold?: boolean }
+    const fieldValueBox = (label: string, w: number, boldLabel: boolean) => {
+      doc.fontSize(6.5).font(boldLabel ? 'Helvetica-Bold' : 'Helvetica');
+      const labelW = doc.widthOfString(`${label}: `);
+      return Math.max(w - labelW, 10);
+    };
+    const measureRow = (fields: FieldSpec[]): number => {
+      let maxH = 9;
+      for (const f of fields) {
+        const valueW = fieldValueBox(f.label, f.w, !!f.bold);
+        doc.font('Helvetica').fontSize(6.5);
+        const h = doc.heightOfString(f.value || '—', { width: valueW });
+        if (h > maxH) maxH = h;
+      }
+      return maxH;
+    };
+    const drawRow = (fields: FieldSpec[], fy: number) => {
+      for (const f of fields) {
+        const labelText = `${f.label}: `;
+        doc.fontSize(6.5).font(f.bold ? 'Helvetica-Bold' : 'Helvetica').fillColor('#000000')
+          .text(labelText, f.x, fy, { lineBreak: false });
+        const labelW = doc.widthOfString(labelText);
+        const valueW = Math.max(f.w - labelW, 10);
+        doc.font('Helvetica').fillColor('#222222')
+          .text(f.value || '—', f.x + labelW, fy, { width: valueW });
+      }
+    };
+    const ROW_GAP = 3;
+    // Dibuja una sección con fondo gris, título, un texto opcional alineado a
+    // la derecha del título (Canal/Estado) y filas de campos; devuelve el y
+    // donde termina la caja para encadenar el siguiente bloque.
+    const renderSection = (title: string, headerRight: string | null, rows: FieldSpec[][], top: number): number => {
+      const headerH = 12;
+      const rowHeights = rows.map(measureRow);
+      const boxH = headerH + rowHeights.reduce((a, b) => a + b + ROW_GAP, 0) + 2;
+      sectionBg(top, boxH);
+      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#000000').text(title, L, top + 3);
+      if (headerRight) {
+        doc.fontSize(7).font('Helvetica-Bold').fillColor('#000000').text(headerRight, L, top + 3, { width: CW, align: 'right' });
+      }
+      let fy = top + headerH;
+      rows.forEach((r, i) => {
+        drawRow(r, fy);
+        fy += rowHeights[i] + ROW_GAP;
+      });
+      return top + boxH;
     };
 
     // Datos del comercio (funciona como remitente para la etiqueta de envío)
-    sectionBg(y, 46);
-    doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#000000').text('DATOS DEL COMERCIO', L, y + 3);
-    const halfW = CW / 2 - 3;
-    field('Razón social / Nombre', s.company_name || 'INDIANS', L, y + 14, CW);
-    field('CUIT', s.company_cuit, L, y + 30, halfW);
-    field('Teléfono', s.company_phone, L + halfW + 6, y + 30, halfW);
-    y += 46 + 4;
+    const comercioLeftW = CW * 0.6;
+    const comercioRightX = L + CW * 0.64;
+    const comercioRightW = R - comercioRightX;
+    y = renderSection('DATOS DEL COMERCIO', null, [
+      [{ label: 'Razón social / Nombre', value: s.company_name || 'INDIANS', x: L, w: comercioLeftW },
+       { label: 'Teléfono', value: s.company_phone, x: comercioRightX, w: comercioRightW }],
+      [{ label: 'CUIT', value: s.company_cuit, x: L, w: comercioLeftW },
+       { label: 'Email', value: s.company_email, x: comercioRightX, w: comercioRightW }],
+      [{ label: 'Domicilio', value: s.company_address, x: L, w: comercioLeftW },
+       { label: 'Sitio web', value: s.company_website, x: comercioRightX, w: comercioRightW }],
+    ], y);
+    y += 4;
 
     doc.lineWidth(0.5).moveTo(L, y).lineTo(R, y).stroke('#CCCCCC');
     y += 4;
 
     // Datos del cliente (funciona como destinatario para la etiqueta de envío)
-    sectionBg(y, 60);
-    doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#000000').text('DATOS DEL CLIENTE', L, y + 3);
-    doc.fontSize(6.5).font('Helvetica').fillColor('#222222').text('Canal: Tienda Online', L, y + 3, { width: CW, align: 'right' });
-    field('Nombre', data.customerName, L, y + 14, CW);
-    field('CUIT/DNI', data.customerDni, L, y + 30, halfW);
-    field('Tel.', data.customerPhone, L + halfW + 6, y + 30, halfW);
+    const cuitDniW = CW * 0.45;
+    const telX = L + CW * 0.5;
     const domicilio = data.shippingType === 'delivery'
       ? [addr.street, addr.city, addr.state, addr.zip_code].filter(Boolean).join(', ')
       : 'Retiro en tienda';
-    field('Domicilio', domicilio, L, y + 46, CW);
-    y += 60 + 4;
+    y = renderSection('DATOS DEL CLIENTE', 'Canal: Tienda Online', [
+      [{ label: 'Nombre', value: data.customerName, x: L, w: CW, bold: true }],
+      [{ label: 'CUIT/DNI', value: data.customerDni, x: L, w: cuitDniW, bold: true },
+       { label: 'Tel.', value: data.customerPhone, x: telX, w: R - telX, bold: true }],
+      [{ label: 'Domicilio', value: domicilio, x: L, w: CW, bold: true }],
+      [{ label: 'Email', value: data.customerEmail, x: L, w: CW, bold: true }],
+    ], y);
+    y += 4;
 
     // ── Tabla de ítems ────────────────────────────────────────────────────────
+    doc.fontSize(6.5).font('Helvetica-Bold');
+    const colGap = 4;
+    const qtyW = Math.ceil(doc.widthOfString('CANT.')) + 6;
+    const unitW = Math.ceil(doc.widthOfString('P. UNIT.')) + 6;
+    const amountW = Math.ceil(doc.widthOfString('IMPORTE')) + 6;
+    const descColW = CW - qtyW - unitW - amountW - colGap * 3;
+    const qtyX = L;
+    const descX = qtyX + qtyW + colGap;
+    const unitX = descX + descColW + colGap;
+    const amountX = unitX + unitW + colGap;
     const cols = [
-      { label: 'CANT.', x: L, w: 20, align: 'center' as const },
-      { label: 'DESCRIPCIÓN', x: L + 20, w: CW - 20 - 45 - 40, align: 'left' as const },
-      { label: 'P. UNIT.', x: R - 85, w: 40, align: 'right' as const },
-      { label: 'IMPORTE', x: R - 45, w: 45, align: 'right' as const },
+      { label: 'CANT.', x: qtyX, w: qtyW, align: 'center' as const },
+      { label: 'DESCRIPCIÓN', x: descX, w: descColW, align: 'left' as const },
+      { label: 'P. UNIT.', x: unitX, w: unitW, align: 'right' as const },
+      { label: 'IMPORTE', x: amountX, w: amountW, align: 'right' as const },
     ];
-    doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#000000');
+    doc.fillColor('#000000');
     for (const c of cols) doc.text(c.label, c.x, y, { width: c.w, align: c.align });
     y += 9;
     doc.lineWidth(0.5).moveTo(L, y).lineTo(R, y).stroke('#000000');
@@ -418,18 +490,16 @@ export function generateReceiptLabelPdf(data: ReceiptLabelData): Promise<Buffer>
     y += 4;
 
     // ── Datos del pago ───────────────────────────────────────────────────────
-    sectionBg(y, 56);
-    doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#000000').text('DATOS DEL PAGO', L, y + 3);
-    doc.fontSize(6.5).font('Helvetica').fillColor('#222222')
-      .text(`Estado: ${data.orderStatusLabel}`, L, y + 3, { width: CW, align: 'right' });
-    field('Medio de pago', PAYMENT_METHOD_LABELS[data.paymentMethod] || data.paymentMethod, L, y + 14, halfW);
-    field('ID de operación', data.paymentOperationId, L + halfW + 6, y + 14, halfW);
     const paidAtStr = data.paidAt
       ? `${new Date(data.paidAt).toLocaleDateString('es-AR')} ${new Date(data.paidAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
       : '—';
-    field('Fecha y hora', paidAtStr, L, y + 30, halfW);
-    field('Importe recibido', money(Number(data.totalAmount)), L + halfW + 6, y + 30, halfW);
-    y += 56 + 6;
+    y = renderSection('DATOS DEL PAGO', `Estado: ${data.orderStatusLabel}`, [
+      [{ label: 'Medio de pago', value: PAYMENT_METHOD_LABELS[data.paymentMethod] || data.paymentMethod, x: L, w: CW }],
+      [{ label: 'ID de operación', value: data.paymentOperationId, x: L, w: CW }],
+      [{ label: 'Fecha y hora', value: paidAtStr, x: L, w: CW }],
+      [{ label: 'Importe recibido', value: money(Number(data.totalAmount)), x: L, w: CW }],
+    ], y);
+    y += 6;
 
     // ── Pie ───────────────────────────────────────────────────────────────────
     const footH = 16;
