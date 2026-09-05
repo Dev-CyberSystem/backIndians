@@ -3,6 +3,17 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.8.2 — 2026-09-05
+
+### backIndians (925b4cb)
+
+- fix(tienda): logo real y ajustes de layout en el comprobante/etiqueta 100x150mm
+- feat(tienda): comprobante de pago / etiqueta de envío en ticket 100x150mm
+
+### frontIndians (3dc8ccb)
+
+- feat(tienda): descargar comprobante/etiqueta en ticket 100x150mm
+
 ## v1.8.1 — 2026-09-04
 
 ### backIndians (a91c664)
