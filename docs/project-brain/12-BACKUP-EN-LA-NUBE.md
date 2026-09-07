@@ -1,6 +1,6 @@
 # 12 — Backup de la base en la nube (copia off-site)
 
-> Estado al 2026-09-06: **pendiente de implementar**. Este documento evalúa las opciones y deja elegida una. El backup diario local ya existe (`npm run db:backup:daily` + Programador de tareas, ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md)); lo que falta es una copia que **no** dependa de la máquina del desarrollador ni de su OneDrive.
+> Estado al 2026-09-06: **workflow implementado, falta cargar el secret y verificar la primera corrida**. El archivo es `backIndians/.github/workflows/db-backup.yml` (sube el dump como artifact, retención 90 días). Para que corra sólo hay que agregar el secret `MYSQL_PUBLIC_URL` en el repo — ver "Puesta en marcha" abajo. El backup diario local (`npm run db:backup:daily` + Programador de tareas, ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md)) sigue siendo la primera pata; esto es la copia que **no** depende de la máquina del desarrollador ni de su OneDrive.
 
 ## Por qué no alcanza lo que hay
 
@@ -51,11 +51,22 @@ Se conectan a la base por la URL pública y hacen el dump + subida a un bucket c
 
 ## Decisión
 
-**GitHub Actions programado**, subiendo a **Cloudflare R2 o Backblaze B2** (capa gratuita), y como fallback inmediato mientras se crea el bucket, **artifact del workflow con `retention-days: 90`**.
+**GitHub Actions programado** (`backIndians/.github/workflows/db-backup.yml`), reutilizando `scripts/release/db-backup.mjs` tal cual — que ya hace `mysqldump --single-transaction` + las tres verificaciones de integridad. Arranca subiendo el dump como **artifact del workflow (`retention-days: 90`)**, que no necesita ninguna infra extra; el upgrade natural es subir a **Cloudflare R2 o Backblaze B2** (capa gratuita) cambiando sólo el último step.
 
-Racional: es lo que corre sin depender de la PC, no agrega un proveedor pago, y puede reutilizar `scripts/release/db-backup.mjs` tal cual (que ya verifica el dump). El secret con la URL de producción es el único costo real y es tolerable en un repo privado con acceso acotado.
+Racional: corre sin depender de la PC ni de OneDrive, no agrega un proveedor pago, y el script de backup no tiene dependencias de npm (sólo módulos nativos de Node), así que el job es checkout + node + `mysqldump` + correr. El secret con la URL de producción es el único costo real y es tolerable en un repo privado con acceso acotado.
 
 Complemento opcional: activar además los backups nativos de Railway si el plan los tiene (opción 2), como tercera copia.
+
+## Puesta en marcha (una vez)
+
+1. **Cargar el secret**: en `github.com/Dev-CyberSystem/backIndians` → *Settings → Secrets and variables → Actions → New repository secret*:
+   - Nombre: `MYSQL_PUBLIC_URL`
+   - Valor: la URL **pública** de la base en Railway (*MySQL → Connect → Public Network*, `mysql://usuario:clave@host.proxy.rlwy.net:puerto/railway`). Es la misma que va en `backIndians/.env.release`.
+2. **Probar sin esperar al cron**: pestaña *Actions → "Backup diario de la base (producción)" → Run workflow*.
+3. **Verificar**: la corrida termina en verde y en *Summary* aparece el artifact `db-backup-<run_id>` con un `cloud-*.sql.gz` de tamaño creíble (>100 KB hoy).
+4. **Restaurar uno de prueba** contra la base local para confirmar que sirve: bajar el artifact, descomprimir y `npm run db:restore -- <archivo>` (destino local por defecto).
+
+**Mantenimiento**: GitHub deshabilita los cron de repos sin actividad a los ~60 días — si el repo queda quieto, reactivar el workflow desde la pestaña Actions. Rotar el secret si alguna vez se filtra.
 
 ## Esbozo de implementación (cuando se haga)
 

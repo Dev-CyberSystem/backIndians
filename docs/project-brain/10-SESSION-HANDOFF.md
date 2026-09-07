@@ -23,14 +23,16 @@ Raíz: el usuario limpió la base de **desarrollo** con `npm run db:reset` (func
 - Base remota + consola interactiva → saca `pre-migrate-<fecha>.sql.gz`, muestra el host, pide escribir el nombre de la base; si el backup falla, no migra.
 - `migrate:undo` / `migrate:undo:all` pasan por la misma guarda. Nuevo `migrate:raw` = `sequelize-cli db:migrate` sin verificación. `migrate:status` sin cambios.
 
-**Docs**: `11-RELEASE-Y-ROLLBACK.md` (dos secciones nuevas + R-07 matizado), `07-DEVELOPMENT-GUIDE.md`, y **`12-BACKUP-EN-LA-NUBE.md` nuevo** (evalúa y elige la copia off-site: GitHub Actions programado → bucket/artifact). Falta agregar la línea de doc 12 a `00-INDEX.md` (lo tiene tomado la rama del barcode) al consolidar el merge.
+**Copia en la nube (off-site)** — `backIndians/.github/workflows/db-backup.yml` **nuevo** (primer workflow del repo — antes "sin CI/CD"): cron diario 06:20 UTC + `workflow_dispatch`, corre `node scripts/release/db-backup.mjs --tag=cloud` (el script no tiene deps de npm, sólo `mysqldump`) y sube el `.sql.gz` como artifact (retención 90 días). **No corre hasta cargar el secret `MYSQL_PUBLIC_URL`** en el repo. Todo documentado en `12-BACKUP-EN-LA-NUBE.md` (nuevo).
+
+**Docs**: `11-RELEASE-Y-ROLLBACK.md` (secciones nuevas: backup diario, migraciones a mano, conexión RO a producción, + R-07 matizado), `07-DEVELOPMENT-GUIDE.md`, `12-BACKUP-EN-LA-NUBE.md` nuevo. Falta agregar la línea de doc 12 a `00-INDEX.md` (lo tiene tomado la rama del barcode) al consolidar el merge.
 
 ### Falta
 
 1. **Mergear `chore/db-prod-protection` a `master`** cuando el usuario lo apruebe (junto con `feat/product-barcode`). Push del backend a `master` = deploy a Railway; el wrapper de `migrate` se probó que no rompe ese camino.
 2. **Correr `install-daily-backup-task.ps1`** en la máquina del usuario (lo hace él; puede pedir elevación) y verificar con `Get-ScheduledTaskInfo -TaskName 'Indians - Backup diario DB'`.
-3. **Usuarios de base con permisos mínimos en Railway**: `indians_ro` (solo SELECT) como conexión por defecto en DBeaver; la URL con permisos DDL solo en gestor de contraseñas. Es el control con más leverage y quedó pendiente.
-4. **Copia off-site real**: implementar lo elegido en `12-BACKUP-EN-LA-NUBE.md` (GitHub Actions). R-07 abierto hasta eso.
+3. **Cargar el secret `MYSQL_PUBLIC_URL`** en `Dev-CyberSystem/backIndians` (Settings → Secrets → Actions) y correr el workflow "Backup diario de la base" a mano una vez para verificar (ver `12-BACKUP-EN-LA-NUBE.md`).
+4. **Crear el usuario `indians_ro`** (solo SELECT) en el MySQL de Railway y usarlo como conexión por defecto en DBeaver — SQL y pasos en `11-RELEASE-Y-ROLLBACK.md` § "Conexión de solo lectura a producción". Es el control con más leverage y sólo lo puede hacer el usuario (necesita las credenciales admin de la base).
 5. Opcional: activar los backups nativos de MySQL en Railway si el plan lo permite (tercera pata).
 
 ---

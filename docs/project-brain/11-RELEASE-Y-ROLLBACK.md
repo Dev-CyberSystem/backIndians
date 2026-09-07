@@ -266,6 +266,21 @@ Se llamaba `db:query` y su encabezado decía *"SOLO LECTURA"* sin nada que lo re
 
 La detección ignora comentarios y literales de texto a propósito: un aviso que salta en falso entrena a confirmar sin leer.
 
+## Conexión de solo lectura a producción (pendiente)
+
+Las guardas de arriba (`db:exec`, el wrapper de `migrate`, el abort de `db:reset`) cubren los caminos **por código**. El que queda descubierto es un cliente SQL manual —DBeaver, TablePlus, `mysql` CLI— conectado a la URL pública de Railway: ahí un `DELETE`/`TRUNCATE` en la ventana equivocada se ejecuta y listo.
+
+La mitigación es de permisos, no de código: crear en el MySQL de producción un usuario **solo lectura** y usar **ese** como conexión por defecto en el gestor SQL. La URL con permisos de escritura/DDL queda guardada en un gestor de contraseñas y se pega conscientemente sólo cuando de verdad hace falta.
+
+```sql
+-- Correr una vez como usuario admin (la parte de usuario/clave de MYSQL_PUBLIC_URL).
+CREATE USER 'indians_ro'@'%' IDENTIFIED BY '<clave-larga-al-azar>';
+GRANT SELECT, SHOW VIEW ON railway.* TO 'indians_ro'@'%';
+FLUSH PRIVILEGES;
+```
+
+Conexión de DBeaver: mismo host/puerto/base que la pública, usuario `indians_ro`. Con eso, `DELETE`/`UPDATE`/`DROP`/`TRUNCATE` fallan con *access denied* en vez de ejecutarse. La app (`MYSQL_URL` en Railway) y los scripts de release siguen con el usuario de siempre; esto es sólo para el uso interactivo.
+
 ## Qué queda fuera de git a propósito
 
 | Ruta | Por qué |
