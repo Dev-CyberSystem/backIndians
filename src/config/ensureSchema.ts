@@ -327,6 +327,34 @@ export async function ensureSchema(): Promise<void> {
   } catch (err) {
     logger.error('ensureSchema.invoiceCollectionsCash', err, { meta: { fatal: false } });
   }
+
+  // ─── Código de barras único por producto de catálogo (migración 103) ───────
+  try {
+    const catalogProducts = await qi.describeTable('catalog_products');
+
+    if (!catalogProducts.barcode) {
+      await qi.addColumn('catalog_products', 'barcode', {
+        type: DataTypes.STRING(50),
+        allowNull: true,
+      });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'catalog_products', column: 'barcode' } });
+    }
+
+    const indexes = (await qi.showIndex('catalog_products')) as Array<{ name: string }>;
+    if (!indexes.some((ix) => ix.name === 'uq_catalog_products_barcode')) {
+      await qi.addIndex('catalog_products', ['barcode'], {
+        name: 'uq_catalog_products_barcode',
+        unique: true,
+      });
+      logger.info('ensureSchema.addIndex', { meta: { table: 'catalog_products', index: 'uq_catalog_products_barcode' } });
+    }
+
+    await sequelize.query(
+      "UPDATE catalog_products SET barcode = CONCAT('PRD-', LPAD(id, 6, '0')) WHERE barcode IS NULL"
+    );
+  } catch (err) {
+    logger.error('ensureSchema.catalogProductsBarcode', err, { meta: { fatal: false } });
+  }
 }
 
 /**

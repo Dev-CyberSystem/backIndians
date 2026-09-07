@@ -118,6 +118,11 @@ export interface ProductInput {
   cuff_color?: string | null;
 }
 
+/** Código de barras determinístico por id — ver migración 103. */
+function buildProductBarcode(id: number): string {
+  return `PRD-${String(id).padStart(6, '0')}`;
+}
+
 export async function listClientProducts(clientId: number) {
   return CatalogProduct.findAll({
     where: { client_id: clientId },
@@ -138,7 +143,11 @@ export async function listAllProducts(page: number, limit: number, clientId?: nu
       ...PRODUCT_INCLUDE,
       { model: Client, as: 'client', attributes: ['id', 'name'] },
     ],
-    order: [['createdAt', 'DESC']],
+    // `id` como desempate: sin esto, filas con el mismo `createdAt` (común en
+    // datos cargados en lote) pueden aparecer en dos páginas distintas o
+    // saltarse una — el orden entre ellas no está garantizado sin un criterio
+    // único adicional.
+    order: [['createdAt', 'DESC'], ['id', 'DESC']],
     limit,
     offset,
     distinct: true,
@@ -219,6 +228,10 @@ export async function createProduct(input: ProductInput): Promise<CatalogProduct
         { transaction: t }
       );
     }
+
+    // El código de barras depende del id autogenerado, así que se asigna
+    // recién acá — nunca lo carga quien crea el producto.
+    await product.update({ barcode: buildProductBarcode(product.id) }, { transaction: t });
 
     await t.commit();
     invalidateCache('store:filter-options');
