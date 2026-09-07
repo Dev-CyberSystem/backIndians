@@ -80,9 +80,11 @@ async function main() {
   const { isRemote, host, dbLabel } = resolveTarget();
 
   const runMigrate = () => {
-    // `npx sequelize-cli` como en reset-dev-db.js: resuelve el binario local
-    // corran esto vía `npm run` (que ya pone node_modules/.bin en PATH) o directo.
-    const ok = runLive('npx', ['sequelize-cli', sub, ...passthru], { cwd: process.cwd() });
+    // `--no-install`: usa el sequelize-cli que ya está en node_modules (lo hay,
+    // es dependencia del proyecto y así lo corría el script viejo). Sin esto,
+    // si por lo que sea no lo encuentra, npx intentaría descargarlo de la red
+    // —justo en el arranque del deploy de Railway—; mejor que falle fuerte.
+    const ok = runLive('npx', ['--no-install', 'sequelize-cli', sub, ...passthru], { cwd: process.cwd() });
     if (!ok) process.exit(1);
   };
 
