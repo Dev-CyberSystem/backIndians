@@ -3,6 +3,21 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.9.0 — 2026-09-07
+
+### backIndians (8544617)
+
+- Revert "ci(db): disparador push TEMPORAL para probar el workflow desde la rama"
+- feat(catalogo): código de barras único por producto + fix de paginación
+- ci(db): disparador push TEMPORAL para probar el workflow desde la rama
+- chore(db): guarded-migrate usa npx --no-install (no descarga sequelize-cli)
+- ci(db): workflow de backup diario de producción a la nube (off-site)
+- chore(db): backup diario automático de producción + backup previo a migrar
+
+### frontIndians (d615037)
+
+- feat(catalogo): código de barras por producto + listado imprimible de fichas técnicas
+
 ## v1.8.2 — 2026-09-05
 
 ### backIndians (925b4cb)
