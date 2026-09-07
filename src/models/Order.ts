@@ -71,6 +71,8 @@ Order.init(
         'quality_control',
         'packaging_control',
         'ready',
+        'shipped',
+        'delivered',
         'cancelled',
         // Legados (conservados para el historial)
         'in_production',

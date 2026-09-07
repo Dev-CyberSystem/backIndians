@@ -4,7 +4,28 @@
 
 ---
 
-## Última actualización: 2026-09-07 — El taller no ve precios + "Unidades" del listado de taller siempre en 0
+## Última actualización: 2026-09-07 — Estados "Enviado" y "Entregado" en el flujo de pedidos mayoristas
+
+Raíz: el usuario pidió que el flujo de un pedido de fábrica no termine en "Listo para despacho" (`ready`) sino que siga a "Enviado" y "Entregado". Se acordó (vía preguntas): mantener `ready` como paso intermedio y agregar `shipped`/`delivered` al final; el **taller** marca `ready → shipped`, **facturación/admin** marca `shipped → delivered` (admin puede volver un paso atrás); en el dashboard `shipped`/`delivered` cuentan como terminados igual que `ready`.
+
+**Cambios**:
+- **Esquema**: ENUM de `orders.status` y de `order_status_history` (`previous_status`/`new_status`) gana `'shipped'`, `'delivered'`. Migración nueva `migrations/20260907-104-add-shipped-delivered-order-statuses.js` (solo ALTER de ENUM, no migra filas; `down` revierte a `ready`). Espejo en `src/config/ensureSchema.ts` (bloque nuevo, guardado por `includes('delivered')` para no reconstruir la tabla en cada arranque). Modelos `Order.ts` / `OrderStatusHistory.ts` actualizados. `src/types/index.ts` (`OrderStatus`).
+- **Transiciones** (`ORDER_STATUS_TRANSITIONS` en `order.service.ts`): `workshop.ready = ['shipped']`; `billing.shipped = ['delivered']`; `admin.ready = ['shipped','cancelled']`, `admin.shipped = ['delivered','ready','cancelled']`, `admin.delivered = ['shipped']`. Validación `isIn` de `order.routes.ts` (2 arrays) ampliada.
+- **Dashboard** (`dashboard.service.ts`, 2 queries): "pendientes" = `status NOT IN ('cancelled','ready','shipped','delivered')`; el KPI `ready`/`ready_orders` = `status IN ('ready','shipped','delivered')`. Se mantuvo el nombre de campo `ready_orders` para no tocar 3 type defs + `DashboardPage`/`SellersPage`.
+- **Frontend**: `OrderStatus`, `ORDER_STATUS_LABELS` ("Enviado"/"Entregado"), `ORDER_STATUS_COLORS` (lime/emerald), `WORKSHOP_TRANSITIONS`/`BILLING_TRANSITIONS`/`ADMIN_TRANSITIONS` en `formatters.ts`; opción de filtro "Enviado" en `WorkshopOrdersPage`, "Enviado"+"Entregado" en `billing/OrdersPage`. Los detalles (`billing/OrderDetailPage`, `WorkshopOrderDetailPage`) muestran los botones nuevos automáticamente (leen de los mapas de transición).
+- **NO tocado a propósito**: el filtro por defecto del listado de taller (`order.service.ts` línea ~395, `['workshop_review','in_production','quality_check','ready']`) y `WORKSHOP_STATUSES` en `useSocket.ts` — ambos ya estaban desactualizados (no listan los 6 controles) pero no los empeora esta tarea; el taller ve el pedido hasta `ready`, lo marca "Enviado" y sale de su vista por defecto.
+
+**Validación**: `tsc` limpio (back+front). Backend **432/432** (60 suites) — incluye `transitions.test.ts` (39, casos nuevos de despacho) y `factory-orders.test.ts` (8, nuevo test que camina un pedido a `ready`, verifica que billing NO puede `shipped`, taller sí, taller NO puede `delivered`, billing sí). Frontend **49/49** vitest (`formatters.test.ts` con mirror front↔back actualizado). Para probar el flujo real hubo que ALTERear el ENUM del `orders.status` en la base de dev a mano (jest no corre `ensureSchema`); en un arranque normal de `npm run dev` lo hace `ensureSchema`.
+
+### Falta
+
+1. **Sin commitear** (ambos repos). El usuario decide rama/commit.
+2. **Contrato NO aditivo de esquema**: al desplegar hay que correr la migración `104` (backend y base juntos). El front puede ir después sin romper (los estados nuevos solo aparecen si el back los emite), pero conviene desplegar los dos juntos para que los botones "Enviado"/"Entregado" existan cuando el back ya los acepta.
+3. Opcional a futuro: modernizar el filtro por defecto del listado de taller y `useSocket.WORKSHOP_STATUSES` (deuda preexistente, no de esta tarea).
+
+---
+
+## Sesión anterior: 2026-09-07 — El taller no ve precios + "Unidades" del listado de taller siempre en 0
 
 Raíz: el usuario reportó, con dos capturas del perfil de taller, que (1) el detalle de una orden de trabajo mostraba el importe cobrado al cliente (tarjeta "Total", subtotal por ítem, "Total del pedido") — el taller no debe conocer ese dato — y (2) la columna "Unidades" del listado de "Órdenes de trabajo" siempre mostraba `0`.
 

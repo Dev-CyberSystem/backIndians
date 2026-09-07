@@ -174,8 +174,9 @@ export async function getDashboardSummary(period?: string) {
          SUM(CASE WHEN createdAt BETWEEN :from AND :to THEN 1 ELSE 0 END)                                        AS this_total,
          SUM(CASE WHEN createdAt BETWEEN :prevFrom AND :prevTo THEN 1 ELSE 0 END)                                AS prev_total,
          SUM(CASE WHEN createdAt BETWEEN :from AND :to
-                   AND status NOT IN ('cancelled','ready') THEN 1 ELSE 0 END)                                    AS pending,
-         SUM(CASE WHEN createdAt BETWEEN :from AND :to AND status = 'ready' THEN 1 ELSE 0 END)                   AS ready,
+                   AND status NOT IN ('cancelled','ready','shipped','delivered') THEN 1 ELSE 0 END)              AS pending,
+         SUM(CASE WHEN createdAt BETWEEN :from AND :to
+                   AND status IN ('ready','shipped','delivered') THEN 1 ELSE 0 END)                              AS ready,
          SUM(CASE WHEN createdAt BETWEEN :from AND :to AND status = 'cancelled' THEN 1 ELSE 0 END)               AS cancelled
        FROM orders
        WHERE createdAt BETWEEN :prevFrom AND :to`,
@@ -575,8 +576,8 @@ export async function getSellerStats(filters: {
        u.id                AS seller_id,
        u.name              AS seller_name,
        COUNT(DISTINCT o.id)                                                               AS total_orders,
-       COUNT(DISTINCT CASE WHEN o.status NOT IN ('ready','cancelled') THEN o.id END)     AS pending_orders,
-       COUNT(DISTINCT CASE WHEN o.status = 'ready' THEN o.id END)                       AS ready_orders,
+       COUNT(DISTINCT CASE WHEN o.status NOT IN ('ready','shipped','delivered','cancelled') THEN o.id END) AS pending_orders,
+       COUNT(DISTINCT CASE WHEN o.status IN ('ready','shipped','delivered') THEN o.id END)                 AS ready_orders,
        COUNT(DISTINCT CASE WHEN o.status = 'cancelled' THEN o.id END)                   AS cancelled_orders,
        COALESCE(SUM(i.total_amount), 0)                                                   AS total_revenue
      FROM users u

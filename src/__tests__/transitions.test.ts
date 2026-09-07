@@ -8,7 +8,7 @@ type Status =
   // Controles de producción (flujo nuevo, 6 controles de calidad)
   | 'raw_material_control' | 'cutting_control' | 'printing_control'
   | 'sewing_control' | 'quality_control' | 'packaging_control'
-  | 'ready' | 'cancelled';
+  | 'ready' | 'shipped' | 'delivered' | 'cancelled';
 
 function canTransition(role: Role, from: Status, to: Status): boolean {
   return (ORDER_STATUS_TRANSITIONS[role]?.[from] ?? []).includes(to);
@@ -54,6 +54,14 @@ describe('workshop transitions', () => {
     expect(canTransition('workshop', 'cutting_control', 'cancelled')).toBe(false);
     expect(canTransition('workshop', 'sewing_control',  'cancelled')).toBe(false);
   });
+
+  it('marca "Enviado" desde "Listo para despacho" (ready → shipped)', () => {
+    expect(canTransition('workshop', 'ready', 'shipped')).toBe(true);
+  });
+
+  it('NO puede marcar "Entregado" (lo confirma facturación/admin)', () => {
+    expect(canTransition('workshop', 'shipped', 'delivered')).toBe(false);
+  });
 });
 
 // ── Admin: puede cancelar en cualquier estado activo ─────────────────────────
@@ -82,6 +90,13 @@ describe('admin transitions', () => {
       expect(canTransition('admin', PRODUCTION_FLOW[i], PRODUCTION_FLOW[i - 1])).toBe(true);
     }
   });
+
+  it('despacho: ready → shipped → delivered, con un paso atrás', () => {
+    expect(canTransition('admin', 'ready',     'shipped')).toBe(true);
+    expect(canTransition('admin', 'shipped',   'delivered')).toBe(true);
+    expect(canTransition('admin', 'shipped',   'ready')).toBe(true);
+    expect(canTransition('admin', 'delivered', 'shipped')).toBe(true);
+  });
 });
 
 // ── Billing ───────────────────────────────────────────────────────────────────
@@ -96,9 +111,14 @@ describe('billing transitions', () => {
     expect(canTransition('billing', 'under_review', 'workshop_review')).toBe(true);
   });
 
-  it('NO puede mover estados de producción', () => {
+  it('confirma la entrega: shipped → delivered', () => {
+    expect(canTransition('billing', 'shipped', 'delivered')).toBe(true);
+  });
+
+  it('NO puede mover estados de producción ni marcar "Enviado"', () => {
     expect(canTransition('billing', 'raw_material_control', 'cutting_control')).toBe(false);
     expect(canTransition('billing', 'sewing_control',       'quality_control')).toBe(false);
+    expect(canTransition('billing', 'ready',                'shipped')).toBe(false);
   });
 });
 

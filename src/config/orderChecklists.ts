@@ -26,7 +26,11 @@ export const CONTROL_SEQUENCE: OrderStatus[] = [
   'packaging_control',
 ];
 
-/** Estado previo al primer control y estado final (listo para despacho). */
+/**
+ * Estado previo al primer control y estado al que se sale del último.
+ * "Listo para despacho" NO es el estado final del pedido: después vienen
+ * `shipped` (Enviado) y `delivered` (Entregado), sin checklist.
+ */
 export const BEFORE_FIRST_CONTROL: OrderStatus = 'workshop_review';
 export const AFTER_LAST_CONTROL: OrderStatus = 'ready'; // "Listo para despacho"
 

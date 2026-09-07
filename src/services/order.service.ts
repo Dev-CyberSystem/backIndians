@@ -312,9 +312,13 @@ export const ORDER_STATUS_TRANSITIONS: Record<string, Partial<Record<OrderStatus
   billing: {
     pending:      ['under_review'],
     under_review: ['observed', 'workshop_review'],
+    // Despacho: facturación confirma la entrega al cliente.
+    shipped:      ['delivered'],
   },
   // Taller: inicia y recorre los controles de producción. En cada control puede
   // avanzar al siguiente (con el checklist completo) o "observar" volviendo al anterior.
+  // Al terminar el último control marca "Listo para despacho" y, cuando el pedido
+  // sale del taller, lo pasa a "Enviado". La entrega la confirma facturación/admin.
   workshop: {
     workshop_review:      ['raw_material_control', 'observed'],
     raw_material_control: ['cutting_control', 'workshop_review'],
@@ -323,6 +327,7 @@ export const ORDER_STATUS_TRANSITIONS: Record<string, Partial<Record<OrderStatus
     sewing_control:       ['quality_control', 'printing_control'],
     quality_control:      ['packaging_control', 'sewing_control'],
     packaging_control:    ['ready', 'quality_control'],
+    ready:                ['shipped'],
   },
   admin: {
     pending:              ['under_review', 'cancelled'],
@@ -335,7 +340,10 @@ export const ORDER_STATUS_TRANSITIONS: Record<string, Partial<Record<OrderStatus
     sewing_control:       ['quality_control', 'printing_control', 'cancelled'],
     quality_control:      ['packaging_control', 'sewing_control', 'cancelled'],
     packaging_control:    ['ready', 'quality_control', 'cancelled'],
-    ready:                ['cancelled'],
+    ready:                ['shipped', 'cancelled'],
+    // Admin puede corregir un paso atrás en el despacho.
+    shipped:              ['delivered', 'ready', 'cancelled'],
+    delivered:            ['shipped'],
     cancelled:            [],
   },
 };

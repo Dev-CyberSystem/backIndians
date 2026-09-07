@@ -92,6 +92,43 @@ describe('Pedidos de producción + checklist — API', () => {
     expect(cl.body.data.done).toBe(0);
   });
 
+  it('despacho: taller marca "Enviado" y facturación marca "Entregado"', async () => {
+    const billing = await loginAs('billing');
+    const workshop = await loginAs('workshop');
+
+    const id = await createOrder();
+    const flow = [
+      'under_review', 'workshop_review', 'raw_material_control', 'cutting_control',
+      'printing_control', 'sewing_control', 'quality_control', 'packaging_control', 'ready',
+    ];
+    for (const st of flow) {
+      expect((await setStatus(id, st)).status).toBe(200);
+    }
+
+    // El taller (no facturación) es quien saca el pedido del taller: ready → shipped
+    const billingCantShip = await api().put(`${API}/orders/${id}`).set(...auth(billing))
+      .send({ status: 'shipped' });
+    expect(billingCantShip.status).toBeGreaterThanOrEqual(400);
+    expect(billingCantShip.status).toBeLessThan(500);
+
+    const shipped = await api().put(`${API}/orders/${id}`).set(...auth(workshop))
+      .send({ status: 'shipped', status_comment: 'Sale del taller' });
+    expect(shipped.status).toBe(200);
+    expect(shipped.body.data.status).toBe('shipped');
+
+    // El taller NO confirma la entrega
+    const workshopCantDeliver = await api().put(`${API}/orders/${id}`).set(...auth(workshop))
+      .send({ status: 'delivered' });
+    expect(workshopCantDeliver.status).toBeGreaterThanOrEqual(400);
+    expect(workshopCantDeliver.status).toBeLessThan(500);
+
+    // Facturación confirma la entrega: shipped → delivered
+    const delivered = await api().put(`${API}/orders/${id}`).set(...auth(billing))
+      .send({ status: 'delivered', status_comment: 'Recibido por el cliente' });
+    expect(delivered.status).toBe(200);
+    expect(delivered.body.data.status).toBe('delivered');
+  });
+
   it('rechaza un salto de estado inválido (pending → ready)', async () => {
     const id = await createOrder();
     const res = await setStatus(id, 'ready');

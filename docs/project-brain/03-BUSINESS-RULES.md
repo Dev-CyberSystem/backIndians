@@ -71,6 +71,12 @@
 **Fuente**: `backIndians/src/services/order.service.ts` (`stripPricingForWorkshop`, llamada en `getOrderById` y `listOrders`), `frontIndians/src/pages/workshop/WorkshopOrderDetailPage.tsx`.
 **Estado**: Vigente desde 2026-09-07.
 
+### BR-ORDER-007 — Después de "Listo para despacho" el pedido mayorista se marca "Enviado" y "Entregado"
+**Descripción**: el flujo de un pedido de fábrica no termina en `ready` ("Listo para despacho"). Después vienen dos estados sin checklist: `shipped` ("Enviado", el pedido salió del taller hacia el cliente) y `delivered` ("Entregado", recibido por el cliente). Transiciones: **el taller** hace `ready → shipped` (`WORKSHOP_TRANSITIONS`); **facturación/admin** hace `shipped → delivered` (`BILLING_TRANSITIONS` / `ADMIN_TRANSITIONS`). El taller NO puede marcar "Entregado"; facturación NO puede marcar "Enviado". `admin` además puede corregir un paso atrás (`shipped → ready`, `delivered → shipped`) y cancelar desde `ready`/`shipped` (no desde `delivered`). En el dashboard, `shipped` y `delivered` cuentan como pedidos **terminados** igual que `ready` (quedan fuera del KPI de "pendientes" y suman a `ready_orders`).
+**Módulo**: Pedidos (3) / Dashboard (7).
+**Fuente**: `backIndians/src/services/order.service.ts` (`ORDER_STATUS_TRANSITIONS`), `frontIndians/src/utils/formatters.ts` (`WORKSHOP_TRANSITIONS` / `BILLING_TRANSITIONS` / `ADMIN_TRANSITIONS`, `ORDER_STATUS_LABELS`), `backIndians/src/services/dashboard.service.ts`. Esquema: modelos `Order` / `OrderStatusHistory`, migración `20260907-104-add-shipped-delivered-order-statuses.js` + `ensureSchema.ts`.
+**Estado**: Vigente desde 2026-09-07.
+
 ---
 
 ## Stock

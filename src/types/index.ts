@@ -15,6 +15,8 @@ export type OrderStatus =
   | 'quality_control'        // Control de calidad
   | 'packaging_control'      // Control de embalaje
   | 'ready'                  // Listo para despacho
+  | 'shipped'                // Enviado (salió del taller hacia el cliente)
+  | 'delivered'              // Entregado al cliente
   | 'cancelled'
   // ── Estados legados (conservados solo para el historial) ──
   | 'in_production'
