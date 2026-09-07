@@ -23,14 +23,7 @@ on:
     # 06:20 UTC ≈ 03:20 en Argentina (UTC-3), horario de bajo tráfico.
     # El cron de GitHub Actions puede demorarse varios minutos: no pasa nada.
     - cron: "20 6 * * *"
-  workflow_dispatch: {} # permite correrlo a mano desde la pestaña Actions (sólo si el workflow está en la rama por defecto)
-  # TEMPORAL — SACAR ANTES DE MERGEAR A master.
-  # `workflow_dispatch` y `schedule` sólo funcionan desde la rama por defecto,
-  # así que para probar el workflow mientras vive en `chore/db-prod-protection`
-  # se dispara en cada push a ESA rama. El filtro por nombre de rama hace que
-  # nunca corra en master, pero igual conviene borrar este bloque en el merge.
-  push:
-    branches: [chore/db-prod-protection]
+  workflow_dispatch: {} # permite correrlo a mano desde la pestaña Actions
 
 concurrency:
   group: db-backup
