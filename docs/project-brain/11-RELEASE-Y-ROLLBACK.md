@@ -202,6 +202,43 @@ npm run db:restore -- <archivo>    # restaura sobre la base de desarrollo
 
 Un backup que nunca se restauró es una hipótesis, no un respaldo. Conviene hacerlo cada tanto.
 
+## Backup diario automático (desde 2026-09-06)
+
+Hasta ahora el único backup de producción era el que saca `npm run release`. Entre releases —que pueden pasar días— no había ninguno. `npm run db:backup:daily` cubre ese hueco:
+
+```powershell
+npm run db:backup:daily            # backup + poda de retención + línea en el log
+```
+
+- Reusa `backupDatabase()`: mismo `mysqldump --single-transaction` (no bloquea escrituras, es de solo lectura) + las tres verificaciones de integridad.
+- El archivo se llama `daily-<fecha>.sql.gz` y va a la misma carpeta `.releases/db/`.
+- **Retención**: conserva los últimos 30 `daily-*` y borra los más viejos. Nunca toca los backups de release (`vX.Y.Z-*`). Ajustable con `--keep=N` o `DAILY_BACKUP_KEEP`.
+- Escribe el resultado en `.releases/db/_daily-backup.log` y sale con código ≠ 0 si algo falla, para que el Programador de tareas lo marque como error.
+
+**Programarlo (una vez):**
+
+```powershell
+cd backIndians
+powershell -ExecutionPolicy Bypass -File scripts\release\install-daily-backup-task.ps1
+# opcional: -At 03:00   /   -Uninstall
+```
+
+Registra la tarea *"Indians - Backup diario DB"*, que corre `scripts\release\daily-backup.cmd` una vez al día. Con `-StartWhenAvailable`, si la PC estaba apagada a esa hora el backup se dispara al volver. Corre en la sesión del usuario (sólo con sesión iniciada); para que corra siempre, en Task Scheduler → la tarea → *"Ejecutar tanto si el usuario inició sesión como si no"*.
+
+Verificar: `Get-ScheduledTaskInfo -TaskName 'Indians - Backup diario DB'` y revisar `_daily-backup.log`.
+
+> Sigue siendo la **misma máquina y la misma carpeta de OneDrive** (hallazgo R-07). El siguiente paso para una copia realmente independiente está evaluado y elegido en [12-BACKUP-EN-LA-NUBE.md](12-BACKUP-EN-LA-NUBE.md): GitHub Actions programado que hace el dump y lo sube a un bucket / artifact.
+
+## Migraciones a mano contra producción
+
+`npm run migrate` **ya no es** `sequelize-cli db:migrate` a secas: pasa por `scripts/release/guarded-migrate.mjs`, que **saca un backup verificado antes de aplicar nada si la base no es local**.
+
+- Base local (desarrollo): passthrough directo, sin fricción.
+- Base remota + consola no interactiva: es el deploy de Railway (`startCommand = "npm run migrate && npm start"`). Passthrough tal cual, **sin** intentar backup (en el contenedor no hay `mysqldump` y el disco es efímero). Comportamiento idéntico al de antes.
+- Base remota + consola interactiva: una persona apuntando a producción desde su máquina. Saca el backup (`pre-migrate-<fecha>.sql.gz`), muestra el host destino y pide escribir el nombre de la base para confirmar. Si el backup falla, **no migra**.
+
+`migrate:undo` y `migrate:undo:all` pasan por la misma guarda. `npm run migrate:raw` es el escape hatch sin ninguna verificación.
+
 ## Verificación automática del backup (desde 2026-08-19)
 
 `db:backup` ya no se conforma con que el archivo exista y pese algo. Después de escribirlo, `scripts/release/verify-dump.cjs` comprueba tres cosas y, si alguna falla, **borra el archivo y aborta**:
@@ -229,6 +266,21 @@ Se llamaba `db:query` y su encabezado decía *"SOLO LECTURA"* sin nada que lo re
 
 La detección ignora comentarios y literales de texto a propósito: un aviso que salta en falso entrena a confirmar sin leer.
 
+## Conexión de solo lectura a producción (pendiente)
+
+Las guardas de arriba (`db:exec`, el wrapper de `migrate`, el abort de `db:reset`) cubren los caminos **por código**. El que queda descubierto es un cliente SQL manual —DBeaver, TablePlus, `mysql` CLI— conectado a la URL pública de Railway: ahí un `DELETE`/`TRUNCATE` en la ventana equivocada se ejecuta y listo.
+
+La mitigación es de permisos, no de código: crear en el MySQL de producción un usuario **solo lectura** y usar **ese** como conexión por defecto en el gestor SQL. La URL con permisos de escritura/DDL queda guardada en un gestor de contraseñas y se pega conscientemente sólo cuando de verdad hace falta.
+
+```sql
+-- Correr una vez como usuario admin (la parte de usuario/clave de MYSQL_PUBLIC_URL).
+CREATE USER 'indians_ro'@'%' IDENTIFIED BY '<clave-larga-al-azar>';
+GRANT SELECT, SHOW VIEW ON railway.* TO 'indians_ro'@'%';
+FLUSH PRIVILEGES;
+```
+
+Conexión de DBeaver: mismo host/puerto/base que la pública, usuario `indians_ro`. Con eso, `DELETE`/`UPDATE`/`DROP`/`TRUNCATE` fallan con *access denied* en vez de ejecutarse. La app (`MYSQL_URL` en Railway) y los scripts de release siguen con el usuario de siempre; esto es sólo para el uso interactivo.
+
 ## Qué queda fuera de git a propósito
 
 | Ruta | Por qué |
@@ -246,7 +298,7 @@ Los snapshots del frontend viven **sólo en la máquina que releaseó**. Si el r
 - **`test:full` resetea la base de desarrollo local** (corre los seeders). Es lo esperado, pero conviene saberlo antes de releasear con datos locales que importen.
 - **El rollback de frontend depende del snapshot local** (ver arriba).
 - **"Íntegro" no es "restaurable"**: la verificación comprueba que el dump descomprime completo y cierra bien, no que restaure sin errores. Para eso está `db:restore` contra la base local (arriba).
-- **Los backups viven sólo en esta máquina** (`backIndians/.releases/db/`, gitignored, dentro de una carpeta de OneDrive). Un borrado sincronizado se los lleva a todos. Falta una copia fuera del equipo (hallazgo R-07).
+- **Los backups viven sólo en esta máquina** (`backIndians/.releases/db/`, gitignored, dentro de una carpeta de OneDrive). Un borrado sincronizado se los lleva a todos. OneDrive replica la carpeta a la nube (si no está en "solo en la nube"/excluida), pero eso **no** es un respaldo independiente: sigue siendo la misma copia. Falta una copia fuera del equipo y fuera de OneDrive —GitHub Actions programado, bucket, etc.— (hallazgo R-07, parcialmente mitigado por el backup diario automático).
 
 ## Gotchas de Windows ya resueltos (por si reaparecen en una máquina distinta)
 

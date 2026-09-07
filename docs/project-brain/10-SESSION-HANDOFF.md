@@ -4,7 +4,33 @@
 
 ---
 
-## Última actualización: 2026-09-05 — Listado imprimible de fichas técnicas (rama `feat/product-barcode`, ambos repos, **sin mergear** — continuación de la sesión del código de barras)
+## Última actualización: 2026-09-07 — Protección de la base productiva (backup diario + guarda de migrate + backup a la nube + usuario RO) — mergeado a `master`, pendiente de release
+
+Raíz: el usuario limpió la base de **desarrollo** con `npm run db:reset` (funcionó bien — ese script ya aborta si la base no es local) y pidió (1) protección contra el borrado accidental de producción y (2) una copia diaria. Todo mergeado a `master` en `backIndians` (rama `chore/db-prod-protection`), sale en el próximo `vX.Y.Z` junto con el código de barras.
+
+**Backup diario local** — nuevos en `backIndians/scripts/release/`:
+- `db-backup-daily.mjs` (`npm run db:backup:daily`) — envuelve `backupDatabase()` de `db-backup.mjs` (mismo `mysqldump --single-transaction` de solo lectura + las 3 verificaciones de integridad). Retención de 30 `daily-*` (nunca toca los `vX.Y.Z-*` de release), log en `.releases/db/_daily-backup.log`, exit ≠ 0 si falla.
+- `daily-backup.cmd` — runner autolocalizado que manda toda la salida al log. Lo ejecuta el Programador de tareas.
+- `install-daily-backup-task.ps1` — registra/desregistra la tarea *"Indians - Backup diario DB"* (diaria 13:00, `-At`, `-StartWhenAvailable`, `-Uninstall`).
+- `package.json`: nuevo script `db:backup:daily`. **Probado contra prod real**: `daily-20260906-203344.sql.gz`, 52 tablas, verificado.
+
+**Backup antes de migrar** — `npm run migrate` ahora pasa por `scripts/release/guarded-migrate.mjs`:
+- Base local → passthrough directo. Base remota + consola **no** interactiva (deploy de Railway, `startCommand = "npm run migrate && npm start"`) → passthrough tal cual, sin backup (no hay `mysqldump` en el contenedor). **Sin regresión.** Base remota + consola interactiva → saca `pre-migrate-<fecha>.sql.gz`, pide escribir el nombre de la base; si el backup falla, no migra.
+- `migrate:undo` / `migrate:undo:all` pasan por la misma guarda. Nuevo `migrate:raw` = `sequelize-cli db:migrate` sin verificación. Usa `npx --no-install` para no salir a la red en el deploy.
+
+**Copia en la nube (off-site)** — `backIndians/.github/workflows/db-backup.yml` (primer workflow del repo): cron diario 06:20 UTC + `workflow_dispatch`, corre `node scripts/release/db-backup.mjs --tag=cloud` y sube el `.sql.gz` como artifact (retención 90 días). **Probado**: corrida a mano en verde, artifact `.sql.gz` completo (52 tablas, ~920 KB, `-- Dump completed on`). El disparador `push` temporal que se usó para probarlo desde la rama ya se revirtió antes del merge. Doc: `12-BACKUP-EN-LA-NUBE.md`.
+
+**Usuario `indians_ro`** (solo SELECT sobre `railway.*`) creado en el MySQL de Railway — SQL y pasos en `11-RELEASE-Y-ROLLBACK.md` § "Conexión de solo lectura a producción". Verificado: un `DELETE` da `Error 1142 command denied`. Es la conexión por defecto en el cliente SQL; la de `root` sólo para escribir.
+
+### Falta
+
+1. **Release**: sale junto con `feat/product-barcode` en el mismo `vX.Y.Z` (`npm run release`, después deploy con OK explícito). Al deployar, Railway corre la migración 103.
+2. **Correr `install-daily-backup-task.ps1`** en la máquina del usuario (puede pedir elevación); verificar con `Get-ScheduledTaskInfo -TaskName 'Indians - Backup diario DB'`.
+3. Opcional: activar los backups nativos de MySQL en Railway si el plan lo permite (tercera pata).
+
+---
+
+## Sesión anterior: 2026-09-05 — Listado imprimible de fichas técnicas (rama `feat/product-barcode`, mergeada — continuación de la sesión del código de barras)
 
 El usuario pidió, sobre la misma rama, un listado imprimible/descargable de productos con código interno, nombre, talles, código de barras, cliente y tipo de tela, con filtros — trajo una imagen de referencia (documento "Fichas técnicas · Ñuñorco" con logo, barra negra, encabezado de tabla en rojo y nota al pie). Decisiones confirmadas antes de implementar: filtros = Cliente + Tipo de prenda (no tela ni texto libre); título del PDF dinámico (nombre del cliente si se filtra a uno solo, genérico si no); vive como acción nueva dentro de `/catalog` (no una entrada de menú aparte).
 

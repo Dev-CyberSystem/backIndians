@@ -36,7 +36,7 @@ En `localhost`, el frontend sirve tanto el sistema de gestión como la tienda (`
 ## Cómo crear o actualizar la base de datos
 
 - **Desarrollo**: al arrancar el backend, `connectDB()` corre `dedupeIndexes()` + `sequelize.sync()` (crea tablas faltantes) y `ensureSchema()` aplica parches de columnas/ENUMs que `sync()` no cubre. En la práctica, para desarrollo alcanza con tener el backend corriendo una vez contra una base vacía.
-- **Producción / esquema explícito**: `npm run migrate` (`sequelize-cli db:migrate`) dentro de `backIndians/`. `npm run migrate:undo` revierte todas.
+- **Producción / esquema explícito**: `npm run migrate` dentro de `backIndians/`. Desde 2026-09-06 pasa por `scripts/release/guarded-migrate.mjs`: contra una base **local** es passthrough directo; contra una base **remota desde una consola interactiva** saca un backup verificado y pide confirmación antes de aplicar; en el deploy de Railway (no interactivo) se comporta igual que antes. `npm run migrate:undo` revierte sólo la última; `migrate:undo:all`, todas (ambas pasan por la misma guarda). `npm run migrate:raw` es el escape sin verificación. Detalle en [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md).
 - **Importante**: si tu cambio de esquema es de los que `ensureSchema.ts` replica (ver [05-DATABASE.md](05-DATABASE.md)), hay que actualizar **ambos** lugares (migración + `ensureSchema.ts`) para que desarrollo sin migrar y producción migrada no diverjan.
 - **Seeds** (`backIndians/`):
   ```bash
@@ -109,6 +109,8 @@ npm run rollback -- v1.2.3   # volver atras si algo fallo
 ```
 
 El release **no deploya**: al terminar imprime los comandos de push y de subida por FTP.
+
+**Backup diario** (independiente del release): `npm run db:backup:daily` saca un dump verificado de produccion, con retencion de 30 y log propio. Se programa una vez con `scripts\release\install-daily-backup-task.ps1` (Programador de tareas de Windows). Detalle en [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md).
 
 ## Depurar problemas frecuentes
 

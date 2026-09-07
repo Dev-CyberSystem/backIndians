@@ -22,6 +22,7 @@ Indians es un sistema de gestión textil (fábrica de indumentaria deportiva a p
 | [09-CURRENT-STATUS.md](09-CURRENT-STATUS.md) | Qué está terminado/parcial/pendiente, deuda técnica, riesgos, próximos pasos recomendados | Al planificar qué hacer a continuación |
 | [10-SESSION-HANDOFF.md](10-SESSION-HANDOFF.md) | Entrega entre sesiones: qué se hizo la última vez, qué falta, cómo retomar | Al empezar y al terminar cada sesión de trabajo importante |
 | [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md) | Cómo preparar un release versionado, deployarlo y volver atrás si falla (los tres planos del rollback: frontend, backend, base) | Antes de subir cualquier cosa a producción, y con urgencia cuando algo ya se rompió |
+| [12-BACKUP-EN-LA-NUBE.md](12-BACKUP-EN-LA-NUBE.md) | Copia diaria off-site de la base productiva (workflow de GitHub Actions) + backup diario local y usuario de solo lectura | Al tocar la estrategia de backups o al restaurar la base desde una copia |
 
 ## Cómo usar este cerebro (regla operativa)
 
