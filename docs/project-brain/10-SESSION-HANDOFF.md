@@ -4,7 +4,24 @@
 
 ---
 
-## Última actualización: 2026-09-07 — Protección de la base productiva (backup diario + guarda de migrate + backup a la nube + usuario RO) — mergeado a `master`, pendiente de release
+## Última actualización: 2026-09-07 — Fix de zona horaria en el número de pedido de tienda
+
+Raíz: el usuario reportó, con captura del seguimiento de un pedido real de producción (`ECOM-20260905-0002`), que el número lleva fecha `20260905` cuando el pedido se hizo el `20260904` (historial: "Pendiente de pago — 4 de septiembre de 2026 a las 10:13 p.m.").
+
+**Diagnóstico**: `generateStoreOrderNumber` (`backIndians/src/services/store.service.ts`) armaba el segmento `YYYYMMDD` con `new Date().getFullYear()/getMonth()/getDate()` — hora local del proceso, que en producción (Railway) es UTC. Un pedido hecho entre las 21:00 y la medianoche de Tucumán (UTC−3) caía en el día siguiente: `2026-09-04 22:13 ART` == `2026-09-05 01:13 UTC` → `getDate()` = 5. Además la clave `date_key` de `store_order_sequences` sufría lo mismo, así que la secuencia `NNNN` de esa franja horaria contaba para la jornada equivocada. Es el mismo defecto de TZ ya corregido dos veces en el repo (asiento de caja con `businessDate()`; filtro por fecha del listado admin, 2026-09-02).
+
+**Fix**: se extrajo y exportó `storeOrderDateKey(at = new Date())` = `businessDate(at).replace(/-/g, '')` y `generateStoreOrderNumber` la usa. Sin migración: `store_order_sequences` simplemente se indexa por la fecha correcta de acá en adelante; las filas y los pedidos ya emitidos no se tocan (no se renumera `ECOM-20260905-0002`).
+
+**Validación**: `tsc --noEmit` limpio. Test nuevo `src/__tests__/unit/storeOrderDateKey.test.ts` (6/6, cubre el borde 22:13/23:59/00:01 ART e independencia de `process.env.TZ`). Suites relacionadas en verde: `purchase-flow`, `store-orders-list`, `businessDate` (11/11).
+
+### Falta
+
+1. **Mergeado a `master` local** (rama `fix/store-order-number-timezone`, merge `--no-ff` `3041f26`), `master` ahead 2 de `origin/master`. **Sin pushear** — el usuario eligió que salga en el próximo `npm run release` junto con lo que venga (el bug es cosmético, no urge). **Solo-backend**, sin migración, contrato de API sin cambios.
+2. Al desplegar no hace falta nada especial (sin migración).
+
+---
+
+## Sesión anterior: 2026-09-07 — Protección de la base productiva (backup diario + guarda de migrate + backup a la nube + usuario RO) — mergeado a `master`, pendiente de release
 
 Raíz: el usuario limpió la base de **desarrollo** con `npm run db:reset` (funcionó bien — ese script ya aborta si la base no es local) y pidió (1) protección contra el borrado accidental de producción y (2) una copia diaria. Todo mergeado a `master` en `backIndians` (rama `chore/db-prod-protection`), sale en el próximo `vX.Y.Z` junto con el código de barras.
 

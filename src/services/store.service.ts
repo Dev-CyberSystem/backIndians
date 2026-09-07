@@ -108,6 +108,20 @@ async function getTrackingExpiryDays(): Promise<number> {
 }
 
 /**
+ * Segmento de fecha (`YYYYMMDD`) del número de pedido, en la jornada del negocio
+ * (UTC−3) y no en la del servidor.
+ *
+ * El servidor de producción corre en UTC: con `new Date().getDate()` un pedido
+ * hecho después de las 21:00 local quedaba numerado con la fecha del día
+ * siguiente (y sumaba a la secuencia `NNNN` de esa otra jornada). Mismo defecto
+ * ya corregido en el asiento de caja de más abajo y en el filtro por fecha del
+ * listado admin.
+ */
+export function storeOrderDateKey(at: Date = new Date()): string {
+  return businessDate(at).replace(/-/g, '');
+}
+
+/**
  * Recibe SIEMPRE la transacción del caller (nunca abre la propia) y debe ser
  * la PRIMERA operación de esa transacción (antes de cualquier lock de stock),
  * para que todas las transacciones tomen sus locks en el mismo orden.
@@ -135,11 +149,7 @@ async function getTrackingExpiryDays(): Promise<number> {
  * genera el tipo de deadlock del intento 2.
  */
 async function generateStoreOrderNumber(transaction: Transaction): Promise<string> {
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
-  const dateKey = `${yyyy}${mm}${dd}`;
+  const dateKey = storeOrderDateKey();
   const prefix = `ECOM-${dateKey}-`;
 
   await sequelize.query(
