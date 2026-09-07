@@ -32,6 +32,15 @@ export class CatalogProduct extends Model<
   /** Código interno de referencia del producto (texto libre, sin formato forzado). */
   declare internal_code: CreationOptional<string | null>;
 
+  /**
+   * Código de barras único (Code128), generado por el sistema al crear el
+   * producto — nunca lo carga el usuario. Sin `unique: true` acá a propósito:
+   * el índice único se crea explícitamente en la migración/`ensureSchema.ts`
+   * para no duplicarlo bajo `sync()` en desarrollo (mismo patrón que
+   * `cash_transactions.idempotency_key`).
+   */
+  declare barcode: CreationOptional<string | null>;
+
   // ─── Ficha técnica — plantilla para precargar el ítem de un pedido ────────
   declare stock_fabric_ids: CreationOptional<number[] | null>;
 
@@ -157,6 +166,11 @@ CatalogProduct.init(
       type: DataTypes.STRING(100),
       allowNull: true,
       unique: true,
+    },
+
+    barcode: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
     },
 
     // Ficha técnica — plantilla para precargar el ítem de un pedido
