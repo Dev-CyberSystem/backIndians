@@ -4,7 +4,38 @@
 
 ---
 
-## Última actualización: 2026-09-04 (tarde) — Comprobante de pago / etiqueta de envío en ticket 100x150mm (rama `claude/pago-etiqueta-envio-e051ex`, ambos repos, **sin mergear**)
+## Última actualización: 2026-09-06 — Protección de la base productiva: backup diario automático + backup-antes-de-migrar (rama `chore/db-prod-protection`, **sin mergear**)
+
+> **Rama**: `chore/db-prod-protection` salió de `master`/`v1.8.2`, independiente de `feat/product-barcode` (que tiene su propio trabajo sin mergear). Al mergear las dos a `master` puede haber **un conflicto trivial** en este archivo: cada rama agrega su entrada de sesión arriba de todo — se resuelve dejando las dos en orden de fecha. Ningún archivo de código se pisa entre ramas.
+
+Raíz: el usuario limpió la base de **desarrollo** con `npm run db:reset` (funcionó bien — ese script ya aborta si la base no es local) y pidió (1) protección contra el borrado accidental de producción y (2) una copia diaria. Se arrancó por lo de menor riesgo y mayor impacto.
+
+**Backup diario** — nuevos en `backIndians/scripts/release/`:
+- `db-backup-daily.mjs` (`npm run db:backup:daily`) — envuelve `backupDatabase()` de `db-backup.mjs` (mismo `mysqldump --single-transaction` de solo lectura + las 3 verificaciones de integridad). Agrega retención (conserva 30 `daily-*`, `--keep=N` / `DAILY_BACKUP_KEEP`; nunca toca los `vX.Y.Z-*` de release) y deja rastro en `.releases/db/_daily-backup.log`, saliendo con código ≠ 0 si falla. `process.on('exit')` garantiza una línea en el log aun si `backupDatabase` corta con `abort()`.
+- `daily-backup.cmd` — runner autolocalizado (`%~dp0..\..`) que manda toda la salida al log. Es lo que ejecuta el Programador de tareas.
+- `install-daily-backup-task.ps1` — registra/desregistra la tarea *"Indians - Backup diario DB"* (diaria 13:00, `-At` para cambiar la hora, `-StartWhenAvailable`, `-Uninstall`).
+- `package.json`: nuevo script `db:backup:daily`.
+- **Probado contra la producción real de Railway**: `daily-20260906-203344.sql.gz`, 52 tablas, verificado, exit 0, línea OK en el log. ~3,5 min (mysqldump por red pública + el loop de verificación que descomprime los backups previos); el `ExecutionTimeLimit` de la tarea es 1 h.
+
+**Backup antes de migrar** — `npm run migrate` ahora pasa por `scripts/release/guarded-migrate.mjs`:
+- Base local → passthrough directo (probado: sigue diciendo "schema was already up to date", exit 0).
+- Base remota + consola **no** interactiva → deploy de Railway (`startCommand = "npm run migrate && npm start"`): passthrough tal cual, sin intentar backup (no hay `mysqldump` en el contenedor, disco efímero). **Sin regresión.**
+- Base remota + consola interactiva → saca `pre-migrate-<fecha>.sql.gz`, muestra el host, pide escribir el nombre de la base; si el backup falla, no migra.
+- `migrate:undo` / `migrate:undo:all` pasan por la misma guarda. Nuevo `migrate:raw` = `sequelize-cli db:migrate` sin verificación. `migrate:status` sin cambios.
+
+**Docs**: `11-RELEASE-Y-ROLLBACK.md` (dos secciones nuevas + R-07 matizado), `07-DEVELOPMENT-GUIDE.md`, y **`12-BACKUP-EN-LA-NUBE.md` nuevo** (evalúa y elige la copia off-site: GitHub Actions programado → bucket/artifact). Falta agregar la línea de doc 12 a `00-INDEX.md` (lo tiene tomado la rama del barcode) al consolidar el merge.
+
+### Falta
+
+1. **Mergear `chore/db-prod-protection` a `master`** cuando el usuario lo apruebe (junto con `feat/product-barcode`). Push del backend a `master` = deploy a Railway; el wrapper de `migrate` se probó que no rompe ese camino.
+2. **Correr `install-daily-backup-task.ps1`** en la máquina del usuario (lo hace él; puede pedir elevación) y verificar con `Get-ScheduledTaskInfo -TaskName 'Indians - Backup diario DB'`.
+3. **Usuarios de base con permisos mínimos en Railway**: `indians_ro` (solo SELECT) como conexión por defecto en DBeaver; la URL con permisos DDL solo en gestor de contraseñas. Es el control con más leverage y quedó pendiente.
+4. **Copia off-site real**: implementar lo elegido en `12-BACKUP-EN-LA-NUBE.md` (GitHub Actions). R-07 abierto hasta eso.
+5. Opcional: activar los backups nativos de MySQL en Railway si el plan lo permite (tercera pata).
+
+---
+
+## Sesión anterior: 2026-09-04 (tarde) — Comprobante de pago / etiqueta de envío en ticket 100x150mm (rama `claude/pago-etiqueta-envio-e051ex`, ambos repos, **sin mergear**)
 
 El usuario trajo un diseño (PDF, ticket 100x150mm) para que sirva a la vez de **comprobante de pago no fiscal** (cuando no se emite factura AFIP/ARCA) y de **etiqueta de envío descargable**. Decisiones confirmadas con el usuario antes de implementar: (1) convive con el comprobante A4 existente (`store.pdf.ts` / `generateInvoicePdf`), no lo reemplaza; (2) reemplaza al botón "Etiqueta de envío" que antes generaba HTML client-side con `window.print()` — ahora descarga este PDF; (3) el bloque "Datos del comercio" del diseño alcanza como remitente (se completa con los `settings` `company_*`, sin agregar campos nuevos al diseño); (4) alcance solo panel admin (`EcommerceOrdersPage`), no se expone al comprador.
 
