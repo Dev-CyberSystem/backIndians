@@ -177,9 +177,12 @@ const orderIncludes = [
 ];
 
 // Relaciones mínimas — usadas en listado de pedidos (solo lo que muestra la tabla)
+// `items` se trae únicamente con `sizes` para poder calcular las unidades del
+// pedido en la tabla; se omite `unit_price` a propósito (el taller no ve precios).
 const listIncludes = [
   { model: Client, as: 'client', attributes: ['id', 'name', 'contact_name'] },
   { model: User,   as: 'seller', attributes: ['id', 'name'] },
+  { model: OrderItem, as: 'items', attributes: ['id', 'sizes'] },
   {
     model: Invoice,
     as: 'invoices',
@@ -187,6 +190,16 @@ const listIncludes = [
     required: false,
   },
 ];
+
+// El taller no debe conocer los importes que se le cobran al cliente: se anulan
+// los campos monetarios del pedido y de sus ítems antes de responder.
+function stripPricingForWorkshop(order: Order): void {
+  order.setDataValue('total_amount', 0 as never);
+  const items: OrderItem[] = (order as unknown as { items?: OrderItem[] }).items ?? [];
+  for (const item of items) {
+    if (item?.setDataValue) item.setDataValue('unit_price', null as never);
+  }
+}
 
 // Calcula el total sumando (sum de quantities en sizes) × unit_price por ítem
 function calcTotal(items: OrderItemInput[]): number {
@@ -401,6 +414,10 @@ export async function listOrders(
     distinct: true,
   });
 
+  if (currentUser.role === 'workshop') {
+    for (const row of rows) stripPricingForWorkshop(row);
+  }
+
   return { orders: rows, total: count, page, limit };
 }
 
@@ -433,6 +450,9 @@ export async function getOrderById(
       (item as any).stockFabrics = ids.map((fid) => fabricMap[fid]).filter(Boolean);
     }
   }
+
+  // El taller no ve los importes que se le cobran al cliente.
+  if (currentUser?.role === 'workshop') stripPricingForWorkshop(order);
 
   return order;
 }

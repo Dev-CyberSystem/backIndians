@@ -4,7 +4,29 @@
 
 ---
 
-## Última actualización: 2026-09-07 — Fix de zona horaria en el número de pedido de tienda
+## Última actualización: 2026-09-07 — El taller no ve precios + "Unidades" del listado de taller siempre en 0
+
+Raíz: el usuario reportó, con dos capturas del perfil de taller, que (1) el detalle de una orden de trabajo mostraba el importe cobrado al cliente (tarjeta "Total", subtotal por ítem, "Total del pedido") — el taller no debe conocer ese dato — y (2) la columna "Unidades" del listado de "Órdenes de trabajo" siempre mostraba `0`.
+
+**Diagnóstico**:
+- (1) `WorkshopOrderDetailPage.tsx` renderizaba `formatCurrency(order.total_amount)` y el subtotal por ítem. Además la API devolvía `total_amount` y `items[].unit_price` para el rol `workshop`.
+- (2) `listIncludes` en `order.service.ts` **no incluía `OrderItem`**, así que `order.items` llegaba `undefined` al listado y `totalUnitsForOrder` (que suma `item.sizes`) daba siempre 0. El detalle sí funcionaba porque usa `orderIncludes` (completo).
+
+**Fix**:
+- Backend (`order.service.ts`): nuevo helper `stripPricingForWorkshop(order)` que pone `total_amount = 0` y `unit_price = null` en los ítems; se llama en `getOrderById` y en `listOrders` cuando `currentUser.role === 'workshop'`. `listIncludes` ahora trae `{ model: OrderItem, as: 'items', attributes: ['id', 'sizes'] }` — solo `sizes`, nunca `unit_price`.
+- Frontend (`WorkshopOrderDetailPage.tsx`): se quitaron la tarjeta "Total" (grid de métricas pasó de 4 a 3 columnas), el subtotal por ítem y la línea "Total del pedido"; se quitó el import `formatCurrency`. El `WorkshopOrdersPage.tsx` no se tocó — con los ítems ya poblados calcula bien las unidades.
+- El PDF de ficha técnica (`generateOrderPDF`) ya no incluía precios: sin cambios.
+
+**Validación**: `tsc --noEmit` limpio en ambos repos. `eslint` limpio en las dos páginas de taller. **327/327 tests de API en verde** (`src/__tests__/api`, 52 suites). Nueva regla [BR-ORDER-006](03-BUSINESS-RULES.md); se actualizó 06.
+
+### Falta
+
+1. **Sin commitear** — cambios en `backIndians` (`src/services/order.service.ts`, `docs/project-brain/03`, `06`, `10`) y `frontIndians` (`src/pages/workshop/WorkshopOrderDetailPage.tsx`). El usuario decide rama/commit/release.
+2. Contrato de API **no aditivo para `workshop`** (antes veía `total_amount`/`unit_price`, ahora no) pero es una restricción deliberada; ningún otro rol cambia. Sin migración. Al desplegar, backend y frontend pueden ir juntos o por separado sin romper nada (el front del taller ya no usa esos campos).
+
+---
+
+## Sesión anterior: 2026-09-07 — Fix de zona horaria en el número de pedido de tienda
 
 Raíz: el usuario reportó, con captura del seguimiento de un pedido real de producción (`ECOM-20260905-0002`), que el número lleva fecha `20260905` cuando el pedido se hizo el `20260904` (historial: "Pendiente de pago — 4 de septiembre de 2026 a las 10:13 p.m.").
 
@@ -21,7 +43,7 @@ Raíz: el usuario reportó, con captura del seguimiento de un pedido real de pro
 
 ---
 
-## Sesión anterior: 2026-09-07 — Protección de la base productiva (backup diario + guarda de migrate + backup a la nube + usuario RO) — mergeado a `master`, pendiente de release
+## Sesión previa: 2026-09-07 — Protección de la base productiva (backup diario + guarda de migrate + backup a la nube + usuario RO) — mergeado a `master`, pendiente de release
 
 Raíz: el usuario limpió la base de **desarrollo** con `npm run db:reset` (funcionó bien — ese script ya aborta si la base no es local) y pidió (1) protección contra el borrado accidental de producción y (2) una copia diaria. Todo mergeado a `master` en `backIndians` (rama `chore/db-prod-protection`), sale en el próximo `vX.Y.Z` junto con el código de barras.
 

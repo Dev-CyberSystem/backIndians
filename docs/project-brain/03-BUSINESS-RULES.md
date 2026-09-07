@@ -65,6 +65,12 @@
 **Fuente**: memoria previa `project-seller-order-flow.md`; **pendiente de re-confirmar contra el código actual de `OrderItemForm.tsx`** en esta sesión (no se leyó línea por línea el modo `restricted`).
 **Estado**: Pendiente de confirmar (alta confianza, no verificado en esta auditoría puntual).
 
+### BR-ORDER-006 — El taller nunca ve los importes que se le cobran al cliente
+**Descripción**: para el rol `workshop`, la API anula los campos monetarios del pedido antes de responder: `order.total_amount` se devuelve en `0` y `order.items[].unit_price` en `null`, tanto en el detalle (`GET /orders/:id`, y el pedido que devuelve `PUT /orders/:id` al avanzar estado o guardar notas) como en el listado (`GET /orders`). El `listIncludes` del listado trae los ítems solo con `sizes` (para poder calcular unidades en la tabla de "Órdenes de trabajo"), nunca con `unit_price`. El frontend del taller además no renderiza ningún total: se quitaron la tarjeta "Total", el subtotal por ítem y la línea "Total del pedido" de `WorkshopOrderDetailPage.tsx`. El PDF de ficha técnica de pedido (`generateOrderPDF`) ya no incluía precios.
+**Módulo**: Pedidos (3).
+**Fuente**: `backIndians/src/services/order.service.ts` (`stripPricingForWorkshop`, llamada en `getOrderById` y `listOrders`), `frontIndians/src/pages/workshop/WorkshopOrderDetailPage.tsx`.
+**Estado**: Vigente desde 2026-09-07.
+
 ---
 
 ## Stock
