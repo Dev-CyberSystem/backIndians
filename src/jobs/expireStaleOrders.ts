@@ -2,13 +2,7 @@ import { Op } from 'sequelize';
 import { StoreOrder } from '../models/StoreOrder';
 import { recordStoreOrderStatusChange } from '../services/store.service';
 import { logger } from '../utils/logger';
-
-const DEFAULT_EXPIRY_HOURS = 48;
-
-function getExpiryHours(): number {
-  const raw = parseInt(process.env.ORDER_EXPIRY_HOURS ?? '', 10);
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_EXPIRY_HOURS;
-}
+import { getOrderExpiryHours } from '../config/orderExpiry';
 
 /**
  * Job de expiración de pedidos impagos (2.2 — Fase 2). Cancela pedidos
@@ -30,9 +24,14 @@ function getExpiryHours(): number {
  *
  * Un error en un pedido individual no debe frenar la expiración del resto —
  * se loguea y se sigue (mismo criterio que reconcilePayments.ts).
+ *
+ * El criterio de "qué pedido expira" está espejado en `orderExpiresUnpaid()`
+ * (config/orderExpiry.ts), que es lo que usa la tienda para decidir si le
+ * advierte al comprador. Tocar el `where` de acá sin tocar aquella función deja
+ * al sistema avisando de una cancelación que no ocurre, o cancelando sin aviso.
  */
 export async function expireStaleOrders(): Promise<{ checked: number; expired: number; errors: number }> {
-  const expiryHours = getExpiryHours();
+  const expiryHours = getOrderExpiryHours();
   const cutoff = new Date(Date.now() - expiryHours * 3_600_000);
 
   const orders = await StoreOrder.findAll({
@@ -55,6 +54,10 @@ export async function expireStaleOrders(): Promise<{ checked: number; expired: n
       await recordStoreOrderStatusChange(order, 'cancelled', {
         enforceTransition: false,
         note: `Cancelado automáticamente por falta de pago (más de ${expiryHours}hs sin acreditarse)`,
+        // Sin esto el comprador recibe el mail genérico "tu pedido fue
+        // cancelado", que es exactamente lo que generó las quejas: quien tenía
+        // dos pedidos abiertos creía que le cancelaban el que sí había pagado.
+        emailReason: 'unpaid',
       });
       expired++;
     } catch (err) {

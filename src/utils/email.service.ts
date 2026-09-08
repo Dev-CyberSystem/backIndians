@@ -59,7 +59,14 @@ export async function sendOrderConfirmationEmail(
   name: string,
   orderNumber: string,
   items: { title: string; qty: number; price: number }[],
-  total: number
+  total: number,
+  /**
+   * Horas hasta la cancelación automática por falta de pago (BR-STORE-004).
+   * Se pasa SOLO si este pedido efectivamente expira — ver `orderExpiresUnpaid()`
+   * en config/orderExpiry.ts. Omitido (efectivo, o transferencia con comprobante
+   * ya subido) el mail no menciona ningún plazo, porque no hay ninguno.
+   */
+  expiryHours?: number
 ) {
   const itemsHtml = items
     .map(
@@ -72,6 +79,22 @@ export async function sendOrderConfirmationEmail(
     )
     .join('');
 
+  // Advertencia del plazo de pago. Va con el número de pedido adentro a
+  // propósito: es el dato que le permite al comprador saber DE CUÁL pedido le
+  // están hablando si después le llega la cancelación.
+  const expiryWarning = expiryHours
+    ? `<table style="width:100%;border-collapse:collapse;background:#fffbeb;border-left:4px solid #d97706;margin:20px 0;">
+         <tr><td style="padding:14px 16px;">
+           <p style="margin:0 0 6px;font-weight:700;color:#92400e;font-size:14px;">Tenés ${expiryHours} horas para pagarlo</p>
+           <p style="margin:0;color:#78350f;font-size:13px;line-height:1.5;">
+             Guardamos las prendas reservadas a tu nombre por <strong>${expiryHours} horas</strong>. Si en ese plazo
+             no recibimos el pago, el pedido <strong>${escapeHtml(orderNumber)}</strong> se cancela automáticamente
+             y las prendas vuelven a quedar disponibles para otros compradores.
+           </p>
+         </td></tr>
+       </table>`
+    : '';
+
   await resend.emails.send({
     from: FROM,
     to: email,
@@ -79,6 +102,7 @@ export async function sendOrderConfirmationEmail(
     html: emailWrapper(`
       <h2 style="color:#1d4ed8;margin:0 0 8px;">¡Gracias por tu compra, ${escapeHtml(name)}!</h2>
       <p style="margin:0 0 12px;">Tu pedido <strong>${orderNumber}</strong> fue recibido correctamente.</p>
+      ${expiryWarning}
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
         <thead>
           <tr style="color:#6b7280;font-size:13px;">
@@ -214,9 +238,24 @@ interface StatusTemplate {
   showTracking?: boolean;
 }
 
+/**
+ * Motivo del cambio de estado, cuando cambia lo que hay que decirle al comprador.
+ *
+ * Hoy solo lo usa `cancelled`: un pedido que canceló el job de expiración por
+ * falta de pago necesita un texto distinto del genérico "tu pedido fue
+ * cancelado". El disparador fue una queja real — compradores que dejaron un
+ * pedido impago, hicieron otro, lo pagaron, y al llegarles la cancelación del
+ * primero creyeron que les habían cancelado el que sí habían abonado.
+ */
+export type StoreOrderStatusReason = 'unpaid';
+
 // Copy por estado. Mantiene la identidad visual del mail de confirmación
 // (emailWrapper) pero con un texto propio de cada etapa.
-function statusTemplate(status: StoreOrderStatus, name: string): StatusTemplate {
+function statusTemplate(
+  status: StoreOrderStatus,
+  name: string,
+  reason?: StoreOrderStatusReason
+): StatusTemplate {
   const hi = `Hola ${escapeHtml(name)},`;
   switch (status) {
     case 'paid':
@@ -270,6 +309,21 @@ function statusTemplate(status: StoreOrderStatus, name: string): StatusTemplate 
         intro: `${hi} registramos la devolución de tu pedido. Si tenés dudas, escribinos y te ayudamos.`,
       };
     case 'cancelled':
+      // El número de pedido va SIEMPRE en el cuerpo del mail (bloque "N° de
+      // pedido", más abajo). Es lo que permite al comprador distinguir cuál de
+      // sus pedidos se canceló cuando tiene más de uno abierto.
+      if (reason === 'unpaid') {
+        return {
+          color: '#dc2626', badge: '✕ Cancelado por falta de pago',
+          title: 'Cancelamos tu pedido impago',
+          intro:
+            `${hi} cancelamos este pedido porque no tuvimos novedades del pago dentro del plazo, ` +
+            `así que liberamos las prendas que teníamos reservadas para vos.<br><br>` +
+            `<strong>Si hiciste más de un pedido, fijate el número de acá abajo:</strong> es ese el que se ` +
+            `canceló. Cualquier otro pedido tuyo que ya esté pago sigue su curso normal y no se ve afectado.<br><br>` +
+            `Si el pago lo hiciste igual o creés que es un error, escribinos con este número y lo revisamos.`,
+        };
+      }
       return {
         color: '#dc2626', badge: '✕ Cancelado',
         title: 'Tu pedido fue cancelado',
@@ -289,6 +343,8 @@ export interface StoreOrderStatusEmailParams {
   courierName?: string | null;
   trackingNumber?: string | null;
   trackingUrl: string;
+  /** Ajusta el copy cuando el motivo cambia lo que hay que explicarle al comprador. */
+  reason?: StoreOrderStatusReason;
 }
 
 /** Indica si un estado dispara mail al comprador (evita construir/enviar de más). */
@@ -297,8 +353,8 @@ export function statusNotifiesCustomer(status: StoreOrderStatus): boolean {
 }
 
 export async function sendStoreOrderStatusEmail(params: StoreOrderStatusEmailParams): Promise<void> {
-  const { email, name, orderNumber, status, courierName, trackingNumber, trackingUrl } = params;
-  const tpl = statusTemplate(status, name);
+  const { email, name, orderNumber, status, courierName, trackingNumber, trackingUrl, reason } = params;
+  const tpl = statusTemplate(status, name, reason);
   if (tpl.skip) return;
 
   const badge = tpl.badge
@@ -319,7 +375,7 @@ export async function sendStoreOrderStatusEmail(params: StoreOrderStatusEmailPar
   await resend.emails.send({
     from: FROM,
     to: email,
-    subject: `Pedido ${orderNumber}: ${badgeSubject(status)} — Indians Textil`,
+    subject: `Pedido ${orderNumber}: ${badgeSubject(status, reason)} — Indians Textil`,
     html: emailWrapper(`
       ${badge}
       <h2 style="color:${tpl.color};margin:0 0 8px;">${tpl.title}</h2>
@@ -338,7 +394,10 @@ export async function sendStoreOrderStatusEmail(params: StoreOrderStatusEmailPar
 }
 
 // Subject corto por estado (sin emoji, para la línea de asunto).
-function badgeSubject(status: StoreOrderStatus): string {
+function badgeSubject(status: StoreOrderStatus, reason?: StoreOrderStatusReason): string {
+  // El asunto es lo único que el comprador ve en la bandeja sin abrir el mail:
+  // con dos pedidos abiertos, "cancelado" a secas no le dice cuál se cayó.
+  if (status === 'cancelled' && reason === 'unpaid') return 'cancelado por falta de pago';
   const map: Partial<Record<StoreOrderStatus, string>> = {
     paid: 'pago acreditado',
     processing: 'en preparación',

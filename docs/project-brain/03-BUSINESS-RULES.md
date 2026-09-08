@@ -325,9 +325,27 @@
 **Estado**: Vigente (corregido respecto al estado pre-auditoría).
 
 ### BR-STORE-004 — Un pedido impago expira automáticamente a las 48hs
-**Descripción**: job programado (`ORDER_EXPIRY_HOURS`, default relacionado a 48hs) cancela pedidos en `pending_payment` que superan el plazo, liberando stock reservado.
+**Descripción**: job programado (cron horario, `0 * * * *`) cancela los pedidos en `pending_payment` que superan el plazo, liberando el stock reservado y el cupón. El plazo es de **48hs**, configurable por la env `ORDER_EXPIRY_HOURS`. Alcanza a `mercadopago` siempre, y a `bank_transfer` **solo sin comprobante subido** (con comprobante el comprador ya hizo su parte y solo falta la revisión de un admin). `cash` nunca expira: es pago presencial, no un pago online abandonado.
+**Fuente única del plazo y del criterio**: `backIndians/src/config/orderExpiry.ts` (`getOrderExpiryHours()`, `orderExpiresUnpaid()`). El job **cancela** según ese criterio y la tienda **advierte** según el mismo — si se separan, el sistema promete una cancelación que no ocurre o cancela sin haber avisado. Espejado en el frontend en `frontIndians/src/utils/orderExpiry.ts`.
 **Módulo**: Tienda (10).
-**Fuente**: commit `c140540` (2.2), variable de entorno `ORDER_EXPIRY_HOURS`.
+**Fuente**: commit `c140540` (2.2), `backIndians/src/jobs/expireStaleOrders.ts`, `src/config/orderExpiry.ts`, env `ORDER_EXPIRY_HOURS`. Tests: `src/__tests__/api/expire-stale-orders.test.ts`, `src/__tests__/unit/orderExpiry.test.ts`.
+**Estado**: Vigente. Ver `BR-STORE-014` por la comunicación del plazo al comprador.
+
+### BR-STORE-014 — El plazo de cancelación por falta de pago se le comunica al comprador antes y después
+**Descripción**: la cancelación automática de `BR-STORE-004` dejó de ser silenciosa. El plazo se advierte **antes** de que venza, en tres lugares: el mail de confirmación del pedido (que se manda al crearlo, todavía impago), la pantalla de espera del pago (MercadoPago y transferencia) y cada pedido `pending_payment` en "Mis pedidos" (con las horas restantes reales). Y **al cancelarse**, el mail explica el motivo: asunto "cancelado por falta de pago" y un cuerpo que aclara que se canceló *este* pedido —con su número— y que cualquier otro pedido ya pago del mismo comprador sigue su curso.
+
+Además, al entrar al checkout se muestra una **advertencia no bloqueante** si el comprador ya tiene un pedido esperando el pago, con el **detalle de las prendas** de ese pedido pendiente.
+
+**Por qué**: quejas reales de compradores que dejaron un pedido impago, hicieron otro y lo pagaron; cuando les llegó la cancelación automática del primero, creyeron que les habían cancelado el que sí habían abonado. El detalle de prendas y el número de pedido son lo que permite distinguirlos.
+
+**Cómo se detecta el pedido pendiente** (el checkout admite compra sin cuenta):
+- **Logueado**: `GET /store/me/orders`, autoritativo y entre dispositivos.
+- **Invitado**: los pedidos que ese navegador recuerda haber creado (`localStorage`, `pendingOrdersStore`), con el estado **revalidado** contra `GET /store/orders/:orderNumber/status`. Nunca se confía en el estado guardado localmente: el pago pudo acreditarse desde otro dispositivo.
+- **Descartado a propósito**: un endpoint que devolviera pendientes por email. Abriría enumeración — cualquiera prueba un mail ajeno y ve qué compró.
+
+**El plazo nunca se hardcodea en el frontend**: viaja en `GET /store/settings` como la clave derivada `order_expiry_hours` (ver `BR-STORE-011`). Hardcodear "48" haría que el aviso mienta apenas se cambie `ORDER_EXPIRY_HOURS` en producción.
+**Módulo**: Tienda (10).
+**Fuente**: `backIndians/src/utils/email.service.ts` (`StoreOrderStatusReason`, `sendOrderConfirmationEmail`), `src/jobs/expireStaleOrders.ts` (`emailReason: 'unpaid'`), `src/config/orderExpiry.ts`; `frontIndians/src/components/store/PendingPaymentDialog.tsx`, `src/hooks/usePendingPaymentOrders.ts`, `src/store/pendingOrdersStore.ts`, `src/utils/orderExpiry.ts`. Tests: `src/__tests__/store-order-emails.test.ts`.
 **Estado**: Vigente.
 
 ### BR-STORE-005 — El total del checkout incluye el costo de envío antes de confirmar el pago
@@ -377,8 +395,10 @@
 
 ### BR-STORE-011 — El endpoint público de settings sólo devuelve una allowlist explícita
 **Descripción**: `GET /store/settings` es público, sin autenticación y cacheado 60s como `public`. Devuelve **sólo** las claves de `PUBLIC_SETTING_KEYS` (`settings.service.ts`), no la tabla entera. Quedan afuera `afip_*`, `store_cash_account_id`, `store_bank_account_id`, `invoice_*`, `company_website` y `company_activity_start`. Siguen públicas —por obligación normativa, no por descuido— las `company_*` que identifican al titular en los textos legales (Res. 104/2005), `store_data_fiscal_url` (RG 4004-E) y `bank_transfer_*` (sin ellas el comprador no puede transferir).
+
+**Son dos allowlists, no una**: `PUBLIC_SETTING_KEYS` (filas de la tabla `settings`) y `PUBLIC_DERIVED_SETTING_KEYS` (valores que el backend **calcula** y viajan en la misma respuesta — hoy solo `order_expiry_hours`, derivada de la env `ORDER_EXPIRY_HOURS`). Una clave derivada no va en `PUBLIC_SETTING_KEYS` (no hay nada que buscar en la tabla) ni en `VALID_KEYS` (no se puede guardar desde el panel), pero **sí tiene que estar declarada**: agregarla al vuelo dentro de `getPublicStoreSettings()` hace fallar el test S-01 a propósito, para que el endpoint no vuelva a ser una lista negra por omisión.
 **Módulo**: Tienda (10) / Configuración.
-**Fuente**: `backIndians/src/services/settings.service.ts` (`PUBLIC_SETTING_KEYS`), `store.service.ts` (`getPublicStoreSettings`). Hallazgo S-01. Test de regresión: `src/__tests__/api/store-public-settings.test.ts`.
+**Fuente**: `backIndians/src/services/settings.service.ts` (`PUBLIC_SETTING_KEYS`, `PUBLIC_DERIVED_SETTING_KEYS`), `store.service.ts` (`getPublicStoreSettings`). Hallazgo S-01. Test de regresión: `src/__tests__/api/store-public-settings.test.ts`.
 **Por qué es una allowlist y no una lista de exclusiones**: antes hacía `Settings.findAll()` sin `where` y publicaba las 75 claves. El defecto no era el contenido: agregar una clave nueva a `VALID_KEYS` —una credencial de courier, por ejemplo— la publicaba en internet sin que nadie tocara el endpoint.
 **Estado**: Vigente.
 

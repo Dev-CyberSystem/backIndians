@@ -164,6 +164,24 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   'store_data_fiscal_url',
 ];
 
+/**
+ * Claves que `GET /store/settings` publica pero que NO son filas de `settings`:
+ * las calcula el backend y viajan en la misma respuesta por comodidad del
+ * cliente. No van en `PUBLIC_SETTING_KEYS` (nada que buscar en la tabla) ni en
+ * `VALID_KEYS` (no se pueden guardar desde el panel).
+ *
+ * Existen declaradas acá, y no sueltas en `getPublicStoreSettings()`, para que
+ * el guardrail S-01 (`store-public-settings.test.ts`) las conozca: sin esta
+ * lista el test tendría que aflojar el "ninguna clave fuera de la allowlist", y
+ * el endpoint volvería a ser una lista negra por omisión.
+ *
+ *  - `order_expiry_hours`: horas hasta la cancelación automática de un pedido
+ *    impago (BR-STORE-004). Sale de la env `ORDER_EXPIRY_HOURS` vía
+ *    `config/orderExpiry.ts`. La tienda la necesita para advertir el plazo real
+ *    en vez de hardcodear "48" y mentir cuando la variable cambie.
+ */
+export const PUBLIC_DERIVED_SETTING_KEYS: string[] = ['order_expiry_hours'];
+
 export async function getAllSettings(): Promise<Record<string, string>> {
   const rows = await Settings.findAll({ where: { key: VALID_KEYS } });
   const map: Record<string, string> = {};
