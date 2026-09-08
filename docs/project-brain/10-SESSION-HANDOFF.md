@@ -4,7 +4,37 @@
 
 ---
 
-## Última actualización: 2026-09-08 — Módulo de Proveedores (CRUD + cards + filtros)
+## Última actualización: 2026-09-08 — Módulo de Empleados (legajo + histórico de novedades)
+
+Pedido del usuario: nueva sección "Empleados" con todos sus datos (nombre completo, DNI, dirección, email, teléfono, fecha de ingreso, remuneración, sector) **y** un histórico de novedades del legajo (cambios de sueldo, sanciones, notificaciones, enfermedad, etc.) con fecha y autor. Mismo estilo visual que Proveedores (cards + filtros).
+
+Decidido con el usuario (vía preguntas): **módulo entero solo `admin`** (es dato de nómina); **sector** texto libre con autocompletado (endpoint `/employees/sectors`, igual que el "rubro" de Proveedores); **remuneración** = campo `current_remuneration` en la ficha, y una novedad tipo "cambio de sueldo" con el nuevo monto **actualiza la ficha** y deja el histórico; **novedades inmutables** (sin edición; solo `admin` borra una cargada por error). Tipos de novedad: `salary_change`, `sanction`, `notification`, `sick_leave`, `leave`, `onboarding`, `offboarding`, `other`.
+
+**Migración `106`** (`employees` + `employee_events`), ya corrida en la DB de dev.
+
+**Backend** (`backIndians`):
+- `migrations/20260908-106-create-employees.js` — dos tablas. `employees`: DNI único `uq_employees_dni` por `addConstraint` (no `unique:true` en el modelo); `current_remuneration` DECIMAL(12,2); `sector` indexado; `active` + `termination_date`. `employee_events`: ENUM `type` (8 valores), `event_date` propia, `amount`/`previous_amount`, `created_by_user_id`; FK `employee_id` `ON DELETE CASCADE`.
+- `models/Employee.ts` + `models/EmployeeEvent.ts` (getters DECIMAL→number). Asociaciones en `models/index.ts`: `Employee hasMany EmployeeEvent as 'events'`, `EmployeeEvent belongsTo User as 'author'`.
+- `services/employee.service.ts`: `listEmployees` (filtros + paginación), `listEmployeeSectors`, `getEmployee` (incluye `events` + `author`, orden `event_date DESC`), `createEmployee`, `updateEmployee`, `setEmployeeActive` (baja lógica con `termination_date` = hoy; alta la limpia), `deleteEmployee` (hard, cascada), `addEmployeeEvent` (transacción: `salary_change` exige `amount`, setea `previous_amount` = sueldo actual y pisa `current_remuneration`), `listEmployeeEvents`, `deleteEmployeeEvent` (no revierte la remuneración). DNI → 7–9 dígitos, único → 409.
+- `controllers/employee.controller.ts`, `routes/employee.routes.ts` (`router.use(authorize('admin'))` para todo), registrado en `routes/index.ts` como `/employees`.
+- Test `src/__tests__/api/factory-employees.test.ts` → **6/6** contra MySQL real (alta + filtro por sector + `/sectors`, DNI duplicado/ inválido, cambio de sueldo que actualiza la ficha + guarda anterior + `salary_change` sin monto → 400, carga y borrado de otras novedades, baja/alta lógica con `termination_date`, `billing`/`seller` → 403).
+
+**Frontend** (`frontIndians`):
+- `api/employees.ts` — tipos + `employeesApi` (`list`, `sectors`, `getById`, `create`, `update`, `setStatus`, `delete`, `events`, `addEvent`, `deleteEvent`) + `formatDni` + labels/colores de tipos de novedad.
+- `pages/employees/EmployeesPage.tsx` — grilla de **cards** (badge de sector/estado, DNI, ingreso/egreso, remuneración con `formatCurrency`, contacto). Filtros: buscador debounced + `<Select>` de sector (de `/sectors`) + checkbox "mostrar dados de baja". Modal alta/edición (react-hook-form + zod). **Modal de legajo** (`EmployeeDetailModal`, mismo archivo): ficha completa + línea de tiempo de novedades + formulario "Agregar novedad" (con campo "nuevo sueldo" que aparece solo si el tipo es cambio de sueldo) + borrar novedad.
+- `router/index.tsx` — ruta `/employees` (`allowedRoles={['admin']}`). `Sidebar.tsx` — item "Empleados" (icono `IdCard`) después de "Usuarios", rol `admin`.
+
+**Validación**: `npm run typecheck` limpio en ambos repos. `npx eslint` sobre los archivos nuevos sin problemas. Test 6/6. **NO probado en navegador.**
+
+### Falta
+
+1. **Probar en navegador** `/employees` (alta, filtros, legajo, cargar novedades incl. cambio de sueldo, baja).
+2. **Sin commitear** (a menos que se haya commiteado después de escribir esto) — mismo criterio que el resto de la rama. **Al releasear: `npm run migrate` en producción** (migración 106).
+3. No hay enlace con `User` (cuenta de sistema) ni con Caja — decisión de mantenerlo aislado.
+
+---
+
+## Sesión anterior: 2026-09-08 — Módulo de Proveedores (CRUD + cards + filtros)
 
 Pedido del usuario: nueva sección "Proveedores" con CRUD, cada proveedor como **card** en la pantalla y **filtros** para buscarlos. Referencia: el módulo de proveedores de Farol Bike (proyecto gemelo), pero **sin** su módulo de Compras/remitos — Indians no lo tiene.
 

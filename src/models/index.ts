@@ -18,6 +18,8 @@ import { WebhookEvent } from './WebhookEvent';
 import { User } from './User';
 import { Client } from './Client';
 import { Supplier } from './Supplier';
+import { Employee } from './Employee';
+import { EmployeeEvent } from './EmployeeEvent';
 import { Product } from './Product';
 import { CatalogProduct } from './CatalogProduct';
 import { CatalogProductImage } from './CatalogProductImage';
@@ -105,6 +107,13 @@ OrderChecklistCheck.belongsTo(User, { foreignKey: 'checked_by', as: 'checker' })
 // Invoice ↔ Order
 Invoice.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
 Order.hasMany(Invoice, { foreignKey: 'order_id', as: 'invoices' });
+
+// Employee ↔ EmployeeEvent (legajo de novedades)
+Employee.hasMany(EmployeeEvent, { foreignKey: 'employee_id', as: 'events', onDelete: 'CASCADE' });
+EmployeeEvent.belongsTo(Employee, { foreignKey: 'employee_id', as: 'employee' });
+// EmployeeEvent ↔ User (quién cargó la novedad). Sin hasMany inverso: la
+// autoría se consulta siempre desde la novedad hacia el usuario.
+EmployeeEvent.belongsTo(User, { foreignKey: 'created_by_user_id', as: 'author' });
 
 // PasswordResetToken ↔ User
 PasswordResetToken.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
@@ -321,6 +330,8 @@ export {
   User,
   Client,
   Supplier,
+  Employee,
+  EmployeeEvent,
   Product,
   CatalogProduct,
   CatalogProductImage,

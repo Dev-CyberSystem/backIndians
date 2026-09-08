@@ -7,6 +7,7 @@
 1. [Autenticación y sesiones](#1-autenticación-y-sesiones)
 2. [Usuarios y clientes](#2-usuarios-y-clientes)
 2b. [Proveedores](#2b-proveedores)
+2c. [Empleados (legajo y novedades)](#2c-empleados-legajo-y-novedades)
 3. [Pedidos de fábrica (Orders)](#3-pedidos-de-fábrica-orders)
 4. [Controles de producción / checklist](#4-controles-de-producción--checklist)
 5. [Stock de insumos](#5-stock-de-insumos)
@@ -78,6 +79,26 @@
 **Efectos sobre otros módulos**: ninguno por ahora (entidad aislada). Enganche futuro con Costos/Stock quedó fuera de alcance por decisión explícita.
 
 **Nivel de implementación**: **Implementado y verificado** (2026-09-08). Fuente: `backIndians/src/routes/supplier.routes.ts`, `services/supplier.service.ts`, `models/Supplier.ts`, migración `105`; frontend `frontIndians/src/pages/suppliers/SuppliersPage.tsx`, `src/api/suppliers.ts`. Tests: `src/__tests__/api/factory-suppliers.test.ts` (6/6).
+
+---
+
+## 2c. Empleados (legajo y novedades)
+
+**Objetivo**: legajo del personal (fábrica + administración) con sus datos personales/laborales, la remuneración vigente y un **histórico de novedades** (cambios de sueldo, sanciones, notificaciones, enfermedad, licencias, ingreso/egreso, otras).
+
+**Usuarios**: **solo `admin`** — todo el módulo, incluida la remuneración (dato de nómina). Ningún otro rol accede.
+
+**Flujo principal**: alta de empleado (nombre completo, DNI, dirección, email, teléfono, fecha de ingreso, remuneración, **sector** libre) → aparece como *card* en `/employees` con filtros por texto, por sector y por estado activo/inactivo → "Ver legajo" abre la ficha completa + la línea de tiempo de novedades → "Agregar novedad" (tipo + título + detalle + fecha + monto si es cambio de sueldo).
+
+**Novedades (`employee_events`)**: registro pensado como **inmutable** — se crean y se listan, no se editan; solo `admin` puede **borrar** una cargada por error (no hay endpoint de edición). Cada novedad guarda su `event_date` propia (puede diferir de la fecha de carga), el tipo, resumen + detalle y **quién la cargó** (`created_by_user_id` → `author`). Una novedad `salary_change` **actualiza `employees.current_remuneration`** en la misma transacción y deja `previous_amount` (snapshot del anterior). Borrar una novedad de cambio de sueldo **no** revierte la remuneración (se corrige cargando otra).
+
+**Validaciones/restricciones**: nombre completo y fecha de ingreso obligatorios; DNI obligatorio, normalizado a solo dígitos (7–9), **único** (chequeo explícito → 409). Fechas en `AAAA-MM-DD`. Remuneración `DECIMAL(12,2)` con getter → number. Baja = lógica (`active=false` + `termination_date`, por defecto hoy), reactivable (limpia la fecha de egreso). `DELETE` real del empleado (cascada a sus novedades) también es `admin`.
+
+**Estados**: `active` true/false. Novedades sin máquina de estados.
+
+**Efectos sobre otros módulos**: ninguno (entidad aislada; no se enlaza con `User` ni con Caja).
+
+**Nivel de implementación**: **Implementado y verificado** (2026-09-08). Fuente: `backIndians/src/routes/employee.routes.ts`, `services/employee.service.ts`, `models/Employee.ts` + `models/EmployeeEvent.ts`, migración `106`; frontend `frontIndians/src/pages/employees/EmployeesPage.tsx`, `src/api/employees.ts`. Tests: `src/__tests__/api/factory-employees.test.ts` (6/6).
 
 ---
 
