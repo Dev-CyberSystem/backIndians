@@ -6,6 +6,7 @@
 
 1. [Autenticación y sesiones](#1-autenticación-y-sesiones)
 2. [Usuarios y clientes](#2-usuarios-y-clientes)
+2b. [Proveedores](#2b-proveedores)
 3. [Pedidos de fábrica (Orders)](#3-pedidos-de-fábrica-orders)
 4. [Controles de producción / checklist](#4-controles-de-producción--checklist)
 5. [Stock de insumos](#5-stock-de-insumos)
@@ -57,6 +58,26 @@
 **Validaciones**: password con política validada (`utils/validations.ts` en frontend, regex compartida documentada en `README.md` del backend); `Client.cuit`/`condicion_iva` usados por AFIP.
 
 **Nivel de implementación**: **Implementado y verificado**. Fuente: `backIndians/src/routes/user.routes.ts`, `client.routes.ts`.
+
+---
+
+## 2b. Proveedores
+
+**Objetivo**: directorio consultable de proveedores de telas, avíos y servicios (sublimación, fletes, etc.). Hasta acá el sistema no registraba a quién se le compra.
+
+**Usuarios**: `admin` y `billing` (ver, crear, editar, dar de baja lógica). Borrado real (`DELETE`) solo `admin`.
+
+**Flujo principal**: alta de proveedor con datos comerciales completos (razón social, nombre comercial, **rubro** libre, CUIT, condición IVA, dirección/provincia/localidad/CP, teléfono, WhatsApp, email, persona de contacto, condición de pago, observaciones) → aparece como *card* en `/suppliers` (frontend), con filtros por texto, por rubro y por estado activo/inactivo.
+
+**ABM autónomo**: **no** está atado a stock, costos ni pedidos (a diferencia del módulo de compras/remitos de Farol Bike, que Indians no tiene). Es un CRUD independiente sobre la tabla `suppliers`.
+
+**Validaciones/restricciones**: razón social obligatoria; CUIT opcional pero, si viene, se normaliza a 11 dígitos (se acepta con o sin guiones) y es **único cuando está informado** (varios NULL conviven; el servicio hace además un chequeo explícito y devuelve 409 con el nombre del proveedor que ya lo usa). Email/teléfono/WhatsApp validados por formato. Baja = lógica (`active=false`), reactivable; el borrado real es irreversible y queda restringido a `admin`.
+
+**Estados**: `active` true/false (no hay máquina de estados).
+
+**Efectos sobre otros módulos**: ninguno por ahora (entidad aislada). Enganche futuro con Costos/Stock quedó fuera de alcance por decisión explícita.
+
+**Nivel de implementación**: **Implementado y verificado** (2026-09-08). Fuente: `backIndians/src/routes/supplier.routes.ts`, `services/supplier.service.ts`, `models/Supplier.ts`, migración `105`; frontend `frontIndians/src/pages/suppliers/SuppliersPage.tsx`, `src/api/suppliers.ts`. Tests: `src/__tests__/api/factory-suppliers.test.ts` (6/6).
 
 ---
 

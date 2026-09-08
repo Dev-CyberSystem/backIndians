@@ -4,7 +4,37 @@
 
 ---
 
-## Última actualización: 2026-09-08 — Franja de 3 detalles de la prenda en la sección destacada
+## Última actualización: 2026-09-08 — Módulo de Proveedores (CRUD + cards + filtros)
+
+Pedido del usuario: nueva sección "Proveedores" con CRUD, cada proveedor como **card** en la pantalla y **filtros** para buscarlos. Referencia: el módulo de proveedores de Farol Bike (proyecto gemelo), pero **sin** su módulo de Compras/remitos — Indians no lo tiene.
+
+Decidido con el usuario (vía preguntas): **solo CRUD de proveedores**, tabla nueva `suppliers` **aislada** (no toca stock/costos/pedidos); campos comerciales completos + **rubro/categoría** (texto libre, para filtrar) + **estado activo/inactivo** (baja lógica); acceso **`admin` y `billing`**.
+
+**Sin cambio de contrato de datos existente** — es una tabla y unos endpoints nuevos, todo aditivo. **Migración `105`** (`suppliers`), ya corrida en la DB de dev (`npm run migrate`).
+
+**Backend** (`backIndians`):
+- `migrations/20260908-105-create-suppliers.js` — tabla `suppliers` con guard `showAllTables()`, único `uq_suppliers_tax_id` por `addConstraint` (no `unique: true` en el modelo, para no duplicar índice bajo `sync()`), índices en `active`, `business_name`, `category`.
+- `src/models/Supplier.ts` — modelo. `src/models/index.ts` — import + export (sin asociaciones: entidad aislada).
+- `src/services/supplier.service.ts` — `listSuppliers` (filtros `search`/`category`/`includeInactive` + paginación), `listSupplierCategories`, `getSupplier`, `createSupplier`, `updateSupplier`, `setSupplierActive` (baja lógica), `deleteSupplier` (borrado real). CUIT: normaliza a 11 dígitos (acepta con/sin guiones), único cuando está informado → 409 con el nombre del proveedor que ya lo usa.
+- `src/controllers/supplier.controller.ts`, `src/routes/supplier.routes.ts` (`authorize('admin','billing')`; `DELETE` solo `admin`), registrado en `src/routes/index.ts` como `/suppliers`.
+
+**Frontend** (`frontIndians`):
+- `src/api/suppliers.ts` — tipos + `suppliersApi` (`list`, `categories`, `getById`, `create`, `update`, `setStatus`, `delete`) + `formatCuit`.
+- `src/pages/suppliers/SuppliersPage.tsx` — **grilla de cards** responsive (`sm:grid-cols-2 lg:grid-cols-3`) con badge de rubro/condición IVA/estado, datos de contacto, **bloque de observaciones** (`notes`, con `line-clamp-3` + `title` completo — a pedido del usuario, para saber "de qué es proveedor"), y acciones editar / baja-alta / eliminar (eliminar solo visible para `admin`). Filtros: buscador debounced + `<Select>` de rubro (poblado por `/suppliers/categories`) + checkbox "mostrar dados de baja". Modal alta/edición con react-hook-form + zod, confirmación vía `useConfirm`.
+- `src/router/index.tsx` — ruta `/suppliers` (lazy, `allowedRoles={['admin','billing']}`).
+- `src/components/layout/Sidebar.tsx` — item "Proveedores" (icono `Truck`), roles `admin`/`billing`, después de "Clientes".
+
+**Validación**: `npm run typecheck` limpio en ambos repos. `npx eslint` sobre los archivos nuevos (`SuppliersPage.tsx`, `api/suppliers.ts`) sin problemas; `npm run lint` del front sigue en su baseline (178 problemas preexistentes, exit 0 — no se agregó ninguno). Test nuevo `src/__tests__/api/factory-suppliers.test.ts` → **6/6 en verde** contra MySQL real (alta, búsqueda, filtro por rubro + `/categories`, razón social obligatoria, CUIT duplicado → 409, edición + baja lógica + `include_inactive`, permisos por rol: seller 403, billing no puede `DELETE`, admin sí).
+
+### Falta
+
+1. **Probar en navegador** `/suppliers` (crear/editar/baja/filtrar) — no se abrió el navegador en esta sesión.
+2. **Sin commitear**: los cambios quedaron en el working tree de la rama actual en ambos repos. Rama, merge y release los decide el usuario (ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md)). **Al releasear: correr `npm run migrate` en producción** (la migración 105 crea la tabla; producción no usa `sync()`).
+3. Enganche opcional con Costos/Stock (registrar de qué proveedor se compró) quedó **fuera de alcance** por decisión explícita del usuario.
+
+---
+
+## Sesión anterior: 2026-09-08 — Franja de 3 detalles de la prenda en la sección destacada
 
 Pedido del usuario con una referencia visual concreta (la landing de adidas/River): en la sección destacada (hoy la camiseta del Pulga) mostrar **tres fotos de detalle de la prenda, cada una con título y un texto corto debajo**.
 

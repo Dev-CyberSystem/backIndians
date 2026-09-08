@@ -17,6 +17,7 @@ import { StoreOrderSequence } from './StoreOrderSequence';
 import { WebhookEvent } from './WebhookEvent';
 import { User } from './User';
 import { Client } from './Client';
+import { Supplier } from './Supplier';
 import { Product } from './Product';
 import { CatalogProduct } from './CatalogProduct';
 import { CatalogProductImage } from './CatalogProductImage';
@@ -319,6 +320,7 @@ export {
   WebhookEvent,
   User,
   Client,
+  Supplier,
   Product,
   CatalogProduct,
   CatalogProductImage,

@@ -20,6 +20,9 @@ CRUD de usuarios internos: `GET /`, `POST /`, `PUT /:id`, `PATCH /:id/toggle`, `
 ### `/clients` — `client.routes.ts`
 `GET /`, `GET /:id` → `admin,billing,seller`. `POST /`, `PUT /:id` → `admin,billing,seller`. `DELETE /:id` → `admin`.
 
+### `/suppliers` — `supplier.routes.ts` — todo `authorize('admin','billing')` salvo `DELETE`
+Directorio autónomo de proveedores (no toca stock/costos/pedidos). `GET /` (filtros `search`, `category`, `include_inactive`, `page`, `limit`; paginación backend por `meta`), `GET /categories` (rubros distintos ya cargados, para el filtro del frontend), `GET /:id`, `POST /`, `PUT /:id`, `PATCH /:id/status` (baja/alta lógica por `active`). `DELETE /:id` → **solo `admin`** (borrado real irreversible). CUIT normalizado a 11 dígitos y único cuando está informado (chequeo explícito en el service → 409). Migración `105` (`suppliers`).
+
 ### `/orders` — `order.routes.ts` — todo autenticado
 `GET /`, `GET /:id`, `GET /:id/pdf`, `GET /:id/history` → cualquier rol. `POST /` → `admin,billing,seller`. `PUT /:id` → cualquier rol (permisos finos en el service). `DELETE /:id` → `admin`. `POST/DELETE /:id/images` → `admin,billing,seller`. `POST/DELETE /:id/items/:itemId/size-chart` → imagen de tabla de talles. `GET /:id/checklist` → cualquier rol; `POST /:id/checklist` → `workshop,admin`.
 Para el rol `workshop`, `GET /` y `GET /:id` (y el pedido que devuelve `PUT /:id`) llegan con `total_amount: 0` y `unit_price: null` en los ítems — ver [BR-ORDER-006](03-BUSINESS-RULES.md). El listado (`GET /`) incluye los ítems solo con `sizes` para calcular unidades en la tabla; el detalle trae el ítem completo salvo `unit_price`.
