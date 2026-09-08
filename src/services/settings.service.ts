@@ -67,6 +67,12 @@ export const VALID_KEYS: string[] = [
   'store_collection_title', 'store_collection_subtitle', 'store_collection_description',
   'store_collection_cta', 'store_collection_link_url', 'store_collection_link_label',
   'store_collection_hero_image_url', 'store_collection_hero_image_mobile_url',
+  // Tienda — sección destacada: franja de 3 detalles (foto + título + texto),
+  // al estilo de las landings de marca. Opcional: si no hay imágenes, no se dibuja.
+  'store_collection_details_heading',
+  'store_collection_detail_1_image_url', 'store_collection_detail_1_title', 'store_collection_detail_1_text',
+  'store_collection_detail_2_image_url', 'store_collection_detail_2_title', 'store_collection_detail_2_text',
+  'store_collection_detail_3_image_url', 'store_collection_detail_3_title', 'store_collection_detail_3_text',
   // Tienda — transferencia bancaria
   'bank_transfer_cbu', 'bank_transfer_alias', 'bank_transfer_holder',
   // Tienda — chatbot de atención
@@ -154,6 +160,12 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   'store_collection_title', 'store_collection_subtitle', 'store_collection_description',
   'store_collection_cta', 'store_collection_link_url', 'store_collection_link_label',
   'store_collection_hero_image_url', 'store_collection_hero_image_mobile_url',
+  // Tienda — sección destacada: franja de 3 detalles (foto + título + texto),
+  // al estilo de las landings de marca. Opcional: si no hay imágenes, no se dibuja.
+  'store_collection_details_heading',
+  'store_collection_detail_1_image_url', 'store_collection_detail_1_title', 'store_collection_detail_1_text',
+  'store_collection_detail_2_image_url', 'store_collection_detail_2_title', 'store_collection_detail_2_text',
+  'store_collection_detail_3_image_url', 'store_collection_detail_3_title', 'store_collection_detail_3_text',
   // Tienda — datos para transferir (sin esto el comprador no puede pagar)
   'bank_transfer_cbu', 'bank_transfer_alias', 'bank_transfer_holder',
   // Tienda — chatbot de atención

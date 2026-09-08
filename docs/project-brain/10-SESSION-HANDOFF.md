@@ -4,7 +4,31 @@
 
 ---
 
-## Última actualización: 2026-09-07 — Aviso de cancelación por falta de pago + popup de pedido pendiente
+## Última actualización: 2026-09-08 — Franja de 3 detalles de la prenda en la sección destacada
+
+Pedido del usuario con una referencia visual concreta (la landing de adidas/River): en la sección destacada (hoy la camiseta del Pulga) mostrar **tres fotos de detalle de la prenda, cada una con título y un texto corto debajo**.
+
+Decidido con el usuario (vía preguntas): la franja va **entre el hero y la grilla de productos**; las fotos se **recortan a 4:5 vertical** para que la fila quede pareja aunque se suban con medidas distintas; se ve **solo en la landing de la colección**, no en la home (la franja `CollectionBand` de la home queda como está).
+
+**Sin migración** (claves de la tabla key-value `settings`) y **sin cambio de contrato** — es aditivo: el front nuevo contra un back viejo simplemente no dibuja la franja.
+
+**Backend** — `src/services/settings.service.ts`: 10 claves nuevas en `VALID_KEYS` **y** `PUBLIC_SETTING_KEYS` (allowlist explícita, [BR-STORE-011](03-BUSINESS-RULES.md)): `store_collection_details_heading` y, por bloque `N` de 1 a 3, `store_collection_detail_N_image_url` / `_title` / `_text`.
+
+**Frontend**:
+- `src/pages/store/StoreCollectionPage.tsx`: componente **`CollectionDetails`** + lectura de las claves. Cada bloque se arma solo si tiene **imagen** (título y texto opcionales); si no hay ninguna imagen, la franja no se renderiza. Con 1 o 2 fotos la grilla se ajusta (`max-w-md` / `sm:grid-cols-2`), con 3 va `sm:grid-cols-3`. Imágenes `aspect-[4/5] object-cover` + `loading="lazy"`.
+- `src/pages/ecommerce/EcommerceSettingsPage.tsx`: subcomponente **`CollectionDetailPanel`** (foto + título + texto) ×3 más el título de la franja, dentro de la sección "Sección destacada / lanzamiento" ya existente.
+
+**Validación**: `tsc --noEmit` limpio en ambos repos; `npm run build` del front OK; `store-public-settings.test.ts` 10/10 (el guardrail S-01 cubre las claves nuevas); `eslint` sobre los dos archivos tocados sin errores nuevos (los 2 `no-explicit-any` de `StoreCollectionPage` son preexistentes). **No se probó en navegador**: hace falta que el admin suba las tres fotos desde el panel.
+
+### Falta
+
+1. **Cargar el contenido desde el panel** (*Tienda online → Configuración → Sección destacada → Detalles de la prenda*): tres fotos verticales de la camiseta + título y texto de cada una, y opcionalmente el título de la franja.
+2. **Probar en navegador** `/tienda/coleccion/<slug>` en desktop y mobile una vez cargadas las fotos.
+3. **Sin commitear**: los cambios quedaron en el working tree de `master` en ambos repos. Rama, merge y release los decide el usuario (ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md)).
+
+---
+
+## Sesión anterior: 2026-09-07 — Aviso de cancelación por falta de pago + popup de pedido pendiente
 
 Raíz: **quejas reales de clientes**. Un comprador dejaba un pedido sin pagar, hacía otro y lo pagaba; cuando le llegaba la cancelación automática del primero (`BR-STORE-004`, 48hs), creía que le habían cancelado el que sí había abonado. El plazo existía desde siempre pero **nunca se le comunicaba a nadie**, y el mail de cancelación era genérico.
 
