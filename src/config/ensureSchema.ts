@@ -355,6 +355,35 @@ export async function ensureSchema(): Promise<void> {
   } catch (err) {
     logger.error('ensureSchema.catalogProductsBarcode', err, { meta: { fatal: false } });
   }
+
+  // ─── Estados "Enviado"/"Entregado" del flujo mayorista (migración 104) ──────
+  // Después de "Listo para despacho" el pedido pasa a 'shipped' (sale del taller)
+  // y luego a 'delivered' (recibido por el cliente). `sync()` no altera ENUMs
+  // existentes; el ALTER solo corre si el valor aún no está (evita reconstruir la
+  // tabla en cada arranque). Espeja lo que hace la migración 104 en producción.
+  try {
+    const FULL_ORDER_STATUS_ENUM =
+      "ENUM('pending','under_review','workshop_review','observed'," +
+      "'raw_material_control','cutting_control','printing_control','sewing_control','quality_control','packaging_control'," +
+      "'ready','shipped','delivered','cancelled'," +
+      "'in_production','sewing','stamping','quality_check')";
+
+    const orders = await qi.describeTable('orders');
+    if (!JSON.stringify(orders.status ?? {}).includes('delivered')) {
+      await qi.sequelize.query(
+        `ALTER TABLE orders MODIFY COLUMN status ${FULL_ORDER_STATUS_ENUM} NOT NULL DEFAULT 'pending'`
+      );
+      await qi.sequelize.query(
+        `ALTER TABLE order_status_history MODIFY COLUMN previous_status ${FULL_ORDER_STATUS_ENUM} NULL`
+      );
+      await qi.sequelize.query(
+        `ALTER TABLE order_status_history MODIFY COLUMN new_status ${FULL_ORDER_STATUS_ENUM} NOT NULL`
+      );
+      logger.info('ensureSchema.enumExpanded', { meta: { table: 'orders', column: 'status', values: 'shipped,delivered' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.orderShippedDelivered', err, { meta: { fatal: false } });
+  }
 }
 
 /**
