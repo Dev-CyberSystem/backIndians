@@ -3,6 +3,20 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.9.1 — 2026-09-08
+
+### backIndians (22d0606)
+
+- feat(pedidos): estados "Enviado" y "Entregado" tras "Listo para despacho"
+- fix(pedidos): el taller no ve importes + arregla "Unidades" del listado de taller
+- fix(tienda): número de pedido usa la jornada del negocio, no la hora del servidor
+
+### frontIndians (be49e76)
+
+- feat(pedidos): estados "Enviado" y "Entregado" en el flujo mayorista
+- fix(taller): quitar importes del detalle de la orden de trabajo
+- feat(tienda): columnas Productos y Talles en el listado de pedidos
+
 ## v1.9.0 — 2026-09-07
 
 ### backIndians (8544617)
