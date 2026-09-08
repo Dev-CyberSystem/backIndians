@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.10.0 — 2026-09-08
+
+### backIndians (c959543)
+
+- feat(tienda): avisar el plazo de cancelación por falta de pago
+
+### frontIndians (d1e016d)
+
+- feat(tienda): popup de pedido impago + aviso del plazo de cancelación
+
 ## v1.9.1 — 2026-09-08
 
 ### backIndians (22d0606)
