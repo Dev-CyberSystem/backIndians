@@ -4,7 +4,39 @@
 
 ---
 
-## Última actualización: 2026-09-07 — Estados "Enviado" y "Entregado" en el flujo de pedidos mayoristas
+## Última actualización: 2026-09-07 — Aviso de cancelación por falta de pago + popup de pedido pendiente
+
+Raíz: **quejas reales de clientes**. Un comprador dejaba un pedido sin pagar, hacía otro y lo pagaba; cuando le llegaba la cancelación automática del primero (`BR-STORE-004`, 48hs), creía que le habían cancelado el que sí había abonado. El plazo existía desde siempre pero **nunca se le comunicaba a nadie**, y el mail de cancelación era genérico.
+
+Decidido con el usuario (vía preguntas): advertir en mail de confirmación + pantalla de espera de pago + "Mis pedidos" (NO en el checkout antes de confirmar); popup **al entrar al checkout**, no bloqueante; detección híbrida logueado/invitado; botones "Ir a pagarlo" + "Seguir con este pedido".
+
+**Rama `feature/aviso-pedido-impago` en AMBOS repos, sin commitear.** Sin migración.
+
+**Backend**:
+- **`src/config/orderExpiry.ts` (nuevo)**: fuente única del plazo (`getOrderExpiryHours()`) y del criterio de qué pedido expira (`orderExpiresUnpaid()`, espejo del `where` de `expireStaleOrders`). La constante privada que vivía en el job se movió acá porque ahora el plazo también se comunica.
+- **`GET /store/settings`** publica `order_expiry_hours` (clave **derivada** de la env, no fila de la tabla). Nueva lista `PUBLIC_DERIVED_SETTING_KEYS` en `settings.service.ts` — el guardrail S-01 exigía que toda clave publicada esté declarada, y agregarla a `PUBLIC_SETTING_KEYS`/`VALID_KEYS` habría sido mentira (no es guardable desde el panel).
+- **Mail de confirmación** (`sendOrderConfirmationEmail`, 6º parámetro `expiryHours`): bloque de advertencia con el número de pedido adentro. Se pasa solo si el pedido efectivamente expira — con efectivo no menciona plazo alguno.
+- **Mail de cancelación**: nuevo `StoreOrderStatusReason = 'unpaid'`, propagado desde el job vía `StatusChangeOptions.emailReason`. Asunto "cancelado por falta de pago" y cuerpo que aclara que se canceló *ese* pedido y que los otros ya pagos no se ven afectados. Sin `reason` mantiene el copy genérico intacto.
+
+**Frontend**:
+- **`utils/orderExpiry.ts` (nuevo)**: lee `order_expiry_hours` de settings (fallback 48), horas restantes, `timeLeftLabel`, y el espejo de `orderExpiresUnpaid`.
+- **`store/pendingOrdersStore.ts` (nuevo)**: zustand+persist, recuerda los pedidos creados en ESE navegador (para invitados). Se escribe en el checkout **antes** de `clear()` del carrito.
+- **`hooks/usePendingPaymentOrders.ts` (nuevo)**: logueado → `/store/me/orders`; invitado → registro local con el estado **revalidado** contra `/store/orders/:n/status` (nunca se confía en el estado guardado local; los que ya no están impagos se olvidan).
+- **`components/store/PendingPaymentDialog.tsx` (nuevo)**: lista prendas + talles + cantidades del pedido pendiente. "Ir a pagarlo" apunta a "Mis pedidos" si está logueado y a `/tienda/checkout/pago?order=N` si es invitado (Mis pedidos está detrás del login y lo rebotaría).
+- Advertencia del plazo en `StoreCheckoutFlowPages` (espera de MP **y** transferencia, esta última solo mientras no subió comprobante) y en cada pedido `pending_payment` de `StoreAccountPage`, con horas restantes reales.
+
+**Validación**: `tsc` limpio en ambos repos. Backend **451/451** (61 suites) — nuevos `unit/orderExpiry.test.ts` (10) y 6 casos en `store-order-emails.test.ts`; `store-public-settings.test.ts` ampliado (10). Frontend 49/49 vitest + `npm run build` OK; lint sin errores nuevos (los de `StoreAccountPage`/`StoreCheckoutPage` son preexistentes). **Falta la prueba manual en navegador** del popup y de los tres avisos.
+
+### Falta
+
+1. **Probar en navegador**: popup como invitado (crear pedido MP, no pagar, volver al checkout) y como logueado; los tres avisos de plazo; el mail de cancelación (correr `expireStaleOrders` a mano o bajar `ORDER_EXPIRY_HOURS`).
+2. **Sin commitear** en ambos repos; rama `feature/aviso-pedido-impago` creada. Merge y release los decide el usuario.
+3. Contrato **aditivo** (clave nueva de settings, parámetro opcional de mail): el front tolera un back viejo (cae al fallback de 48hs), así que no exige despliegue simultáneo.
+4. Decisión consciente: un invitado con transferencia + comprobante ya subido queda advertido de más (el endpoint público de estado no expone el comprobante). Preferible a callarle una cancelación que sí va a ocurrir.
+
+---
+
+## Sesión anterior: 2026-09-07 — Estados "Enviado" y "Entregado" en el flujo de pedidos mayoristas
 
 Raíz: el usuario pidió que el flujo de un pedido de fábrica no termine en "Listo para despacho" (`ready`) sino que siga a "Enviado" y "Entregado". Se acordó (vía preguntas): mantener `ready` como paso intermedio y agregar `shipped`/`delivered` al final; el **taller** marca `ready → shipped`, **facturación/admin** marca `shipped → delivered` (admin puede volver un paso atrás); en el dashboard `shipped`/`delivered` cuentan como terminados igual que `ready`.
 

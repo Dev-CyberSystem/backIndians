@@ -1,5 +1,5 @@
 import { api, API, loginAs, auth } from './helpers';
-import { PUBLIC_SETTING_KEYS, VALID_KEYS } from '../../services/settings.service';
+import { PUBLIC_SETTING_KEYS, PUBLIC_DERIVED_SETTING_KEYS, VALID_KEYS } from '../../services/settings.service';
 import { Settings } from '../../models';
 import { invalidateCache } from '../../utils/cache';
 
@@ -71,9 +71,31 @@ describe('GET /store/settings — allowlist de claves públicas (S-01)', () => {
     return (res.body?.data ?? res.body) as Record<string, string>;
   }
 
-  it('no devuelve ninguna clave que no esté en PUBLIC_SETTING_KEYS', async () => {
-    const filtradas = Object.keys(await publicSettings()).filter((k) => !PUBLIC_SETTING_KEYS.includes(k));
+  it('no devuelve ninguna clave fuera de las dos allowlists declaradas', async () => {
+    // Dos listas, no una: `PUBLIC_SETTING_KEYS` son filas de la tabla y
+    // `PUBLIC_DERIVED_SETTING_KEYS` son valores que el backend calcula (hoy
+    // `order_expiry_hours`, sacada de la env ORDER_EXPIRY_HOURS). Lo que este
+    // test protege es que toda clave publicada esté DECLARADA en algún lado —
+    // agregar una al vuelo en `getPublicStoreSettings()` sigue fallando acá.
+    const permitidas = [...PUBLIC_SETTING_KEYS, ...PUBLIC_DERIVED_SETTING_KEYS];
+    const filtradas = Object.keys(await publicSettings()).filter((k) => !permitidas.includes(k));
     expect(filtradas).toEqual([]);
+  });
+
+  it('las claves derivadas no son claves guardables: no pisan configuración real', () => {
+    // Una derivada que también estuviera en VALID_KEYS sería ambigua — el panel
+    // dejaría guardarla y el endpoint la pisaría con el valor calculado.
+    for (const key of PUBLIC_DERIVED_SETTING_KEYS) {
+      expect(VALID_KEYS).not.toContain(key);
+      expect(PUBLIC_SETTING_KEYS).not.toContain(key);
+    }
+  });
+
+  it('publica el plazo real de cancelación por falta de pago (BR-STORE-004)', async () => {
+    // Sin esto la tienda hardcodea "48hs" y le miente al comprador apenas se
+    // cambie ORDER_EXPIRY_HOURS en producción.
+    const settings = await publicSettings();
+    expect(Number(settings.order_expiry_hours)).toBeGreaterThan(0);
   });
 
   it('no filtra configuración interna: cuentas de caja, AFIP ni datos de facturación', async () => {

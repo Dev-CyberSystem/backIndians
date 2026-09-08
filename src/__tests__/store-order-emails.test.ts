@@ -15,7 +15,7 @@ jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({ emails: { send: mockSend } })),
 }));
 
-import { sendStoreOrderStatusEmail } from '../utils/email.service';
+import { sendStoreOrderStatusEmail, sendOrderConfirmationEmail } from '../utils/email.service';
 import type { StoreOrderStatus } from '../models/StoreOrder';
 
 const BASE = {
@@ -63,5 +63,68 @@ describe('sendStoreOrderStatusEmail — subject por estado', () => {
   it('el estado inicial "pending_payment" NO envía mail', async () => {
     await sendStoreOrderStatusEmail({ ...BASE, status: 'pending_payment' });
     expect(mockSend).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * Cancelación por falta de pago: el comprador tiene que poder distinguir cuál de
+ * sus pedidos se canceló. El mail genérico "tu pedido fue cancelado" generó
+ * quejas reales — gente con dos pedidos abiertos creía que le habían cancelado
+ * el que sí había pagado.
+ */
+describe('sendStoreOrderStatusEmail — cancelación por falta de pago', () => {
+  it('con reason "unpaid" el subject y el cuerpo explican el motivo', async () => {
+    await sendStoreOrderStatusEmail({ ...BASE, status: 'cancelled', reason: 'unpaid' });
+    const arg = mockSend.mock.calls[0][0];
+    expect(arg.subject).toMatch(/cancelado por falta de pago/i);
+    expect(arg.html).toMatch(/no tuvimos novedades del pago/i);
+    // El N° de pedido es lo que le permite identificar cuál se canceló.
+    expect(arg.html).toContain(BASE.orderNumber);
+  });
+
+  it('aclara que los otros pedidos ya pagos no se ven afectados', async () => {
+    await sendStoreOrderStatusEmail({ ...BASE, status: 'cancelled', reason: 'unpaid' });
+    const arg = mockSend.mock.calls[0][0];
+    expect(arg.html).toMatch(/más de un pedido/i);
+    expect(arg.html).toMatch(/no se ve afectado/i);
+  });
+
+  it('sin reason mantiene el copy genérico de cancelación', async () => {
+    await sendStoreOrderStatusEmail({ ...BASE, status: 'cancelled' });
+    const arg = mockSend.mock.calls[0][0];
+    expect(arg.subject).toMatch(/cancelado/i);
+    expect(arg.subject).not.toMatch(/falta de pago/i);
+    expect(arg.html).not.toMatch(/no tuvimos novedades del pago/i);
+  });
+});
+
+/*
+ * Advertencia del plazo en el mail de confirmación. El plazo llega por parámetro
+ * (lo decide `orderExpiresUnpaid()` en el caller): un pedido que no expira no
+ * debe prometer ningún plazo.
+ */
+describe('sendOrderConfirmationEmail — advertencia de cancelación automática', () => {
+  const ITEMS = [{ title: 'Camiseta Titular (M)', qty: 2, price: 48000 }];
+
+  it('con expiryHours advierte el plazo y nombra el pedido', async () => {
+    await sendOrderConfirmationEmail(BASE.email, BASE.name, BASE.orderNumber, ITEMS, 48000, 48);
+    const arg = mockSend.mock.calls[0][0];
+    expect(arg.html).toMatch(/48 horas/);
+    expect(arg.html).toMatch(/se cancela automáticamente/i);
+    expect(arg.html).toContain(BASE.orderNumber);
+  });
+
+  it('respeta un plazo distinto de 48 (ORDER_EXPIRY_HOURS configurable)', async () => {
+    await sendOrderConfirmationEmail(BASE.email, BASE.name, BASE.orderNumber, ITEMS, 48000, 24);
+    const arg = mockSend.mock.calls[0][0];
+    expect(arg.html).toMatch(/24 horas/);
+    expect(arg.html).not.toMatch(/48 horas/);
+  });
+
+  it('sin expiryHours (efectivo) no menciona ningún plazo', async () => {
+    await sendOrderConfirmationEmail(BASE.email, BASE.name, BASE.orderNumber, ITEMS, 48000);
+    const arg = mockSend.mock.calls[0][0];
+    expect(arg.html).not.toMatch(/se cancela automáticamente/i);
+    expect(arg.html).not.toMatch(/horas/);
   });
 });

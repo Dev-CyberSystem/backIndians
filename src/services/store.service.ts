@@ -25,10 +25,12 @@ import {
   sendOrderInvoiceEmail,
   sendStoreOrderStatusEmail,
   statusNotifiesCustomer,
+  type StoreOrderStatusReason,
 } from '../utils/email.service';
 import { enqueueEmail } from '../utils/emailQueue';
 import { generateInvoicePdf, generateReceiptLabelPdf } from '../utils/store.pdf';
 import { getAllSettings, PUBLIC_SETTING_KEYS } from './settings.service';
+import { getOrderExpiryHours, orderExpiresUnpaid } from '../config/orderExpiry';
 import { recordLegalAcceptance } from './legal.service';
 import { StoreOrderStatus, type ShippingAddress } from '../models/StoreOrder';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
@@ -398,7 +400,20 @@ export async function getPublicStoreSettings(): Promise<Record<string, string>> 
   // Cacheado 60s; se invalida cuando el admin guarda la configuración.
   return cached('store:settings', 60_000, async () => {
     const rows = await Settings.findAll({ where: { key: PUBLIC_SETTING_KEYS } });
-    return Object.fromEntries(rows.map((r) => [r.key, r.value ?? '']));
+    return {
+      ...Object.fromEntries(rows.map((r) => [r.key, r.value ?? ''])),
+      // Clave DERIVADA, no una fila de `settings`: sale de la env
+      // `ORDER_EXPIRY_HOURS` vía config/orderExpiry.ts. Va acá porque la tienda
+      // necesita el plazo real para advertirlo (pantalla de espera del pago,
+      // "Mis pedidos", popup de pedido pendiente) y hardcodear "48" en el front
+      // haría que el aviso mienta apenas se cambie la variable en Railway.
+      //
+      // Está declarada en `PUBLIC_DERIVED_SETTING_KEYS` (settings.service.ts):
+      // agregar una clave derivada acá sin declararla ahí hace fallar el
+      // guardrail S-01 a propósito. No va en PUBLIC_SETTING_KEYS — no existe en
+      // la base y nunca podría guardarse desde el panel.
+      order_expiry_hours: String(getOrderExpiryHours()),
+    };
   });
 }
 
@@ -1262,7 +1277,10 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
         qty: i.quantity,
         price: i.subtotal,
       })),
-      totalAmount
+      totalAmount,
+      // Recién creado: nunca tiene comprobante subido todavía, de ahí el `false`.
+      // Con efectivo devuelve undefined y el mail no promete ningún plazo.
+      orderExpiresUnpaid(paymentMethod, false) ? getOrderExpiryHours() : undefined
     );
   } catch {
     // El email falla silenciosamente — el pedido ya fue creado
@@ -1769,6 +1787,12 @@ export interface StatusChangeOptions {
   /** false = no valida la transición (flujo de pago automático del webhook). */
   enforceTransition?: boolean;
   /**
+   * Motivo del cambio, para el copy del mail. `note` es la traza interna que
+   * queda en el historial y NO se le muestra al comprador; esto es lo que elige
+   * qué texto lee él. Hoy solo lo usa el job de expiración (`'unpaid'`).
+   */
+  emailReason?: StoreOrderStatusReason;
+  /**
    * Transacción externa (con el pedido ya lockeado por el caller, p. ej.
    * applyPaymentResult — 1.5). Si no se da, esta función abre la suya propia
    * como siempre hizo.
@@ -1916,6 +1940,7 @@ export async function recordStoreOrderStatusChange(
       courierName: order.courier_name,
       trackingNumber: order.tracking_number,
       trackingUrl: buildTrackingUrl(token),
+      reason: options.emailReason,
     };
     enqueueEmail(
       `store_order_status:${order.order_number}:${newStatus}`,
