@@ -15,20 +15,23 @@ describe('Proveedores — API', () => {
 
   it('crea un proveedor y aparece en el listado buscándolo por nombre', async () => {
     const business_name = `Proveedor QA ${Date.now()}`;
+    // CUIT único por corrida: el test no limpia y el ENUM es único (409 si se repite).
+    const digits = `307${Date.now().toString().slice(-7)}9`;
+    const tax_id = `${digits.slice(0, 2)}-${digits.slice(2, 10)}-${digits.slice(10)}`;
     const create = await api().post(`${API}/suppliers`).set(...auth(adminToken)).send({
       business_name,
       category: 'Telas',
       contact_person: 'Responsable QA',
       phone: '0351-1234567',
       email: `prov.qa.${Date.now()}@test.local`,
-      tax_id: '30-71234567-8',
+      tax_id,
       tax_condition: 'responsable_inscripto',
     });
     expect(create.status).toBe(201);
     const id = create.body.data?.id;
     expect(id).toBeTruthy();
     // El CUIT se guarda solo con dígitos.
-    expect(create.body.data?.tax_id).toBe('30712345678');
+    expect(create.body.data?.tax_id).toBe(digits);
 
     const list = await api()
       .get(`${API}/suppliers?search=${encodeURIComponent(business_name)}`)
