@@ -3,6 +3,21 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.11.0 — 2026-09-09
+
+### backIndians (806de33)
+
+- test(proveedores): CUIT único por corrida en factory-suppliers
+- feat(empleados): legajo de personal + histórico de novedades (migración 106)
+- feat(proveedores): módulo CRUD de proveedores (tabla suppliers, migración 105)
+- feat: franja de 3 detalles de la prenda en sección destacada
+
+### frontIndians (a4e8334)
+
+- feat(empleados): sección Empleados con legajo y línea de tiempo de novedades
+- feat(proveedores): sección Proveedores con cards y filtros
+- feat: franja de 3 detalles de la prenda en sección destacada
+
 ## v1.10.0 — 2026-09-08
 
 ### backIndians (c959543)
