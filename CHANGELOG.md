@@ -3,6 +3,22 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.11.1 — 2026-09-10
+
+### backIndians (e96fb04)
+
+- docs: registrar merge del perfil disenador a master
+- feat(designer): proteger permisos y conservar cotizaciones al editar fichas
+
+### frontIndians (50c85a1)
+
+- feat(designer): editar fichas tecnicas sin exponer precios
+
+# Changelog
+
+Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
+Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
+
 ## v1.11.0 — 2026-09-09
 
 ### backIndians (806de33)
