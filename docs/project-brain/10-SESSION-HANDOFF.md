@@ -6,7 +6,7 @@
 
 ## Última actualización: 2026-09-10 — Correcciones del perfil diseñador
 
-El usuario pidió implementar las correcciones de la revisión Go/No Go. Se corrigieron R1–R4 en `feature/perfil-disenador` en ambos repos. Se integró por fast-forward el master local v1.11.0 (base back `6740474`, front `4e8afd3`) conservando la feature local. No hubo push, merge de la feature a master ni despliegue.
+El usuario pidió implementar las correcciones de la revisión Go/No Go. Se corrigieron R1–R4 en `feature/perfil-disenador` y luego se integraron por fast-forward a `master` en ambos repos. HEAD funcional: back `e3fa4a7`, front `50c85a1`; parten del master local v1.11.0 (bases `6740474` / `4e8afd3`). No hubo push ni despliegue.
 
 ### Cambios
 
@@ -26,7 +26,7 @@ Lint de los componentes corregidos y helpers: sin errores. La revisión ampliada
 
 ### Release pendiente
 
-Preparar release según [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md): backup, versión nueva, despliegue conjunto back/front, migración 107 en producción y smoke por roles. Migración 107 y `ensureSchema.ts` coherentes por lectura; no se modificó ninguna migración ya aplicada ni código AFIP. No se verificó el estado remoto/productivo. Los commits de esta sesión se identifican con `git log -1` en cada repo.
+Los dos repos ya están en `master`, limpios y listos para preparar el release según [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md): backup, versión nueva, despliegue conjunto back/front, migración 107 en producción y smoke por roles. Migración 107 y `ensureSchema.ts` coherentes por lectura; no se modificó ninguna migración ya aplicada ni código AFIP. No se verificó el estado remoto/productivo.
 
 El archivo importado `backIndians/AGENTS.md` no existe; se usaron las reglas de `backIndians/CLAUDE.md` y el cerebro documental. Ver [DEC-026](08-DECISIONS.md) y [revisión con seguimiento](../reviews/2026-09-10-perfil-disenador.md).
 
