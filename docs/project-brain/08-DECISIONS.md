@@ -289,6 +289,64 @@ La redundancia no es paranoia, es la lección de [DEC-014](#dec-014): entre el 2
 
 **Estado**: 🟡 Abierta (login recuperado y desplegado; SSL de Donweb sigue caído).
 
+## DEC-023 — Proveedores es un ABM aislado, sin el módulo de compras/remitos de Farol Bike
+
+**Fecha**: 2026-09-08.
+
+**Contexto**: se pidió una sección "Proveedores" tomando como referencia el módulo homónimo del proyecto gemelo **Farol Bike**. Allá `suppliers` es la puerta de entrada de un módulo grande de **compras**: documentos de compra con estados borrador→confirmado→anulado, líneas, reversión de stock auditable, sugerencias de reposición por stock mínimo y PDF de pedido a proveedor. Indians no tiene nada de eso.
+
+**Decisión** (confirmada con el usuario vía preguntas): implementar **solo el CRUD de proveedores**. Tabla `suppliers` nueva y **completamente aislada** — sin FK ni enganche con stock, costos ni pedidos. Datos comerciales completos + `category` (rubro, texto libre + endpoint de distintos para el filtro) + `active` (baja lógica). Roles `admin` y `billing`; `DELETE` real solo `admin`. CUIT normalizado a 11 dígitos y único cuando está informado (índice en la migración + chequeo explícito en el service → 409).
+
+**Alternativa descartada explícitamente**: portar también el módulo de compras/remitos. El usuario decidió que el enganche con Costos/Stock (registrar de qué proveedor se compró cada insumo) queda **fuera de alcance** por ahora; si se retoma, es una feature aparte que sí tocaría esquema existente.
+
+**Estado**: 🟢 Implementada (migración 105, `factory-suppliers.test.ts` 6/6). Ver [02-FUNCTIONAL-MAP.md](02-FUNCTIONAL-MAP.md) módulo 2b.
+
+## DEC-024 — Empleados: módulo solo-`admin`, con legajo de novedades inmutable y el cambio de sueldo como novedad
+
+**Fecha**: 2026-09-08.
+
+**Contexto**: se pidió una sección "Empleados" con los datos del personal (nombre, DNI, dirección, contacto, fecha de ingreso, remuneración, sector) **y** un histórico de novedades del legajo (cambios de sueldo, sanciones, notificaciones, enfermedad, licencias, etc.) con fecha y autor.
+
+**Decisiones** (todas confirmadas con el usuario vía preguntas):
+
+1. **Todo el módulo es solo `admin`** — incluida la lectura. La remuneración es dato de nómina; ni `billing` ni ningún otro rol acceden. `router.use(authorize('admin'))` sin excepciones.
+2. **`sector` es texto libre con autocompletado** (endpoint `/employees/sectors` de valores distintos), no un maestro con ABM propio. Mismo criterio que el `category` de Proveedores ([DEC-023](#dec-023--proveedores-es-un-abm-aislado-sin-el-módulo-de-comprasremitos-de-farol-bike)): cero mantenimiento, el negocio arma su taxonomía.
+3. **La remuneración vigente vive en la ficha (`employees.current_remuneration`)**; un cambio de sueldo se carga como **novedad tipo `salary_change`** con el nuevo monto, y esa novedad —en la misma transacción— pisa `current_remuneration` y guarda `previous_amount` (snapshot del anterior). El historial de sueldos se lee de la línea de novedades, no de una tabla de versiones aparte.
+4. **Las novedades son un registro inmutable**: se crean y se listan, **no se editan** (no hay endpoint de update). Solo `admin` puede **borrar** una cargada por error. Borrar una novedad de `salary_change` **no** revierte `current_remuneration` — se corrige cargando otra novedad con el valor correcto.
+5. **Baja lógica** (`active=false` + `termination_date`, por defecto hoy), reactivable (limpia la fecha de egreso). El `DELETE` real del empleado (cascada a sus novedades vía FK `ON DELETE CASCADE`) existe pero es `admin` y no se usa en la operación normal.
+6. **Sin enlace con `User`**: un empleado del taller normalmente no tiene cuenta de sistema; se decidió no acoplar las dos entidades. Tampoco hay integración con Caja (el pago de sueldos no impacta el libro de caja por ahora).
+
+**Estado**: 🟢 Implementada (migración 106: `employees` + `employee_events`; `factory-employees.test.ts` 6/6). Ver [02-FUNCTIONAL-MAP.md](02-FUNCTIONAL-MAP.md) módulo 2c.
+
+## DEC-025 — Perfil "Diseñador": carga la ficha técnica completa y la manda al taller, sin ver precios ni facturación
+
+**Fecha**: 2026-09-08.
+
+**Contexto**: se pidió un perfil nuevo del sistema para el diseñador de la fábrica: que pueda cargar un producto con la ficha técnica y enviarlo al taller, pero que **nunca** vea ni cargue los costos de los productos ni la facturación al cliente (mismo criterio que ya tiene el taller con los precios), y que pueda cambiar los estados del pedido.
+
+**Decisiones** (todas confirmadas con el usuario vía preguntas):
+
+1. **"Cargar un producto" = crear un Pedido de producción con la ficha técnica *completa***, no un producto de catálogo ni la ficha reducida del vendedor. El diseñador usa el mismo `OrderItemForm` que `admin`/`billing`, con todos los campos de diseño, pero con el precio unitario oculto (`hidePricing`).
+2. **Cambia estados solo hasta mandar al taller**: `pending→under_review`, `under_review→observed|workshop_review`, `observed→under_review`. **No** opera los 6 controles de producción, ni `shipped`/`delivered`, ni cancela. (`ORDER_STATUS_TRANSITIONS.designer` / `DESIGNER_TRANSITIONS`.)
+3. **Elige el cliente** al crear el pedido (accede a Clientes, incluido el alta). La factura automática nace en **$0** — el diseñador no carga precios y cualquier `unit_price` del payload se descarta server-side (`stripItemPricing`) — y la completa facturación después. El diseñador **nunca** ve el módulo Facturas (403), ni Costos, ni Dashboard, ni los totales del pedido.
+4. **No ve precios en ningún lado**: importes de pedidos anulados por la API (`hidesPricing`, generaliza el `stripPricingForWorkshop` del taller → `PRICING_HIDDEN_ROLES = ['workshop','designer']`), y `price: null` en los productos del catálogo (`hidePriceForRole`).
+5. **Ve *todos* los pedidos** en el listado (no se filtra por `seller_id` ni por estado como al taller), para poder seguir en qué anda cada uno después de mandarlo. Los pedidos que crea quedan **sin `seller_id`** (el diseñador no vende).
+6. **Edita la ficha solo mientras el pedido no salió al taller** (`pending|under_review|observed`); una vez en `workshop_review` o más, es de solo lectura para él (mismo criterio que el vendedor con `pending|observed`).
+7. **Stock y Catálogo son de solo lectura** para el diseñador (sin alta/edición, sin registrar movimientos, sin selector de compra del catálogo).
+8. **Efecto colateral aceptado**: `GET /invoices*` pasó de "todo autenticado" a `authorize('admin','billing','seller')` — el `workshop` también deja de acceder (no tenía UI de facturas, sin impacto real).
+
+**Estado**: 🟢 Implementada en rama `feature/perfil-disenador` (ambos repos, sin commitear). Migración 107 (`users.role` ENUM); `factory-designer.test.ts` 8/8. Ver [BR-ORDER-008](03-BUSINESS-RULES.md) y [01-PROJECT-OVERVIEW.md](01-PROJECT-OVERVIEW.md) (tipos de usuario).
+
+## DEC-026 — Corrección segura de fichas cotizadas y cierre de permisos del diseñador
+
+**Fecha:** 2026-09-10. **Origen:** revisión Go/No Go; usuario autorizó implementar las correcciones propuestas.
+
+La ficha se edita por identidad estable de ítem, sin recuperar precios del payload sanitizado. Las bajas son explícitas para que un cliente desactualizado no borre cotizaciones por omisión; las altas quedan sin cotizar. Los cambios de total sincronizan exclusivamente facturas borrador sin cobros, manteniendo extras/descuento. Si la factura ya fue emitida o tiene pagos, se rechaza el cambio económico con 409; una corrección técnica sin cambio de total sigue permitida antes del taller.
+
+La transacción bloquea la fila del pedido y reúne edición, transición, historial y snapshot. Los adjuntos usan la misma guarda antes de llamar a Cloudinary. Se bloquean ventas/facturación del catálogo para diseñador y taller, se sanitizan precios alternativos y se vacían caché y carrito al cambiar de sesión. Se agrega editor de ficha técnica con reintento de adjuntos sin duplicar ítems.
+
+**Validación:** regresiones API en `factory-designer.test.ts`, reproducción aislada actualizada y E2E `frontIndians/e2e/tests/designer.spec.ts` en escritorio/móvil. Resultado general en el handoff. No cambia la migración 107 ni se ejecuta despliegue.
+
 ## Actualizar este documento cuando…
 
 Se tome una decisión técnica o funcional nueva con impacto duradero, o se revierta/reemplace una decisión ya registrada (agregar entrada nueva referenciando la anterior, no editar la histórica).

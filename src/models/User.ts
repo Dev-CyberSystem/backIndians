@@ -46,7 +46,7 @@ User.init(
       allowNull: false,
     },
     role: {
-      type: DataTypes.ENUM('admin', 'billing', 'workshop', 'seller'),
+      type: DataTypes.ENUM('admin', 'billing', 'workshop', 'seller', 'designer'),
       allowNull: false,
       defaultValue: 'workshop',
     },

@@ -59,8 +59,12 @@ async function seed() {
     name: 'Carlos Vendedor', password_hash: sellerHash, role: 'seller',
   });
 
+  const designer = await upsertUser('disenador@textil.com', {
+    name: 'Lucía Diseñadora', password_hash: adminHash, role: 'designer',
+  });
+
   console.log(
-    `✅ Usuarios: ${admin.name}, ${billing.name}, ${workshop.name}, ${seller.name}`
+    `✅ Usuarios: ${admin.name}, ${billing.name}, ${workshop.name}, ${seller.name}, ${designer.name}`
   );
 
   // ─── Clientes ──────────────────────────────────────────────────────────────
@@ -227,6 +231,7 @@ async function seed() {
   console.log('  Billing:    facturacion@textil.com   / Admin123!');
   console.log('  Workshop:   taller@textil.com        / Admin123!');
   console.log('  Seller:     vendedor@textil.com      / Vendedor123!');
+  console.log('  Designer:   disenador@textil.com     / Admin123!');
 
   process.exit(0);
 }

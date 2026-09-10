@@ -7,8 +7,8 @@ import { api, API, loginAs, auth } from './helpers';
  */
 
 describe('Perfiles y permisos — API', () => {
-  it('los 4 roles inician sesión con su rol correcto', async () => {
-    for (const role of ['admin', 'billing', 'workshop', 'seller'] as const) {
+  it('los 5 roles inician sesión con su rol correcto', async () => {
+    for (const role of ['admin', 'billing', 'workshop', 'seller', 'designer'] as const) {
       const token = await loginAs(role);
       const me = await api().get(`${API}/auth/me`).set(...auth(token));
       expect(me.status).toBe(200);

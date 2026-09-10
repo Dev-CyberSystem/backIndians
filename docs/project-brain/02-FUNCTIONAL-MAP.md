@@ -1,5 +1,9 @@
 # 02 — Mapa funcional por módulo
 
+## Actualización 2026-09-10 — Editor de ficha del diseñador
+
+Desde el detalle de un pedido pendiente, en revisión u observado, «Editar ficha» permite corregir ítems, notas y tablas de talles. Conserva identidad y cotización de los ítems existentes; las altas quedan sin cotizar. Al entrar al taller desaparecen la edición y las acciones de adjuntos, con la misma restricción en la API. Catálogo sin precios ni carrito; caché de consultas y carrito se limpian al cambiar de sesión.
+
 > Nivel de implementación reportado por módulo según evidencia real de código (rutas, controllers, services, modelos, tests), no por nombres de archivo o documentación de intención.
 
 ## Índice de módulos
@@ -86,11 +90,11 @@
 
 **Objetivo**: legajo del personal (fábrica + administración) con sus datos personales/laborales, la remuneración vigente y un **histórico de novedades** (cambios de sueldo, sanciones, notificaciones, enfermedad, licencias, ingreso/egreso, otras).
 
-**Usuarios**: **solo `admin`** — todo el módulo, incluida la remuneración (dato de nómina). Ningún otro rol accede.
+**Usuarios**: **solo `admin`** — todo el módulo, incluida la remuneración (dato de nómina). Ningún otro rol accede ([BR-EMPLOYEE-003](03-BUSINESS-RULES.md)).
 
 **Flujo principal**: alta de empleado (nombre completo, DNI, dirección, email, teléfono, fecha de ingreso, remuneración, **sector** libre) → aparece como *card* en `/employees` con filtros por texto, por sector y por estado activo/inactivo → "Ver legajo" abre la ficha completa + la línea de tiempo de novedades → "Agregar novedad" (tipo + título + detalle + fecha + monto si es cambio de sueldo).
 
-**Novedades (`employee_events`)**: registro pensado como **inmutable** — se crean y se listan, no se editan; solo `admin` puede **borrar** una cargada por error (no hay endpoint de edición). Cada novedad guarda su `event_date` propia (puede diferir de la fecha de carga), el tipo, resumen + detalle y **quién la cargó** (`created_by_user_id` → `author`). Una novedad `salary_change` **actualiza `employees.current_remuneration`** en la misma transacción y deja `previous_amount` (snapshot del anterior). Borrar una novedad de cambio de sueldo **no** revierte la remuneración (se corrige cargando otra).
+**Novedades (`employee_events`)**: registro pensado como **inmutable** — se crean y se listan, no se editan; solo `admin` puede **borrar** una cargada por error (no hay endpoint de edición) ([BR-EMPLOYEE-002](03-BUSINESS-RULES.md)). Cada novedad guarda su `event_date` propia (puede diferir de la fecha de carga), el tipo, resumen + detalle y **quién la cargó** (`created_by_user_id` → `author`). Una novedad `salary_change` **actualiza `employees.current_remuneration`** en la misma transacción y deja `previous_amount` (snapshot del anterior) ([BR-EMPLOYEE-001](03-BUSINESS-RULES.md)). Borrar una novedad de cambio de sueldo **no** revierte la remuneración (se corrige cargando otra).
 
 **Validaciones/restricciones**: nombre completo y fecha de ingreso obligatorios; DNI obligatorio, normalizado a solo dígitos (7–9), **único** (chequeo explícito → 409). Fechas en `AAAA-MM-DD`. Remuneración `DECIMAL(12,2)` con getter → number. Baja = lógica (`active=false` + `termination_date`, por defecto hoy), reactivable (limpia la fecha de egreso). `DELETE` real del empleado (cascada a sus novedades) también es `admin`.
 
@@ -106,7 +110,7 @@
 
 **Objetivo**: registrar y seguir un pedido de producción textil desde su creación hasta la entrega, con ficha técnica detallada.
 
-**Usuarios**: `admin`/`billing`/`seller` crean; `workshop` opera el flujo de producción; todos los roles autenticados pueden leer.
+**Usuarios**: `admin`/`billing`/`seller`/`designer` crean; `workshop` opera el flujo de producción; todos los roles autenticados pueden leer.
 
 **Flujo principal**: crear pedido (cliente + uno o más `OrderItem` con ficha técnica) → estado inicial → avanza por los controles de producción (ver módulo 4) → factura (opcional, ver módulo 6).
 
@@ -114,7 +118,7 @@
 
 **Validaciones**: `OrderItem` exige `sizes` (JSON) no vacío; ficha técnica con múltiples campos condicionales (cuello/manga, marca/escudo con material+dimensiones, tela con composición/gramaje, sponsors, personalización de jugadores).
 
-**Restricciones**: borrado de pedido solo `admin`. El rol `seller` opera con ficha **reducida** (modo `restricted` en frontend: solo tipo de prenda + talles + personalización, precio oculto) — ver `project-seller-order-flow` en memoria previa, confirmar vigencia si se toca este flujo.
+**Restricciones**: borrado de pedido solo `admin`. El rol `seller` opera con ficha **reducida** (modo `restricted` en frontend: solo tipo de prenda + talles + personalización, precio oculto) — ver `project-seller-order-flow` en memoria previa, confirmar vigencia si se toca este flujo. El rol `designer` opera con la ficha **completa** pero sin precios (`hidePricing` en `OrderItemForm`), ve todos los pedidos con importes anulados, y solo mueve estados hasta `workshop_review` — ver [BR-ORDER-008](03-BUSINESS-RULES.md).
 
 **Estados**: ENUM amplio en `Order.status` (`orders` en DB) — incluye estados legados (`pending`, `under_review`, `workshop_review`, `observed`, `in_production`, `quality_check`, `sewing`, `stamping`, `ready`, `cancelled`) **y** los 6 controles de producción nuevos (`raw_material_control`, `cutting_control`, `printing_control`, `sewing_control`, `quality_control`, `packaging_control`). Después del último control el pedido pasa a `ready` ("Listo para despacho") y luego, ya sin checklist, a **`shipped`** ("Enviado") y **`delivered`** ("Entregado") — ver [BR-ORDER-007](03-BUSINESS-RULES.md). Los legados se conservan por compatibilidad de historial, el flujo activo real usa los controles — ver [03-BUSINESS-RULES.md](03-BUSINESS-RULES.md) y memoria previa `production-control-flow.md`.
 

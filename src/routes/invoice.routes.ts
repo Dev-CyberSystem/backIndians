@@ -9,7 +9,10 @@ const router = Router();
 
 router.use(authenticate);
 
-// Todos los roles autenticados pueden ver facturas (filtradas por rol en el service)
+// Facturación al cliente: admin, billing y seller (este último solo las suyas,
+// filtrado en el service). El taller y el diseñador no ven facturación.
+router.use(authorize('admin', 'billing', 'seller'));
+
 router.get('/', ctrl.listInvoices);
 router.get('/by-order/:orderId', [param('orderId').isInt({ min: 1 }), validate], ctrl.getInvoiceByOrder);
 router.get('/:id', [param('id').isInt({ min: 1 }), validate], ctrl.getInvoice);

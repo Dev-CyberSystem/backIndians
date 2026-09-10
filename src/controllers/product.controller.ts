@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../types';
 import * as productService from '../services/product.service';
+import { productsForRole } from '../services/pricingVisibility';
 
 export async function listProducts(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -9,7 +10,7 @@ export async function listProducts(req: AuthRequest, res: Response, next: NextFu
     const result = await productService.listProducts(page, limit);
     res.json({
       success: true,
-      data: result.products,
+      data: productsForRole(result.products, req.user?.role),
       meta: { page: result.page, limit: result.limit, total: result.total },
     });
   } catch (err) { next(err); }

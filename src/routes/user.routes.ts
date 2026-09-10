@@ -38,7 +38,7 @@ router.post(
     body('password')
       .matches(PWD_REGEX).withMessage(PWD_MSG),
     body('role')
-      .isIn(['admin', 'billing', 'workshop', 'seller']).withMessage('Rol inválido'),
+      .isIn(['admin', 'billing', 'workshop', 'seller', 'designer']).withMessage('Rol inválido'),
     validate,
   ],
   ctrl.createUser
@@ -54,7 +54,7 @@ router.put(
     body('email')
       .optional().trim().isEmail().withMessage('Email inválido').normalizeEmail(EMAIL_NORMALIZE_OPTS),
     body('role')
-      .optional().isIn(['admin', 'billing', 'workshop', 'seller']).withMessage('Rol inválido'),
+      .optional().isIn(['admin', 'billing', 'workshop', 'seller', 'designer']).withMessage('Rol inválido'),
     validate,
   ],
   ctrl.updateUser

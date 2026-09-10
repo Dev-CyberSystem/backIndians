@@ -163,6 +163,20 @@ export async function getInvoiceById(id: number, currentUser?: JwtPayload): Prom
   return invoice;
 }
 
+/** Sincroniza la cotización al cambiar cantidades/ítems de una ficha técnica. */
+export async function syncDraftInvoiceForOrder(orderId: number, total: number, transaction: Transaction): Promise<void> {
+  const invoices = await Invoice.findAll({ where: { order_id: orderId }, transaction, lock: transaction.LOCK.UPDATE });
+  for (const invoice of invoices) {
+    const payments = await InvoicePayment.count({ where: { invoice_id: invoice.id }, transaction });
+    if (invoice.status !== 'draft' || payments > 0 || Number(invoice.payment_amount) > 0) {
+      throw new AppError('Facturación debe revisar el pedido antes de cambiar cantidades o ítems: la factura ya fue emitida o tiene cobros', 409);
+    }
+    await invoice.update({
+      total_amount: calcTotal(total, invoice.extra_items ?? [], Number(invoice.discount_amount ?? 0)),
+    }, { transaction });
+  }
+}
+
 export async function updateInvoice(
   id: number,
   input: UpdateInvoiceInput,

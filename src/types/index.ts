@@ -1,6 +1,6 @@
 // Tipos y enums compartidos en todo el proyecto
 
-export type UserRole = 'admin' | 'billing' | 'workshop' | 'seller';
+export type UserRole = 'admin' | 'billing' | 'workshop' | 'seller' | 'designer';
 
 export type OrderStatus =
   | 'pending'

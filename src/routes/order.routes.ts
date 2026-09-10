@@ -42,10 +42,10 @@ router.get(
   ctrl.getOrder
 );
 
-// POST /orders — billing, admin y seller
+// POST /orders — billing, admin, seller y diseñador
 router.post(
   '/',
-  authorize('admin', 'billing', 'seller'),
+  authorize('admin', 'billing', 'seller', 'designer'),
   [
     body('client_id').isInt({ min: 1 }).withMessage('client_id requerido'),
     body('delivery_date').optional().isISO8601(),
@@ -119,6 +119,9 @@ router.put(
       'in_production', 'sewing', 'stamping', 'quality_check',
     ]),
     body('items').optional().isArray({ min: 1 }),
+    body('items.*.id').optional().isInt({ min: 1 }),
+    body('deleted_item_ids').optional().isArray(),
+    body('deleted_item_ids.*').optional().isInt({ min: 1 }),
     body('items.*.garment_type_id').optional().isInt({ min: 1 }),
     body('items.*.stock_fabric_id').optional().isInt({ min: 1 }),
     body('items.*.stock_fabric_ids').optional().isArray(),
@@ -168,7 +171,7 @@ router.delete(
 // POST /orders/:id/images — billing, admin y seller
 router.post(
   '/:id/images',
-  authorize('admin', 'billing', 'seller'),
+  authorize('admin', 'billing', 'seller', 'designer'),
   upload.single('image'),
   ctrl.uploadImage
 );
@@ -176,7 +179,7 @@ router.post(
 // POST /orders/:id/items/:itemId/size-chart — sube imagen de tabla de talles
 router.post(
   '/:id/items/:itemId/size-chart',
-  authorize('admin', 'billing', 'seller'),
+  authorize('admin', 'billing', 'seller', 'designer'),
   [param('id').isInt({ min: 1 }), param('itemId').isInt({ min: 1 }), validate],
   upload.single('image'),
   ctrl.uploadItemSizeChart
@@ -185,7 +188,7 @@ router.post(
 // DELETE /orders/:id/items/:itemId/size-chart
 router.delete(
   '/:id/items/:itemId/size-chart',
-  authorize('admin', 'billing', 'seller'),
+  authorize('admin', 'billing', 'seller', 'designer'),
   [param('id').isInt({ min: 1 }), param('itemId').isInt({ min: 1 }), validate],
   ctrl.deleteItemSizeChart
 );
@@ -193,7 +196,7 @@ router.delete(
 // DELETE /orders/:id/images/:imgId — billing, admin y seller
 router.delete(
   '/:id/images/:imgId',
-  authorize('admin', 'billing', 'seller'),
+  authorize('admin', 'billing', 'seller', 'designer'),
   [
     param('id').isInt({ min: 1 }),
     param('imgId').isInt({ min: 1 }),

@@ -68,14 +68,22 @@
 ### BR-ORDER-006 — El taller nunca ve los importes que se le cobran al cliente
 **Descripción**: para el rol `workshop`, la API anula los campos monetarios del pedido antes de responder: `order.total_amount` se devuelve en `0` y `order.items[].unit_price` en `null`, tanto en el detalle (`GET /orders/:id`, y el pedido que devuelve `PUT /orders/:id` al avanzar estado o guardar notas) como en el listado (`GET /orders`). El `listIncludes` del listado trae los ítems solo con `sizes` (para poder calcular unidades en la tabla de "Órdenes de trabajo"), nunca con `unit_price`. El frontend del taller además no renderiza ningún total: se quitaron la tarjeta "Total", el subtotal por ítem y la línea "Total del pedido" de `WorkshopOrderDetailPage.tsx`. El PDF de ficha técnica de pedido (`generateOrderPDF`) ya no incluía precios.
 **Módulo**: Pedidos (3).
-**Fuente**: `backIndians/src/services/order.service.ts` (`stripPricingForWorkshop`, llamada en `getOrderById` y `listOrders`), `frontIndians/src/pages/workshop/WorkshopOrderDetailPage.tsx`.
-**Estado**: Vigente desde 2026-09-07.
+**Fuente**: `backIndians/src/services/order.service.ts` (`stripPricing` + `hidesPricing`, con `PRICING_HIDDEN_ROLES = ['workshop','designer']`, llamada en `getOrderById` y `listOrders`), `frontIndians/src/pages/workshop/WorkshopOrderDetailPage.tsx`.
+**Estado**: Vigente desde 2026-09-07 (generalizado a `designer` el 2026-09-08).
 
 ### BR-ORDER-007 — Después de "Listo para despacho" el pedido mayorista se marca "Enviado" y "Entregado"
 **Descripción**: el flujo de un pedido de fábrica no termina en `ready` ("Listo para despacho"). Después vienen dos estados sin checklist: `shipped` ("Enviado", el pedido salió del taller hacia el cliente) y `delivered` ("Entregado", recibido por el cliente). Transiciones: **el taller** hace `ready → shipped` (`WORKSHOP_TRANSITIONS`); **facturación/admin** hace `shipped → delivered` (`BILLING_TRANSITIONS` / `ADMIN_TRANSITIONS`). El taller NO puede marcar "Entregado"; facturación NO puede marcar "Enviado". `admin` además puede corregir un paso atrás (`shipped → ready`, `delivered → shipped`) y cancelar desde `ready`/`shipped` (no desde `delivered`). En el dashboard, `shipped` y `delivered` cuentan como pedidos **terminados** igual que `ready` (quedan fuera del KPI de "pendientes" y suman a `ready_orders`).
 **Módulo**: Pedidos (3) / Dashboard (7).
 **Fuente**: `backIndians/src/services/order.service.ts` (`ORDER_STATUS_TRANSITIONS`), `frontIndians/src/utils/formatters.ts` (`WORKSHOP_TRANSITIONS` / `BILLING_TRANSITIONS` / `ADMIN_TRANSITIONS`, `ORDER_STATUS_LABELS`), `backIndians/src/services/dashboard.service.ts`. Esquema: modelos `Order` / `OrderStatusHistory`, migración `20260907-104-add-shipped-delivered-order-statuses.js` + `ensureSchema.ts`.
 **Estado**: Vigente desde 2026-09-07.
+
+### BR-ORDER-008 — El diseñador carga la ficha técnica completa y la manda al taller, sin ver precios ni facturación
+**Descripción**: el rol `designer` crea pedidos de producción con la **ficha técnica completa** (todos los campos de diseño: telas, colores, collar/manga, sponsors, bordado, puño, personalización por jugador, tabla de talles), igual que `admin`/`billing` — no la ficha reducida del vendedor. El pedido se crea sin `seller_id` (el diseñador no vende) y cualquier `unit_price` que venga en el payload se descarta server-side (`stripItemPricing`), de modo que la factura automática nace en `$0` y la completa facturación después. El diseñador **nunca** ve importes de pedidos ([BR-ORDER-006](#br-order-006--el-taller-nunca-ve-los-importes-que-se-le-cobran-al-cliente)), ni el módulo Facturas ni Costos ni Dashboard (403), ni el precio de los productos del catálogo (`price: null`). Cambia estados solo hasta el taller: `pending→under_review`, `under_review→observed|workshop_review`, `observed→under_review`; **no** opera los 6 controles de producción ni `shipped`/`delivered`, y **no** cancela. Puede editar la ficha solo mientras el pedido no salió al taller (`pending|under_review|observed`); en `workshop_review` o más adelante, `PUT /orders/:id` con `items` da 403. Ve **todos** los pedidos y clientes; stock y catálogo son de solo lectura.
+**Módulo**: Pedidos (3) / Catálogo (9) / Stock (5).
+**Fuente**: `backIndians/src/services/order.service.ts` (`ORDER_STATUS_TRANSITIONS.designer`, `hidesPricing`, `stripItemPricing`, guarda de edición en `updateOrder`), `backIndians/src/controllers/catalog.controller.ts` (`hidePriceForRole`), `backIndians/src/routes/{order,client,stock,invoice}.routes.ts`, `frontIndians/src/utils/formatters.ts` (`DESIGNER_TRANSITIONS`), `frontIndians/src/router/index.tsx`, `frontIndians/src/components/orders/OrderItemForm.tsx` (`hidePricing`). Esquema: ENUM `users.role`, migración `20260908-107-add-designer-role.js` + `ensureSchema.ts`. Tests: `backIndians/src/__tests__/api/factory-designer.test.ts`.
+**Estado**: Vigente desde 2026-09-08.
+
+**Corrección 2026-09-10 (DEC-026, autorizada por el usuario):** la edición del diseñador conserva el precio y la tabla de talles por `items[].id`; las bajas requieren `deleted_item_ids` explícitos y las altas nacen sin precio. IDs omitidos, repetidos o ajenos dan 409; prenda, color y cantidades enteras no negativas con al menos una unidad son obligatorios. Si cambia el total, se recalcula la factura borrador conservando extras y descuento; una factura emitida o con cobros bloquea el cambio con 409 y revierte la operación completa. La guarda de estado se aplica también a imágenes y tablas de talles bajo bloqueo transaccional del pedido. El diseñador no escribe notas del taller. Catálogo financiero (`/catalog/orders*`, `/catalog/invoices*`) da 403; `price`, `public_price`, `base_price` y `discount_percentage` se anulan donde existan en las lecturas técnicas. El editor de ficha está disponible en el detalle solo antes del taller.
 
 ---
 
@@ -164,6 +172,28 @@
 **Módulo**: Costos (8) / Pedidos (3).
 **Fuente**: migración `20260724-062-create-order-cost-details.js`.
 **Estado**: Vigente.
+
+---
+
+## Empleados (legajo)
+
+### BR-EMPLOYEE-001 — Un cambio de sueldo se registra como novedad y actualiza la ficha en la misma operación
+**Descripción**: no hay un campo "sueldo" que se edite suelto con historial aparte. Al cargar una novedad de tipo `salary_change` en el legajo, el servicio —dentro de una transacción— guarda `amount` (nuevo) y `previous_amount` (snapshot del `current_remuneration` anterior) en `employee_events`, y pisa `employees.current_remuneration` con el nuevo valor. `salary_change` sin `amount` se rechaza (400). El campo `current_remuneration` también es editable desde el modal de la ficha, pero ese camino **no deja rastro** (la UI lo aclara).
+**Módulo**: Empleados (2c).
+**Fuente**: `backIndians/src/services/employee.service.ts` (`addEmployeeEvent`), migración `106`. [DEC-024](08-DECISIONS.md).
+**Estado**: Vigente (2026-09-08).
+
+### BR-EMPLOYEE-002 — Las novedades del legajo son inmutables; borrar una de sueldo no revierte la remuneración
+**Descripción**: `employee_events` no tiene endpoint de edición. Solo `admin` puede **borrar** una novedad (para corregir una carga por error). Borrar una novedad `salary_change` **no** recalcula ni revierte `employees.current_remuneration` — la corrección se hace cargando otra novedad con el valor correcto.
+**Módulo**: Empleados (2c).
+**Fuente**: `backIndians/src/routes/employee.routes.ts` (sin ruta `PUT` de eventos), `services/employee.service.ts` (`deleteEmployeeEvent`). [DEC-024](08-DECISIONS.md).
+**Estado**: Vigente (2026-09-08).
+
+### BR-EMPLOYEE-003 — Todo el módulo de Empleados es exclusivo de `admin`
+**Descripción**: `employee.routes.ts` aplica `authorize('admin')` a nivel de router — lectura incluida. Ningún otro rol (`billing`, `workshop`, `seller`) accede a datos de empleados ni a la remuneración.
+**Módulo**: Empleados (2c).
+**Fuente**: `backIndians/src/routes/employee.routes.ts`. [DEC-024](08-DECISIONS.md).
+**Estado**: Vigente (2026-09-08).
 
 ---
 

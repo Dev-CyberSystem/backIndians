@@ -1,5 +1,5 @@
 import { Op, QueryTypes, WhereOptions, Transaction, UniqueConstraintError } from 'sequelize';
-import { autoCreateInvoiceForOrder } from './invoice.service';
+import { autoCreateInvoiceForOrder, syncDraftInvoiceForOrder } from './invoice.service';
 import { buildOrderCostSnapshot } from './cost.service';
 import { sequelize } from '../config/db';
 import {
@@ -29,6 +29,8 @@ import { getIO } from '../config/socket';
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
 export interface OrderItemInput {
+  // En edición identifica al ítem existente; nunca se acepta un ID de otro pedido.
+  id?: number;
   // Prenda y tela
   garment_type_id: number;
   stock_fabric_id?: number;    // legacy — primera tela
@@ -91,6 +93,7 @@ export interface CreateOrderInput {
 }
 
 export interface UpdateOrderInput {
+  deleted_item_ids?: number[];
   client_id?: number;
   delivery_date?: string;
   notes?: string;
@@ -191,14 +194,58 @@ const listIncludes = [
   },
 ];
 
-// El taller no debe conocer los importes que se le cobran al cliente: se anulan
-// los campos monetarios del pedido y de sus ítems antes de responder.
-function stripPricingForWorkshop(order: Order): void {
+// El taller y el diseñador no deben conocer los importes que se le cobran al
+// cliente: se anulan los campos monetarios del pedido y de sus ítems antes de
+// responder.
+const PRICING_HIDDEN_ROLES: ReadonlyArray<JwtPayload['role']> = ['workshop', 'designer'];
+
+function hidesPricing(role: JwtPayload['role']): boolean {
+  return PRICING_HIDDEN_ROLES.includes(role);
+}
+
+function stripPricing(order: Order): void {
   order.setDataValue('total_amount', 0 as never);
   const items: OrderItem[] = (order as unknown as { items?: OrderItem[] }).items ?? [];
   for (const item of items) {
     if (item?.setDataValue) item.setDataValue('unit_price', null as never);
   }
+}
+
+// Descarta cualquier unit_price del payload de ítems (para roles que no cargan
+// precios, como el diseñador). No muta el array original.
+function stripItemPricing(items: OrderItemInput[]): OrderItemInput[] {
+  return items.map((item) => ({ ...item, unit_price: undefined }));
+}
+
+function validateDesignerItems(items: OrderItemInput[]): void {
+  if (!items.length || items.some(item => !item.garment_type_id || !item.color?.trim() ||
+      !item.sizes || Array.isArray(item.sizes) || typeof item.sizes !== 'object' ||
+      Object.values(item.sizes).some(qty => !Number.isInteger(qty) || qty < 0) ||
+      !Object.values(item.sizes).some(qty => qty > 0))) {
+    throw new AppError('Completá prenda, color y al menos una unidad por ítem', 422);
+  }
+}
+
+function assertCanEditOrder(order: Order, user: JwtPayload): void {
+  if (user.role === 'designer' && !['pending', 'under_review', 'observed'].includes(order.status)) {
+    throw new AppError('El pedido ya está en el taller: no podés editar la ficha', 403);
+  }
+  if (user.role === 'seller') {
+    if (order.seller_id !== user.id) throw new AppError('No tenés permiso para editar este pedido', 403);
+    if (!['pending', 'observed'].includes(order.status)) {
+      throw new AppError('Solo podés editar pedidos en estado pendiente u observado', 403);
+    }
+  }
+}
+
+/** El estado y la escritura comparten lock con las transiciones del pedido. */
+async function withEditableOrder<T>(id: number, user: JwtPayload, action: (order: Order, t: Transaction) => Promise<T>): Promise<T> {
+  return sequelize.transaction(async (t) => {
+    const order = await Order.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!order) throw new AppError('Pedido no encontrado', 404);
+    assertCanEditOrder(order, user);
+    return action(order, t);
+  });
 }
 
 // Calcula el total sumando (sum de quantities en sizes) × unit_price por ítem
@@ -308,6 +355,13 @@ function buildItemsPayload(orderId: number, items: OrderItemInput[]) {
 export const ORDER_STATUS_TRANSITIONS: Record<string, Partial<Record<OrderStatus, OrderStatus[]>>> = {
   seller: {
     observed: ['under_review'],
+  },
+  // Diseñador: carga el pedido, lo revisa y lo manda al taller. No opera los
+  // controles de producción (de workshop_review en adelante es del taller).
+  designer: {
+    pending:      ['under_review'],
+    under_review: ['observed', 'workshop_review'],
+    observed:     ['under_review'],
   },
   billing: {
     pending:      ['under_review'],
@@ -422,8 +476,8 @@ export async function listOrders(
     distinct: true,
   });
 
-  if (currentUser.role === 'workshop') {
-    for (const row of rows) stripPricingForWorkshop(row);
+  if (hidesPricing(currentUser.role)) {
+    for (const row of rows) stripPricing(row);
   }
 
   return { orders: rows, total: count, page, limit };
@@ -459,8 +513,8 @@ export async function getOrderById(
     }
   }
 
-  // El taller no ve los importes que se le cobran al cliente.
-  if (currentUser?.role === 'workshop') stripPricingForWorkshop(order);
+  // El taller y el diseñador no ven los importes que se le cobran al cliente.
+  if (currentUser && hidesPricing(currentUser.role)) stripPricing(order);
 
   return order;
 }
@@ -470,10 +524,15 @@ export async function createOrder(
   currentUser: JwtPayload,
   sellerIdOverride?: number
 ): Promise<Order> {
-  const { client_id, delivery_date, notes, items } = input;
+  const { client_id, delivery_date, notes } = input;
 
   const client = await Client.findByPk(client_id);
   if (!client) throw new AppError('Cliente no encontrado', 404);
+
+  // El diseñador nunca carga precios: se ignora cualquier unit_price del payload.
+  // Billing/admin los completan en la revisión y la factura se recalcula ahí.
+  const items = currentUser.role === 'designer' ? stripItemPricing(input.items) : input.items;
+  if (currentUser.role === 'designer') validateDesignerItems(items);
 
   const total_amount = calcTotal(items);
   const seller_id =
@@ -558,72 +617,96 @@ export async function updateOrder(
   input: UpdateOrderInput,
   currentUser: JwtPayload
 ): Promise<Order> {
-  const order = await Order.findByPk(id);
-  if (!order) throw new AppError('Pedido no encontrado', 404);
+  let changedStatus: OrderStatus | undefined;
+  let orderNumber = '';
+  let sellerId: number | null = null;
+  await withEditableOrder(id, currentUser, async (order, t) => {
+    orderNumber = order.order_number;
+    sellerId = order.seller_id ?? null;
 
-  // Seller: solo puede editar sus propios pedidos en estado 'pending' u 'observed'
-  if (currentUser.role === 'seller') {
-    if (order.seller_id !== currentUser.id) {
-      throw new AppError('No tenés permiso para editar este pedido', 403);
-    }
-    if (order.status !== 'pending' && order.status !== 'observed') {
-      throw new AppError('Solo podés editar pedidos en estado pendiente u observado', 403);
-    }
-  }
+    const { status, workshop_notes, ...dataFields } = input;
 
-  const { status, workshop_notes, ...dataFields } = input;
+    // Validar y aplicar cambio de estado (solo workshop, billing, admin)
+    if (status && status !== order.status) {
+      const previousStatus = order.status as OrderStatus;
+      validateStatusTransition(currentUser.role, previousStatus, status);
 
-  // Validar y aplicar cambio de estado (solo workshop, billing, admin)
-  if (status && status !== order.status) {
-    const previousStatus = order.status as OrderStatus;
-    validateStatusTransition(currentUser.role, previousStatus, status);
+      // El checklist de cada control es un registro (queda quién tildó qué y cuándo),
+      // no un requisito para avanzar: hay ítems que no aplican según la prenda
+      // (ej. "insumos: cierres" en una remera sin cierres).
+      await order.update({ status }, { transaction: t });
 
-    // El checklist de cada control es un registro (queda quién tildó qué y cuándo),
-    // no un requisito para avanzar: hay ítems que no aplican según la prenda
-    // (ej. "insumos: cierres" en una remera sin cierres).
-    await order.update({ status });
+      // Al entrar a un control, reiniciar sus tildes (arranca limpio: avance = vacío,
+      // retroceso por observación = se rehace el control).
+      if (isControlStatus(status)) {
+        await OrderChecklistCheck.destroy({ where: { order_id: order.id, status }, transaction: t });
+      }
 
-    // Al entrar a un control, reiniciar sus tildes (arranca limpio: avance = vacío,
-    // retroceso por observación = se rehace el control).
-    if (isControlStatus(status)) {
-      await OrderChecklistCheck.destroy({ where: { order_id: order.id, status } });
+      await recordStatusChange(order.id, previousStatus, status, currentUser.id, input.status_comment, t);
+      changedStatus = status;
     }
 
-    await recordStatusChange(order.id, previousStatus, status, currentUser.id, input.status_comment);
-    emitStatusChange(order.id, status, order.order_number, order.seller_id ?? null);
-  }
+    // Actualizar datos del pedido (admin, billing, seller en pending)
+    if (currentUser.role !== 'workshop') {
+      const updateData: Partial<Order> = {};
 
-  // Actualizar datos del pedido (admin, billing, seller en pending)
-  if (currentUser.role !== 'workshop') {
-    const updateData: Partial<Order> = {};
+      if (dataFields.client_id !== undefined) updateData.client_id = dataFields.client_id;
+      if (dataFields.delivery_date !== undefined)
+        updateData.delivery_date = new Date(dataFields.delivery_date);
+      if (dataFields.notes !== undefined) updateData.notes = dataFields.notes;
 
-    if (dataFields.client_id !== undefined) updateData.client_id = dataFields.client_id;
-    if (dataFields.delivery_date !== undefined)
-      updateData.delivery_date = new Date(dataFields.delivery_date);
-    if (dataFields.notes !== undefined) updateData.notes = dataFields.notes;
+      if (Object.keys(updateData).length > 0) await order.update(updateData, { transaction: t });
 
-    if (Object.keys(updateData).length > 0) await order.update(updateData);
-
-    // Reemplazar ítems en transacción (evita ventana de datos sin items)
-    if (input.items?.length) {
-      await sequelize.transaction(async (t) => {
-        await OrderItem.destroy({ where: { order_id: id }, transaction: t });
-        await OrderItem.bulkCreate(buildItemsPayload(id, input.items!), { transaction: t });
-        await order.update({ total_amount: calcTotal(input.items!) }, { transaction: t });
+      // Reemplazar ítems en transacción (evita ventana de datos sin items)
+      if (input.items?.length) {
+        if (currentUser.role === 'designer') {
+          validateDesignerItems(input.items);
+          const existing = await OrderItem.findAll({ where: { order_id: id }, transaction: t });
+          const byId = new Map(existing.map(item => [item.id, item]));
+          const retainedIds = input.items.flatMap(item => item.id === undefined ? [] : [item.id]);
+          const deletedIds = input.deleted_item_ids ?? [];
+          const mentionedIds = [...retainedIds, ...deletedIds];
+          // Un ID omitido no significa borrar: evita perder cotizaciones por un cliente viejo.
+          if (new Set(mentionedIds).size !== mentionedIds.length ||
+              mentionedIds.some(itemId => !byId.has(itemId)) ||
+              existing.some(item => !mentionedIds.includes(item.id))) {
+            throw new AppError('La ficha cambió o faltan IDs de ítems. Recargá el pedido antes de editar', 409);
+          }
+          const items = input.items.map(item => ({
+            ...item,
+            unit_price: item.id !== undefined && byId.get(item.id)!.unit_price != null
+              ? Number(byId.get(item.id)!.unit_price) : undefined,
+          }));
+          const total = calcTotal(items);
+          if (total !== Number(order.total_amount)) await syncDraftInvoiceForOrder(id, total, t);
+          for (const [index, payload] of buildItemsPayload(id, items).entries()) {
+            const itemId = items[index].id;
+            if (itemId !== undefined) await byId.get(itemId)!.update(payload, { transaction: t });
+            else await OrderItem.create(payload, { transaction: t });
+          }
+          if (deletedIds.length) await OrderItem.destroy({ where: { order_id: id, id: deletedIds }, transaction: t });
+          await order.update({ total_amount: total }, { transaction: t });
+        } else {
+          await OrderItem.destroy({ where: { order_id: id }, transaction: t });
+          await OrderItem.bulkCreate(buildItemsPayload(id, input.items), { transaction: t });
+          await order.update({ total_amount: calcTotal(input.items) }, { transaction: t });
+        }
 
         // Re-congela el detalle de costos con los costos vigentes al re-guardar
         const createdItems = await OrderItem.findAll({
           where: { order_id: id }, order: [['id', 'ASC']], transaction: t,
         });
         await buildOrderCostSnapshot(id, order.client_id, createdItems, t);
-      });
+      }
     }
-  }
 
-  // Notas de taller (workshop, billing y admin — no seller)
-  if (workshop_notes !== undefined && currentUser.role !== 'seller') {
-    await order.update({ workshop_notes });
-  }
+    // Notas de taller (workshop, billing y admin — no seller)
+    if (workshop_notes !== undefined && ['admin', 'billing', 'workshop'].includes(currentUser.role)) {
+      await order.update({ workshop_notes }, { transaction: t });
+    }
+  });
+
+  if (changedStatus) emitStatusChange(id, changedStatus, orderNumber, sellerId);
 
   return getOrderById(id, currentUser);
 }
@@ -647,95 +730,105 @@ export async function uploadOrderImage(
   description: string | undefined,
   currentUser: JwtPayload
 ): Promise<OrderImage> {
-  const order = await Order.findByPk(orderId);
-  if (!order) throw new AppError('Pedido no encontrado', 404);
-
-  const imageCount = await OrderImage.count({ where: { order_id: orderId } });
-  if (imageCount >= MAX_IMAGES_PER_ORDER) {
-    throw new AppError(`El pedido ya tiene el máximo de ${MAX_IMAGES_PER_ORDER} imágenes`, 422);
-  }
-
-  const result = await new Promise<{ secure_url: string; public_id: string }>(
-    (resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        { folder: `textil/orders/${orderId}` },
-        (error, result) => {
-          if (error || !result) return reject(error || new Error('Upload fallido'));
-          resolve({ secure_url: result.secure_url, public_id: result.public_id });
-        }
-      );
-      uploadStream.end(file.buffer);
+  return withEditableOrder(orderId, currentUser, async (_order, t) => {
+    const imageCount = await OrderImage.count({ where: { order_id: orderId }, transaction: t });
+    if (imageCount >= MAX_IMAGES_PER_ORDER) {
+      throw new AppError(`El pedido ya tiene el máximo de ${MAX_IMAGES_PER_ORDER} imágenes`, 422);
     }
-  );
 
-  return OrderImage.create({
-    order_id: orderId,
-    url: result.secure_url,
-    cloudinary_public_id: result.public_id,
-    description: description || null,
-    uploaded_by: currentUser.id,
+    const result = await new Promise<{ secure_url: string; public_id: string }>(
+      (resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: `textil/orders/${orderId}` },
+          (error, result) => {
+            if (error || !result) return reject(error || new Error('Upload fallido'));
+            resolve({ secure_url: result.secure_url, public_id: result.public_id });
+          }
+        );
+        uploadStream.end(file.buffer);
+      }
+    );
+
+    return OrderImage.create({
+      order_id: orderId,
+      url: result.secure_url,
+      cloudinary_public_id: result.public_id,
+      description: description || null,
+      uploaded_by: currentUser.id,
+    }, { transaction: t });
   });
 }
 
 export async function deleteOrderImage(
   orderId: number,
-  imageId: number
+  imageId: number,
+  currentUser: JwtPayload
 ): Promise<void> {
-  const image = await OrderImage.findOne({
-    where: { id: imageId, order_id: orderId },
-  });
-  if (!image) throw new AppError('Imagen no encontrada', 404);
+  return withEditableOrder(orderId, currentUser, async (_order, t) => {
+    const image = await OrderImage.findOne({
+      where: { id: imageId, order_id: orderId },
+      transaction: t,
+    });
+    if (!image) throw new AppError('Imagen no encontrada', 404);
 
-  await deleteImage(image.cloudinary_public_id);
-  await image.destroy();
+    await deleteImage(image.cloudinary_public_id);
+    await image.destroy({ transaction: t });
+  });
 }
 
 export async function uploadItemSizeChart(
   orderId: number,
   itemId: number,
-  file: Express.Multer.File
+  file: Express.Multer.File,
+  currentUser: JwtPayload
 ): Promise<OrderItem> {
-  const item = await OrderItem.findOne({ where: { id: itemId, order_id: orderId } });
-  if (!item) throw new AppError('Ítem no encontrado', 404);
+  return withEditableOrder(orderId, currentUser, async (_order, t) => {
+    const item = await OrderItem.findOne({ where: { id: itemId, order_id: orderId }, transaction: t });
+    if (!item) throw new AppError('Ítem no encontrado', 404);
 
-  // Eliminar imagen anterior si existe
-  if (item.size_chart_cloudinary_id) {
-    await deleteImage(item.size_chart_cloudinary_id).catch(() => null);
-  }
-
-  const result = await new Promise<{ secure_url: string; public_id: string }>(
-    (resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        { folder: `textil/orders/${orderId}/size-charts` },
-        (error, res) => {
-          if (error || !res) return reject(error || new Error('Upload fallido'));
-          resolve({ secure_url: res.secure_url, public_id: res.public_id });
-        }
-      );
-      uploadStream.end(file.buffer);
+    // Eliminar imagen anterior si existe
+    if (item.size_chart_cloudinary_id) {
+      await deleteImage(item.size_chart_cloudinary_id).catch(() => null);
     }
-  );
 
-  await item.update({
-    size_chart_image_url: result.secure_url,
-    size_chart_cloudinary_id: result.public_id,
+    const result = await new Promise<{ secure_url: string; public_id: string }>(
+      (resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: `textil/orders/${orderId}/size-charts` },
+          (error, res) => {
+            if (error || !res) return reject(error || new Error('Upload fallido'));
+            resolve({ secure_url: res.secure_url, public_id: res.public_id });
+          }
+        );
+        uploadStream.end(file.buffer);
+      }
+    );
+
+    await item.update({
+      size_chart_image_url: result.secure_url,
+      size_chart_cloudinary_id: result.public_id,
+    }, { transaction: t });
+
+    if (hidesPricing(currentUser.role)) item.setDataValue('unit_price', null as never);
+    return item;
   });
-
-  return item;
 }
 
 export async function deleteItemSizeChart(
   orderId: number,
-  itemId: number
+  itemId: number,
+  currentUser: JwtPayload
 ): Promise<void> {
-  const item = await OrderItem.findOne({ where: { id: itemId, order_id: orderId } });
-  if (!item) throw new AppError('Ítem no encontrado', 404);
+  return withEditableOrder(orderId, currentUser, async (_order, t) => {
+    const item = await OrderItem.findOne({ where: { id: itemId, order_id: orderId }, transaction: t });
+    if (!item) throw new AppError('Ítem no encontrado', 404);
 
-  if (item.size_chart_cloudinary_id) {
-    await deleteImage(item.size_chart_cloudinary_id).catch(() => null);
-  }
+    if (item.size_chart_cloudinary_id) {
+      await deleteImage(item.size_chart_cloudinary_id).catch(() => null);
+    }
 
-  await item.update({ size_chart_image_url: null, size_chart_cloudinary_id: null });
+    await item.update({ size_chart_image_url: null, size_chart_cloudinary_id: null }, { transaction: t });
+  });
 }
 
 export async function getOrderHistory(

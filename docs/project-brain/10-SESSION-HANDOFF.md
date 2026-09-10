@@ -4,7 +4,35 @@
 
 ---
 
-## Última actualización: 2026-09-08 — Módulo de Empleados (legajo + histórico de novedades)
+## Última actualización: 2026-09-10 — Correcciones del perfil diseñador
+
+El usuario pidió implementar las correcciones de la revisión Go/No Go. Se corrigieron R1–R4 en `feature/perfil-disenador` en ambos repos. Se integró por fast-forward el master local v1.11.0 (base back `6740474`, front `4e8afd3`) conservando la feature local. No hubo push, merge de la feature a master ni despliegue.
+
+### Cambios
+
+- Permisos explícitos en ventas, facturas, pagos y comprobantes del catálogo. Sanitización de precios alternativos del catálogo y productos base; respuesta de tabla de talles sin precio. El frontend limpia caché/carrito entre sesiones y no monta el carrito del diseñador.
+- Edición por ID estable: conserva precio y tabla de talles, altas sin cotizar, bajas explícitas en `deleted_item_ids`; 409 para IDs inválidos/omitidos. Validación de prenda, color y unidades.
+- Si cambia el total, sincroniza factura borrador sin cobros conservando extras/descuento. Factura emitida o con cobros: 409 y rollback completo. Edición, estado, historial y snapshot comparten transacción; adjuntos usan la misma guarda de estado y bloqueo del pedido.
+- Editor de ficha existente con ítems/notas/tablas de talles y reintento de adjuntos sin duplicar ítems. Editable en pendiente, revisión y observado; solo lectura desde taller.
+- Regresiones ampliadas en `factory-designer.test.ts`; reproducción aislada convertida en verificación de correcciones. E2E nuevo en `frontIndians/e2e/tests/designer.spec.ts` (escritorio y móvil).
+
+### Validación
+
+**GO técnico para preparar release.** Backend: typecheck limpio y `npm run test:full` con 64 suites / 478 tests aprobados. Frontend: 52 tests aprobados y build de producción limpio. E2E final: 2/2 (Chromium escritorio y móvil). Reproducción aislada de los fallos originales: pasa con las correcciones. `git diff --check` limpio en ambos repos.
+
+El navegador conectado no estaba disponible. Se probó la UI con Playwright/Chromium real y API/base locales: creación de ficha, cotización administrativa, observado, corrección que conserva identidad/precio/total y envío al taller con edición bloqueada. Capturas de escritorio/móvil revisadas visualmente. Cloudinary y pagos externos no se ejercitaron en vivo; adjuntos cubiertos por tests API con Cloudinary simulado.
+
+Lint de los componentes corregidos y helpers: sin errores. La revisión ampliada encontró deuda previa de variables sin usar en CatalogPage y StockPage y advertencia React Hook Form en CatalogPage; no se modificó esa lógica ajena al cambio.
+
+### Release pendiente
+
+Preparar release según [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md): backup, versión nueva, despliegue conjunto back/front, migración 107 en producción y smoke por roles. Migración 107 y `ensureSchema.ts` coherentes por lectura; no se modificó ninguna migración ya aplicada ni código AFIP. No se verificó el estado remoto/productivo. Los commits de esta sesión se identifican con `git log -1` en cada repo.
+
+El archivo importado `backIndians/AGENTS.md` no existe; se usaron las reglas de `backIndians/CLAUDE.md` y el cerebro documental. Ver [DEC-026](08-DECISIONS.md) y [revisión con seguimiento](../reviews/2026-09-10-perfil-disenador.md).
+
+---
+
+## Sesión anterior: 2026-09-08 — Módulo de Empleados (legajo + histórico de novedades)
 
 Pedido del usuario: nueva sección "Empleados" con todos sus datos (nombre completo, DNI, dirección, email, teléfono, fecha de ingreso, remuneración, sector) **y** un histórico de novedades del legajo (cambios de sueldo, sanciones, notificaciones, enfermedad, etc.) con fecha y autor. Mismo estilo visual que Proveedores (cards + filtros).
 
@@ -29,8 +57,8 @@ Decidido con el usuario (vía preguntas): **módulo entero solo `admin`** (es da
 ### Falta
 
 1. **Probar en navegador** `/employees` (alta, filtros, legajo, cargar novedades incl. cambio de sueldo, baja).
-2. **Sin commitear** (a menos que se haya commiteado después de escribir esto) — mismo criterio que el resto de la rama. **Al releasear: `npm run migrate` en producción** (migración 106).
-3. No hay enlace con `User` (cuenta de sistema) ni con Caja — decisión de mantenerlo aislado.
+2. **Commiteado y mergeado (fast-forward) a `master` LOCAL** en ambos repos, junto con Proveedores y la franja de detalles — `master` local quedó **3 commits adelante de `origin/master`** y **SIN pushear** (back tip `f0e8082`, front tip `a4e8334`). El usuario saca branches nuevas desde este `master`. **Al releasear: `npm run migrate` en producción** (migración 106; prod no usa `sync()`).
+3. No hay enlace con `User` (cuenta de sistema) ni con Caja — decisión de mantenerlo aislado ([DEC-024](08-DECISIONS.md)).
 
 ---
 
@@ -59,8 +87,8 @@ Decidido con el usuario (vía preguntas): **solo CRUD de proveedores**, tabla nu
 ### Falta
 
 1. **Probar en navegador** `/suppliers` (crear/editar/baja/filtrar) — no se abrió el navegador en esta sesión.
-2. **Sin commitear**: los cambios quedaron en el working tree de la rama actual en ambos repos. Rama, merge y release los decide el usuario (ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md)). **Al releasear: correr `npm run migrate` en producción** (la migración 105 crea la tabla; producción no usa `sync()`).
-3. Enganche opcional con Costos/Stock (registrar de qué proveedor se compró) quedó **fuera de alcance** por decisión explícita del usuario.
+2. **Commiteado y mergeado (fast-forward) a `master` LOCAL** en ambos repos (ver la entrada de Empleados de arriba — mismo push pendiente). **Al releasear: `npm run migrate` en producción** (migración 105 crea `suppliers`; prod no usa `sync()`).
+3. Enganche opcional con Costos/Stock (registrar de qué proveedor se compró) quedó **fuera de alcance** por decisión explícita del usuario ([DEC-023](08-DECISIONS.md)).
 
 ---
 
@@ -84,7 +112,7 @@ Decidido con el usuario (vía preguntas): la franja va **entre el hero y la gril
 
 1. **Cargar el contenido desde el panel** (*Tienda online → Configuración → Sección destacada → Detalles de la prenda*): tres fotos verticales de la camiseta + título y texto de cada una, y opcionalmente el título de la franja.
 2. **Probar en navegador** `/tienda/coleccion/<slug>` en desktop y mobile una vez cargadas las fotos.
-3. **Sin commitear**: los cambios quedaron en el working tree de `master` en ambos repos. Rama, merge y release los decide el usuario (ver [11-RELEASE-Y-ROLLBACK.md](11-RELEASE-Y-ROLLBACK.md)).
+3. **Commiteado** (back `a9a9001` / front `f40a7c4`) y luego **mergeado a `master` LOCAL** el 2026-09-08 junto con Proveedores y Empleados — `master` local 3 commits adelante de `origin/master`, **sin pushear** (ver la entrada de Empleados). Sigue sin cargarse el contenido desde el panel ni probarse en navegador.
 
 ---
 

@@ -1,6 +1,19 @@
 # 09 — Estado actual del proyecto
 
+## Actualización 2026-09-10 — Perfil diseñador corregido
+
+Implementados R1–R4 de la [revisión](../reviews/2026-09-10-perfil-disenador.md), sobre `feature/perfil-disenador` en ambos repos e integrado el master local v1.11.0. Prueba E2E de creación, corrección de observado cotizado y envío al taller aprobada en Chromium escritorio y móvil; capturas revisadas visualmente. El resultado final de la suite general y los pasos pendientes de release se registran en [10-SESSION-HANDOFF.md](10-SESSION-HANDOFF.md). No se despleg? ni se aplic? la migración 107 en producción.
+
 > Fotografía al **2026-08-05**, con una sección de actualización al **2026-08-19** al principio (ver abajo).
+
+## Actualización 2026-09-08 — dos módulos internos nuevos (Proveedores, Empleados) — mergeados a `master` LOCAL, sin pushear
+
+Dos módulos del panel, pedidos por el usuario, construidos en la misma sesión sobre la rama `feature/collection-detalles-prenda` y luego **mergeados (fast-forward) a `master` local en ambos repos**. **`master` local quedó 3 commits adelante de `origin/master`** (v1.10.0): `franja de 3 detalles de la prenda` (sesión previa, estaba sin mergear) + `proveedores` + `empleados`. **Nada se pusheó**: el usuario va a sacar branches nuevas desde este `master`. Al releasear hará falta `npm run migrate` en producción (migraciones **105** y **106**).
+
+- **Proveedores** (`/suppliers`, roles `admin`/`billing`). ABM aislado de proveedores de telas/avíos/servicios: datos comerciales completos + `category` (rubro, texto libre) + `active` (baja lógica). Cards + filtros (texto, rubro, estado). Tabla `suppliers` nueva, **sin FK a otros dominios** — se descartó portar el módulo de compras/remitos de Farol Bike ([DEC-023](08-DECISIONS.md)). CUIT normalizado a 11 dígitos y único. `DELETE` real solo `admin`. Migración 105. Test `factory-suppliers.test.ts` 6/6.
+- **Empleados** (`/employees`, **solo `admin`** — dato de nómina). Legajo del personal (nombre, DNI único, dirección, email, teléfono, fecha de ingreso, `current_remuneration`, `sector` libre) + **histórico de novedades** (`employee_events`: cambio de sueldo, sanción, notificación, enfermedad, licencia, ingreso/egreso, otra), cada una con fecha propia y autor. Una novedad `salary_change` actualiza la remuneración de la ficha y guarda el monto anterior; las novedades son **inmutables** (solo `admin` borra una cargada por error, y eso no revierte el sueldo) — [DEC-024](08-DECISIONS.md). Baja lógica con `termination_date`. Cards + filtros + modal de legajo con línea de tiempo. Migración 106 (`employees` + `employee_events`, solo FK a `users` como autor). Test `factory-employees.test.ts` 6/6.
+
+Ambos son **entidades aisladas** (no tocan esquema existente; sus tablas las crea `sync()` en dev, no están en `ensureSchema.ts`). Typecheck limpio en los dos repos; eslint sin problemas nuevos. **No probados en navegador todavía.** Cerebro actualizado: 00, 02 (módulos 2b y 2c), 05, 06, 08 (DEC-023/024), 10.
 
 ## Actualización 2026-09-01 — RELEASE v1.5.0 EN PRODUCCIÓN — junta 3 features
 
@@ -121,6 +134,8 @@ Rama `fix/catalogo-refresco-pago` (ambos repos), **sin mergear ni releasear**. E
 
 - Autenticación (sistema + tienda, dos JWT independientes).
 - Usuarios y clientes (CRUD).
+- Proveedores (ABM aislado con cards + filtros — migración 105, 2026-09-08, en `master` local sin pushear).
+- Empleados: legajo + histórico de novedades, solo `admin` (migración 106, 2026-09-08, en `master` local sin pushear).
 - Pedidos de fábrica con ficha técnica completa.
 - Controles de producción con checklist (estructura y persistencia — reglas finas de "observado" no verificadas línea por línea).
 - Stock de insumos.

@@ -27,6 +27,7 @@ Una fábrica textil que produce indumentaria deportiva **a pedido** (no en serie
 | `billing` (facturación/administración) | Pedidos, clientes, facturas, caja, catálogo, costos, tienda (admin), settings | mismas fuentes; visible en `authorize('admin','billing')` repetido en casi todos los routers |
 | `workshop` (taller) | Ve y actualiza únicamente el flujo de controles de producción de los pedidos, tilda checklist | `order.routes.ts` (`authorize('workshop','admin')` en checklist), `frontIndians/src/pages/workshop/` |
 | `seller` (vendedor) | Carga pedidos con ficha reducida, ve catálogo del cliente asignado, gestiona sus propios pedidos/pedidos de catálogo | `project-seller-order-flow` (memoria previa), rutas con `authorize(...,'seller')` |
+| `designer` (diseñador) | Carga pedidos con la **ficha técnica completa** y los manda al taller (`pending → under_review → workshop_review`); ve todos los pedidos (sin importes), clientes, stock (solo lectura) y catálogo (sin precios). **Nunca** ve costos de producción ni facturación al cliente. No opera los controles de producción. | migración `107` (ENUM `users.role`), `ORDER_STATUS_TRANSITIONS.designer` + `stripPricing`/`hidesPricing` en `order.service.ts`, `hidePriceForRole` en `catalog.controller.ts`, `DESIGNER_TRANSITIONS` en `frontIndians/src/utils/formatters.ts`, `factory-designer.test.ts` |
 
 ### Usuarios externos
 | Actor | Qué hace | Evidencia |

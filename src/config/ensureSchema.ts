@@ -384,6 +384,23 @@ export async function ensureSchema(): Promise<void> {
   } catch (err) {
     logger.error('ensureSchema.orderShippedDelivered', err, { meta: { fatal: false } });
   }
+
+  // ─── Rol "Diseñador" en users.role (migración 107) ─────────────────────────
+  // Carga pedidos con la ficha técnica completa y los manda al taller, sin ver
+  // costos ni facturación. `sync()` no altera ENUMs existentes; el ALTER solo
+  // corre si el valor aún no está. Espeja la migración 107 de producción.
+  try {
+    const users = await qi.describeTable('users');
+    if (!JSON.stringify(users.role ?? {}).includes('designer')) {
+      await qi.sequelize.query(
+        "ALTER TABLE users MODIFY COLUMN role " +
+        "ENUM('admin','billing','workshop','seller','designer') NOT NULL DEFAULT 'workshop'"
+      );
+      logger.info('ensureSchema.enumExpanded', { meta: { table: 'users', column: 'role', values: 'designer' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.userDesignerRole', err, { meta: { fatal: false } });
+  }
 }
 
 /**

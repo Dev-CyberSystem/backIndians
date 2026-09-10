@@ -1,6 +1,6 @@
 # 06 — API interna e integraciones externas
 
-Todos los endpoints internos cuelgan de `/api/v1` (montaje en `backIndians/src/routes/index.ts`). Roles: `admin` | `billing` | `workshop` | `seller` (staff); comprador de tienda no tiene roles, solo autenticado/no autenticado.
+Todos los endpoints internos cuelgan de `/api/v1` (montaje en `backIndians/src/routes/index.ts`). Roles: `admin` | `billing` | `workshop` | `seller` | `designer` (staff); comprador de tienda no tiene roles, solo autenticado/no autenticado.
 
 ## Endpoints internos por router
 
@@ -18,7 +18,7 @@ Todos los endpoints internos cuelgan de `/api/v1` (montaje en `backIndians/src/r
 CRUD de usuarios internos: `GET /`, `POST /`, `PUT /:id`, `PATCH /:id/toggle`, `POST /:id/resend-welcome`, `PATCH /:id/password`, `DELETE /:id`.
 
 ### `/clients` — `client.routes.ts`
-`GET /`, `GET /:id` → `admin,billing,seller`. `POST /`, `PUT /:id` → `admin,billing,seller`. `DELETE /:id` → `admin`.
+`GET /`, `GET /:id` → `admin,billing,seller,designer`. `POST /`, `PUT /:id` → `admin,billing,seller,designer`. `DELETE /:id` → `admin`.
 
 ### `/suppliers` — `supplier.routes.ts` — todo `authorize('admin','billing')` salvo `DELETE`
 Directorio autónomo de proveedores (no toca stock/costos/pedidos). `GET /` (filtros `search`, `category`, `include_inactive`, `page`, `limit`; paginación backend por `meta`), `GET /categories` (rubros distintos ya cargados, para el filtro del frontend), `GET /:id`, `POST /`, `PUT /:id`, `PATCH /:id/status` (baja/alta lógica por `active`). `DELETE /:id` → **solo `admin`** (borrado real irreversible). CUIT normalizado a 11 dígitos y único cuando está informado (chequeo explícito en el service → 409). Migración `105` (`suppliers`).
@@ -27,14 +27,14 @@ Directorio autónomo de proveedores (no toca stock/costos/pedidos). `GET /` (fil
 Legajo del personal + histórico de novedades. Restringido a `admin` (dato de nómina). Empleado: `GET /` (filtros `search`, `sector`, `include_inactive`, `page`, `limit`), `GET /sectors`, `GET /:id` (incluye `events` con `author`, orden `event_date DESC`), `POST /`, `PUT /:id`, `PATCH /:id/status` (baja lógica → setea `termination_date`; alta → la limpia), `DELETE /:id` (borrado real, cascada a novedades). Novedades: `GET /:id/events`, `POST /:id/events` (tipos `salary_change|sanction|notification|sick_leave|leave|onboarding|offboarding|other`; `salary_change` exige `amount`, actualiza `employees.current_remuneration` y guarda `previous_amount`), `DELETE /:id/events/:eventId` (solo para corregir carga por error; **no** revierte la remuneración). DNI normalizado a 7–9 dígitos y único → 409. Migración `106` (`employees`, `employee_events`).
 
 ### `/orders` — `order.routes.ts` — todo autenticado
-`GET /`, `GET /:id`, `GET /:id/pdf`, `GET /:id/history` → cualquier rol. `POST /` → `admin,billing,seller`. `PUT /:id` → cualquier rol (permisos finos en el service). `DELETE /:id` → `admin`. `POST/DELETE /:id/images` → `admin,billing,seller`. `POST/DELETE /:id/items/:itemId/size-chart` → imagen de tabla de talles. `GET /:id/checklist` → cualquier rol; `POST /:id/checklist` → `workshop,admin`.
-Para el rol `workshop`, `GET /` y `GET /:id` (y el pedido que devuelve `PUT /:id`) llegan con `total_amount: 0` y `unit_price: null` en los ítems — ver [BR-ORDER-006](03-BUSINESS-RULES.md). El listado (`GET /`) incluye los ítems solo con `sizes` para calcular unidades en la tabla; el detalle trae el ítem completo salvo `unit_price`.
+`GET /`, `GET /:id`, `GET /:id/pdf`, `GET /:id/history` → cualquier rol. `POST /` → `admin,billing,seller,designer`. `PUT /:id` → cualquier rol (permisos finos en el service). `DELETE /:id` → `admin`. `POST/DELETE /:id/images` → `admin,billing,seller,designer`. `POST/DELETE /:id/items/:itemId/size-chart` → imagen de tabla de talles (`admin,billing,seller,designer`). `GET /:id/checklist` → cualquier rol; `POST /:id/checklist` → `workshop,admin`.
+Para los roles `workshop` **y `designer`**, `GET /` y `GET /:id` (y el pedido que devuelve `PUT /:id`) llegan con `total_amount: 0` y `unit_price: null` en los ítems — ver [BR-ORDER-006](03-BUSINESS-RULES.md) y [BR-ORDER-008](03-BUSINESS-RULES.md) (helper `hidesPricing`/`stripPricing` en `order.service.ts`). El `designer` ve **todos** los pedidos (no se filtra por `seller_id` ni por estado como al `workshop`); crea pedidos sin `seller_id` y con la ficha técnica completa, pero cualquier `unit_price` del payload se descarta (`stripItemPricing`). Transiciones del `designer`: `pending→under_review`, `under_review→observed|workshop_review`, `observed→under_review` (nada de `workshop_review` en adelante). Edita la ficha solo mientras el pedido no salió al taller (`pending|under_review|observed`).
 
 ### `/stock` — `stock.routes.ts`
-`authorize('admin','billing','workshop')` salvo `/available`. Categorías (`GET/POST/PUT`, `DELETE` solo admin), movimientos (`GET/POST`), materiales (`GET`, `POST/PUT` admin+billing, `DELETE` admin+billing), `/metrics`.
+`authorize('admin','billing','workshop','designer')` salvo `/available` (abierto a todo autenticado). El `designer` entra **solo de lectura**: `GET /`, `GET /:id`, `GET /metrics`, `GET /categories`, `GET /movements`. `POST /movements` lleva `authorize('admin','billing','workshop')` explícito (el `designer` no registra movimientos); categorías (`POST/PUT` admin+billing, `DELETE` solo admin), materiales (`POST/PUT/DELETE` admin+billing).
 
 ### `/invoices` — `invoice.routes.ts`
-`GET /`, `GET /by-order/:orderId`, `GET /:id`, `GET /:id/pdf` → cualquier rol autenticado. `PUT /:id`, `POST /:id/payments` → `admin,billing`.
+`router.use(authorize('admin','billing','seller'))` — **el `workshop` y el `designer` ya no acceden a facturación** (antes `GET` estaba abierto a todo autenticado). `GET /`, `GET /by-order/:orderId`, `GET /:id`, `GET /:id/pdf` → `admin,billing,seller` (el `seller` filtrado a las suyas en el service). `PUT /:id`, `POST /:id/payments` → `admin,billing`.
 
 ### `/cash` — `cash.routes.ts` — todo `authorize('admin','billing')`
 `/summary`, cuentas (CRUD+toggle), categorías (CRUD+toggle).
@@ -46,7 +46,7 @@ Para el rol `workshop`, `GET /` y `GET /:id` (y el pedido que devuelve `PUT /:id
 - `POST /transactions/:id/reverse` → `{ reason (≥10 chars), amount? }`, único camino para corregir un importe. Crea un contraasiento (tipo/cuenta invertidos), soporta reversión parcial, deja el original intacto salvo `status`/`reversed_at`/`reversed_by`.
 
 ### `/catalog` — `catalog.routes.ts`
-`POST /webhook/mp` → **sin auth** (webhook MP del catálogo mayorista, con `webhookLimiter`). Resto autenticado. Categorías CRUD → `admin,billing`. Productos: lectura abierta, escritura `admin,billing`; `PATCH /products/:id/stock`, `PUT /products/:id/sizes`, imágenes (máx 3/producto). Pedidos: creación `admin,billing,seller`; `PATCH /orders/:id/status`, `POST /orders/:id/payment` (genera preferencia MP), `POST /orders/:id/payment/refresh` (consulta a MP si el pago entró y devuelve el pedido actualizado, `catalogPaymentRefreshLimiter`). Facturas de catálogo: CRUD, pagos, imágenes.
+`POST /webhook/mp` → **sin auth** (webhook MP del catálogo mayorista, con `webhookLimiter`). Resto autenticado. Categorías CRUD → `admin,billing`. Productos: lectura abierta, escritura `admin,billing`; `PATCH /products/:id/stock`, `PUT /products/:id/sizes`, imágenes (máx 3/producto). Para el rol `designer`, `GET /products`, `GET /products/client/:clientId` y `GET /products/:id` llegan con `price: null` (`hidePriceForRole` en `catalog.controller.ts`). Pedidos: creación `admin,billing,seller`; `PATCH /orders/:id/status`, `POST /orders/:id/payment` (genera preferencia MP), `POST /orders/:id/payment/refresh` (consulta a MP si el pago entró y devuelve el pedido actualizado, `catalogPaymentRefreshLimiter`). Facturas de catálogo: CRUD, pagos, imágenes.
 
 ### `/store` — `store.routes.ts` (el más grande, mezcla público + comprador + admin)
 - **Público**: `/settings` (cache 60s), `/events` (SSE), auth de comprador (`register`, `verify-email`, `login`, `google`, `refresh`, `forgot/reset-password`), `/track`, `/trending`, `/products*`, `/coupons/validate`, `/checkout/quote`, `POST /checkout` (con `Idempotency-Key`, `checkoutLimiter`), `/payment/confirm`, `/orders/:orderNumber/status`, `/track/:token`, `POST /orders/:orderNumber/payment-proof`, `POST /webhook/mp` (`webhookLimiter`).
@@ -171,6 +171,14 @@ CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso 
 | SEO/dominios | `VITE_STORE_URL`, `VITE_SYSTEM_URL`, `VITE_SITE_NAME`, `VITE_DEFAULT_SEO_TITLE`, `VITE_DEFAULT_SEO_DESCRIPTION`, `VITE_DEFAULT_OG_IMAGE`, `VITE_GOOGLE_SITE_VERIFICATION` |
 | Anti-bot/OAuth | `VITE_TURNSTILE_SITE_KEY`, `VITE_GOOGLE_CLIENT_ID` |
 | Deploy FTP (en `.env.deploy`, sin prefijo `VITE_`, solo Node/script) | `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD`, `FTP_DIR`, `FTP_SECURE` |
+
+## Contrato corregido 2026-09-10 — Diseñador (DEC-026)
+
+- `PUT /orders/:id`: al enviar ítems como diseñador, cada ítem existente conserva su `id`; `deleted_item_ids: number[]` enumera las bajas. Cada ID previo debe figurar exactamente una vez entre los retenidos y los eliminados. Las altas no llevan ID. Omisiones, duplicados o IDs ajenos devuelven 409. El precio enviado se ignora; el precio guardado se conserva por ID.
+- Si el total cambia, pedido, ítems, historial, snapshot y recálculo de factura borrador se guardan en una transacción. Facturas emitidas o con cobros devuelven 409 sin cambios parciales. Los extras y descuento de la factura se conservan.
+- Las cuatro operaciones de imágenes/tablas de talles exigen el mismo permiso de edición del pedido: diseñador solo en `pending|under_review|observed`; vendedor dueño y en `pending|observed`. La respuesta de subida de tabla de talles oculta `unit_price` al diseñador.
+- Todo `/catalog/orders*` y `/catalog/invoices*` requiere `admin|billing|seller`, además de las restricciones particulares de cada ruta. Para diseñador, las lecturas de productos de catálogo anulan `price`, `public_price` y `discount_percentage`; `/products` anula `base_price`. Los tipos frontend admiten precios nulos.
+- Backend y frontend deben publicarse juntos: clientes antiguos que editen sin IDs reciben 409 y deben recargar.
 
 ## Actualizar este documento cuando…
 

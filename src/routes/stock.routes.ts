@@ -13,8 +13,9 @@ router.use(authenticate);
 // Disponible para todos los roles autenticados (se usa en el formulario de pedidos)
 router.get('/available', ctrl.getAvailableForDropdown);
 
-// El resto de stock requiere rol admin, billing o workshop
-router.use(authorize('admin', 'billing', 'workshop'));
+// El resto de stock requiere rol admin, billing o workshop. El diseñador entra
+// solo de lectura (los endpoints que mutan tienen su propio authorize más abajo).
+router.use(authorize('admin', 'billing', 'workshop', 'designer'));
 
 // ── Métricas (antes de /:id para evitar conflictos de ruta) ──────────────────
 router.get('/metrics', ctrl.getMetrics);
@@ -52,6 +53,7 @@ router.get(
 
 router.post(
   '/movements',
+  authorize('admin', 'billing', 'workshop'),
   [
     body('stock_item_id').isInt({ min: 1 }),
     body('type').isIn(['in', 'out', 'adjustment']),

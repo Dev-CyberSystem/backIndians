@@ -123,6 +123,9 @@ router.delete(
 
 // ─── Pedidos del catálogo ─────────────────────────────────────────────────────
 
+// Protege toda la superficie comercial, incluidas facturas, cobros y adjuntos.
+router.use(['/orders', '/invoices'], authorize('admin', 'billing', 'seller'));
+
 // GET /catalog/invoices?status=&client_id=&seller_id=&date_from=&date_to=&page=&limit=
 router.get(
   '/invoices',

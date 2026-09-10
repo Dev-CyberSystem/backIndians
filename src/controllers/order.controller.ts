@@ -45,9 +45,10 @@ export async function getOrder(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function createOrder(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    // seller_id desde body (solo admin/billing pueden especificarlo explícitamente)
+    // seller_id desde body (solo admin/billing pueden especificarlo explícitamente;
+    // el diseñador no vende, sus pedidos quedan sin vendedor)
     const sellerIdOverride =
-      req.body.seller_id && req.user!.role !== 'seller'
+      req.body.seller_id && req.user!.role !== 'seller' && req.user!.role !== 'designer'
         ? parseInt(req.body.seller_id)
         : undefined;
 
@@ -104,7 +105,8 @@ export async function deleteImage(req: AuthRequest, res: Response, next: NextFun
   try {
     await orderService.deleteOrderImage(
       parseInt(req.params.id),
-      parseInt(req.params.imgId)
+      parseInt(req.params.imgId),
+      req.user!
     );
     res.json({ success: true, data: { message: 'Imagen eliminada' } });
   } catch (err) {
@@ -121,7 +123,8 @@ export async function uploadItemSizeChart(req: AuthRequest, res: Response, next:
     const item = await orderService.uploadItemSizeChart(
       parseInt(req.params.id),
       parseInt(req.params.itemId),
-      req.file
+      req.file,
+      req.user!
     );
     res.status(201).json({ success: true, data: item });
   } catch (err) {
@@ -133,7 +136,8 @@ export async function deleteItemSizeChart(req: AuthRequest, res: Response, next:
   try {
     await orderService.deleteItemSizeChart(
       parseInt(req.params.id),
-      parseInt(req.params.itemId)
+      parseInt(req.params.itemId),
+      req.user!
     );
     res.json({ success: true, data: { message: 'Tabla de talles eliminada' } });
   } catch (err) {

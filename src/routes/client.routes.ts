@@ -37,25 +37,25 @@ const clientFields = [
 const router = Router();
 router.use(authenticate);
 
-router.get('/', authorize('admin', 'billing', 'seller'), ctrl.listClients);
+router.get('/', authorize('admin', 'billing', 'seller', 'designer'), ctrl.listClients);
 
 router.get(
   '/:id',
-  authorize('admin', 'billing', 'seller'),
+  authorize('admin', 'billing', 'seller', 'designer'),
   [param('id').isInt({ min: 1 }).withMessage('ID inválido'), validate],
   ctrl.getClient
 );
 
 router.post(
   '/',
-  authorize('admin', 'billing', 'seller'),
+  authorize('admin', 'billing', 'seller', 'designer'),
   [...clientFields, validate],
   ctrl.createClient
 );
 
 router.put(
   '/:id',
-  authorize('admin', 'billing', 'seller'),
+  authorize('admin', 'billing', 'seller', 'designer'),
   [
     param('id').isInt({ min: 1 }).withMessage('ID inválido'),
     ...clientFields.map((v) => v.optional()),

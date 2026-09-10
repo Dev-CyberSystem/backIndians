@@ -3,14 +3,21 @@ import { AuthRequest } from '../types';
 import * as catalogService from '../services/catalog.service';
 import { storeEvents } from '../events/storeEvents';
 import { verifyWebhookSignature } from '../services/mercadopago.service';
+import { productsForRole } from '../services/pricingVisibility';
 
 // ─── Productos ────────────────────────────────────────────────────────────────
+
+// El diseñador ve la ficha técnica de los productos del catálogo pero no su
+// precio (mismo criterio que el taller con los importes de los pedidos).
+function hidePriceForRole(req: AuthRequest, data: unknown): unknown {
+  return productsForRole(data, req.user?.role);
+}
 
 export async function listClientProducts(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const clientId = parseInt(req.params.clientId);
     const products = await catalogService.listClientProducts(clientId);
-    res.json({ success: true, data: products });
+    res.json({ success: true, data: hidePriceForRole(req, products) });
   } catch (err) { next(err); }
 }
 
@@ -21,14 +28,14 @@ export async function listProducts(req: AuthRequest, res: Response, next: NextFu
     const clientId = req.query.client_id ? parseInt(req.query.client_id as string) : undefined;
     const garmentTypeId = req.query.garment_type_id ? parseInt(req.query.garment_type_id as string) : undefined;
     const result = await catalogService.listAllProducts(page, limit, clientId, garmentTypeId);
-    res.json({ success: true, data: result.products, meta: { page: result.page, limit: result.limit, total: result.total } });
+    res.json({ success: true, data: hidePriceForRole(req, result.products), meta: { page: result.page, limit: result.limit, total: result.total } });
   } catch (err) { next(err); }
 }
 
 export async function getProduct(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const product = await catalogService.getProduct(parseInt(req.params.id));
-    res.json({ success: true, data: product });
+    res.json({ success: true, data: hidePriceForRole(req, product) });
   } catch (err) { next(err); }
 }
 

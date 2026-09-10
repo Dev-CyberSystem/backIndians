@@ -28,12 +28,13 @@ export async function loginAdmin(): Promise<string> {
   return token;
 }
 
-/** Usuarios de los 4 roles (creados por `npm run seed`). */
+/** Usuarios de los 5 roles (creados por `npm run seed`). */
 export const ROLES = {
   admin:    { email: 'admin@textil.com',        password: 'Admin123!' },
   billing:  { email: 'facturacion@textil.com',  password: 'Admin123!' },
   workshop: { email: 'taller@textil.com',       password: 'Admin123!' },
   seller:   { email: 'vendedor@textil.com',     password: 'Vendedor123!' },
+  designer: { email: 'disenador@textil.com',    password: 'Admin123!' },
 } as const;
 
 export type RoleKey = keyof typeof ROLES;
