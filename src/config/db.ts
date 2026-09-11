@@ -3,6 +3,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
+if (process.env.INDIANS_LOCAL_TEST === '1') {
+  const testHost = process.env.MYSQL_URL ? new URL(process.env.MYSQL_URL).hostname : (process.env.DB_HOST || 'localhost');
+  if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(testHost)) throw new Error('Pruebas bloqueadas: la base configurada no es local');
+  process.env.NODE_ENV = 'test';
+}
 
 const sharedOptions = {
   dialect: 'mysql' as const,

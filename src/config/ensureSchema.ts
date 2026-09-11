@@ -10,6 +10,12 @@ import { logger } from '../utils/logger';
  */
 export async function ensureSchema(): Promise<void> {
   const qi = sequelize.getQueryInterface();
+  // Migración 108: sync crea los modelos nuevos; completar índices no únicos
+  // sin declararlos otra vez en el modelo y duplicarlos al migrar.
+  const fiscalIndexes = await qi.showIndex('afip_documents') as Array<{name:string}>;
+  for (const [name, fields] of [['afip_stream_status',['stream','status']],['afip_target',['target','target_id']]] as const) {
+    if (!fiscalIndexes.some(index=>index.name===name)) await qi.addIndex('afip_documents',[...fields],{name});
+  }
 
   try {
     const garmentTypes = await qi.describeTable('garment_types');

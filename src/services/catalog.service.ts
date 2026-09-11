@@ -788,6 +788,9 @@ export async function updateCatalogInvoiceStatus(
 
   if (status === 'cancelled') {
     await sequelize.transaction(async (t) => {
+      await invoice.reload({ transaction:t, lock:t.LOCK.UPDATE });
+      const { assertFiscalCancellation } = await import('./afip.guard');
+      await assertFiscalCancellation('catalogInvoice',invoice.id,invoice.afip_status,t);
       await invoice.update(updates, { transaction: t });
       await reverseAllForReference(
         'catalog_invoice', invoice.id,

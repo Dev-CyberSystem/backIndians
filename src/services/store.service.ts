@@ -1894,6 +1894,9 @@ export async function recordStoreOrderStatusChange(
       // 'returned' queda afuera a propósito: la restitución ahí es una
       // decisión explícita del admin (el producto puede volver defectuoso).
       if (newStatus === 'cancelled') {
+        const fiscalOrder = await StoreOrder.findByPk(order.id,{transaction:t,lock:t.LOCK.UPDATE});
+        const { assertFiscalCancellation } = await import('./afip.guard');
+        await assertFiscalCancellation('storeOrder',order.id,fiscalOrder?.afip_status,t);
         await restoreStoreOrderStock(
           order,
           `Cancelación de pedido ${order.order_number}`,
@@ -2509,6 +2512,12 @@ async function buildInvoiceData(orderId: number) {
 
 export async function getStoreOrderInvoicePdfBuffer(orderId: number): Promise<{ buffer: Buffer; orderNumber: string }> {
   const { order, invoiceData } = await buildInvoiceData(orderId);
+  const { AfipDocument } = await import('../models/AfipDocument');
+  const fiscal = await AfipDocument.findOne({ where: { target:'storeOrder', target_id:orderId, environment:'prod', status:'sent', 'snapshot.kind':'invoice' } });
+  if (fiscal && fiscal.snapshot.kind === 'invoice') {
+    const { generateFiscalPdf } = await import('../utils/afip.pdf');
+    return { buffer: await generateFiscalPdf(fiscal), orderNumber:order.order_number };
+  }
   const buffer = await generateInvoicePdf(invoiceData);
   return { buffer, orderNumber: order.order_number };
 }

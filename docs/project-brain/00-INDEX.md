@@ -1,5 +1,10 @@
 # 00 — Índice del cerebro documental (Indians)
 
+## Actualización 2026-09-11 — Integración ARCA
+
+Branch `fix/arca-facturacion-segura` en ambos repos. Correcciones de autenticación, diario fiscal durable, recuperación sin duplicar, ambientes separados, PDF con QR y notas de crédito. La afirmación histórica «solo falta certificado» queda reemplazada por el estado de [operación ARCA](../ARCA-OPERACION.md): falta homologación real y puesta en marcha. Ver DEC-027 y handoff.
+
+
 ## Actualización 2026-09-10 — Correcciones del perfil diseñador
 
 Se corrigieron los cuatro hallazgos de la revisión: permisos financieros, conservación de cotizaciones por ID, bloqueo de adjuntos al pasar al taller y editor de ficha existente. Ver [DEC-026](08-DECISIONS.md), [contrato API](06-API-AND-INTEGRATIONS.md) y [handoff](10-SESSION-HANDOFF.md) para validación y estado de release. Ambos branches integran el master local v1.11.0.

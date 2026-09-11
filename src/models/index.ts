@@ -1,4 +1,5 @@
 // Punto de entrada de modelos: define todas las asociaciones entre tablas
+export { AfipDocument, AfipAuthTicket } from './AfipDocument';
 import { ProductCategory } from './ProductCategory';
 import { StoreEvent } from './StoreEvent';
 import { StoreWishlist } from './StoreWishlist';

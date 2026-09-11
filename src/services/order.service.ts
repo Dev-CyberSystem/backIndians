@@ -712,14 +712,21 @@ export async function updateOrder(
 }
 
 export async function deleteOrder(id: number): Promise<void> {
-  const order = await Order.findByPk(id, { include: [{ model: OrderImage, as: 'images' }] });
-  if (!order) throw new AppError('Pedido no encontrado', 404);
-
-  if (order.images?.length) {
-    await Promise.all(order.images.map((img) => deleteImage(img.cloudinary_public_id)));
-  }
-
-  await order.destroy();
+  const images = await sequelize.transaction(async transaction => {
+    const order = await Order.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!order) throw new AppError('Pedido no encontrado', 404);
+    const invoices = await Invoice.findAll({ where: { order_id: id }, transaction, lock: transaction.LOCK.UPDATE });
+    const { AfipDocument } = await import('../models/AfipDocument');
+    for (const invoice of invoices) {
+      if (invoice.afip_status || await AfipDocument.count({ where: { target: 'invoice', target_id: invoice.id }, transaction })) {
+        throw new AppError('El pedido tiene historial fiscal y debe conservarse. Usar la anulación con nota de crédito cuando corresponda.', 409);
+      }
+    }
+    const attached = await OrderImage.findAll({ where: { order_id: id }, transaction });
+    await order.destroy({ transaction });
+    return attached;
+  });
+  await Promise.all(images.map(img => deleteImage(img.cloudinary_public_id)));
 }
 
 const MAX_IMAGES_PER_ORDER = 5;

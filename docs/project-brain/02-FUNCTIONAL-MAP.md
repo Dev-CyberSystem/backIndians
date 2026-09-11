@@ -327,17 +327,15 @@ Desde el **2026-09-08** esa misma sección tiene una **franja de 3 detalles de l
 
 ## 12. Facturación electrónica AFIP/ARCA
 
-**Objetivo**: emitir comprobantes fiscales electrónicos válidos (con CAE) ante AFIP para facturas de fábrica, catálogo y pedidos de tienda.
+**Objetivo**: facturas A/B/C y notas de crédito asociadas para fábrica, catálogo y tienda, con emisión manual admin/billing.
 
-**Usuarios**: `admin`/`billing`.
+**Flujo**: botón ARCA → historial por ambiente → formulario de emisor/receptor, concepto, IVA y fechas → confirmación → validaciones locales y parametrización ARCA → snapshot y número reservado en journal → consulta previa y solicitud de CAE. Ante incertidumbre, recuperar el mismo número. Los pendientes bloquean nuevas emisiones del emisor/ambiente.
 
-**Flujo principal**: desde el detalle de una factura/pedido de tienda, click en "Enviar a AFIP" (`AfipButton`) → modal con datos fiscales (tipo comprobante A/B/C, concepto, alícuota IVA, tipo/nro documento receptor, condición IVA) → `POST /invoices/:id/afip` (o equivalente de catálogo/tienda) → si `afip_enabled=true`, autentica contra WSAA (firma CMS con certificado) y solicita CAE contra WSFEv1 → guarda `afip_status`/`afip_cae`/`afip_cae_vto` en el registro.
+**Estados**: prepared/uncertain/sent/rejected en `afip_documents`; las columnas `afip_*` antiguas son una proyección exclusiva de facturas productivas. Homologación tiene historial independiente.
 
-**Validaciones/restricciones**: **gate explícito** `assertAfipEnabled()` — si el setting `afip_enabled` no es `'true'`, corta antes de intentar cualquier llamado real (agregado como fix de seguridad tras detectar que el toggle de UI antes no bloqueaba nada). Es **manual siempre** — no se dispara automáticamente al confirmarse un pago.
+**PDF y ajustes**: PDF autorizado con QR y datos inmutables. Notas de crédito parciales/totales con tope acumulado. Anulación productiva exige crédito; reintegro de dinero separado y atención de créditos pendientes. No se borran pedidos con historial fiscal.
 
-**Estados**: `afip_status` ENUM `pending`/`sent`/`error` (por documento: `Invoice`, `CatalogInvoice`, `StoreOrder`).
-
-**Nivel de implementación**: **Implementado y verificado en código** (WSAA+WSFEv1, tests con SOAP mockeado), **no habilitado en producción** — falta certificado real (`AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` vacías en `.env.example`, sin confirmar si ya se cargaron en producción). Fuente: `backIndians/src/services/afip.service.ts`, `routes/afip.routes.ts`, migraciones 074-078, `frontIndians/src/components/afip/`.
+**Estado**: ajustes implementados en `fix/arca-facturacion-segura`; pruebas SOAP simuladas y MySQL local. No habilitado por esta sesión. Falta homologación real y puesta en marcha. [Operación, alcance y fuentes](../ARCA-OPERACION.md).
 
 ---
 

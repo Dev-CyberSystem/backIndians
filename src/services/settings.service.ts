@@ -21,7 +21,7 @@ export const VALID_KEYS: string[] = [
   // Empresa
   'company_name', 'company_address', 'company_cuit',
   'company_phone', 'company_email', 'company_website',
-  'company_iva_condition', 'company_activity_start',
+  'company_iva_condition', 'company_activity_start', 'company_iibb',
   'invoice_due_days', 'invoice_point_of_sale', 'invoice_default_type',
   // Tienda — general
   'store_name', 'store_description', 'store_active',

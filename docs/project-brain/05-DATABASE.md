@@ -1,5 +1,10 @@
 # 05 — Base de datos
 
+## Actualización ARCA — 2026-09-11
+
+Migración nueva `20260910-108-create-afip-journal.js`: `afip_documents` (PK id, origen, ambiente, stream, status, snapshot JSON, response JSON, error, timestamps) y `afip_auth_tickets` (PK id, ticket cifrado, expiración, timestamps). Índices no únicos stream/status y target/target_id. Modelos registrados para sync e índices equivalentes en ensureSchema. Las columnas `afip_*` existentes quedan como proyección productiva; la evidencia fiscal vive en el journal. No ejecutar down tras emisiones; conservar tablas y backups. Migración aplicada y registrada solo en la base local de pruebas.
+
+
 ## Motor
 
 MySQL (dialecto `mysql2` vía Sequelize 6.37). Charset `utf8mb4` / collation `utf8mb4_unicode_ci` a nivel `define`. Conexión: `MYSQL_URL`/`MYSQL_PUBLIC_URL` en producción (Railway) o `DB_HOST/PORT/NAME/USER/PASSWORD` en desarrollo. Fuente: `backIndians/src/config/db.ts`, `backIndians/config/sequelize.js`.
@@ -66,7 +71,7 @@ Para el detalle migración-por-migración completo (los 91 archivos con su descr
 | Tienda — pedidos | `store_orders`, `store_order_items`, `store_order_status_history`, `store_coupons`, `store_order_sequences` (contador atómico del `order_number`, migración 100) |
 | Tienda — devoluciones | `store_returns`, `store_return_items` |
 | Tienda — legales | `legal_acceptances` (constancia de aceptación de T&C/Privacidad, append-only), `store_withdrawal_requests` (arrepentimientos, Res. 424/2020) |
-| AFIP | sin tabla propia — columnas `afip_*` embebidas en `invoices`, `catalog_invoices`, `store_orders` + settings `afip_*` |
+| AFIP | `afip_documents` + `afip_auth_tickets` (migración 108); columnas `afip_*` como proyección productiva en los tres orígenes + settings |
 | Settings | `settings` (key STRING PK, value TEXT) |
 | Idempotencia/logs | `webhook_events` |
 

@@ -1,5 +1,10 @@
 # 09 — Estado actual del proyecto
 
+## ARCA — estado actualizado 2026-09-11
+
+Implementación corregida en branch `fix/arca-facturacion-segura` (ambos repos): WSAA UTC, journal durable, recuperación, separación de ambientes, validaciones, NC parciales/totales y PDF fiscal con QR. Reemplaza el diagnóstico histórico «código listo, solo falta certificado»; no se habilitó ni desplegó producción. Pendientes externos: credenciales/habilitaciones, homologación real, revisión de datos por responsable contable y release con migración 108. [Procedimiento y alcance](../ARCA-OPERACION.md).
+
+
 ## Actualización 2026-09-10 — Perfil diseñador corregido
 
 Implementados R1–R4 de la [revisión](../reviews/2026-09-10-perfil-disenador.md), sobre `feature/perfil-disenador` en ambos repos e integrado el master local v1.11.0. Prueba E2E de creación, corrección de observado cotizado y envío al taller aprobada en Chromium escritorio y móvil; capturas revisadas visualmente. El resultado final de la suite general y los pasos pendientes de release se registran en [10-SESSION-HANDOFF.md](10-SESSION-HANDOFF.md). No se despleg? ni se aplic? la migración 107 en producción.
@@ -153,7 +158,7 @@ Rama `fix/catalogo-refresco-pago` (ambos repos), **sin mergear ni releasear**. E
 
 | Ítem | Qué falta | Fuente |
 |---|---|---|
-| AFIP/ARCA | Certificado real no cargado, `afip_enabled=false` por defecto — código listo, no habilitado en producción | `.env.example`, migración 078 |
+| AFIP/ARCA | Correcciones en branch; pendiente homologación real, credenciales/habilitaciones y release con migración 108. No se activó producción | `docs/ARCA-OPERACION.md` |
 | Conexión tienda→caja | Mecanismo implementado, requiere que `admin` configure `store_cash_account_id` manualmente | `AUDITORIA_TIENDA_ONLINE_AVANCE.md` |
 | UI de stock disponible en la tienda pública | Backend calcula `stock_quantity - stock_reserved` correctamente; algunos puntos de la UI todavía muestran la cantidad física | tarea 3.1 de la auditoría original |
 | `saveProductSizes` (editor admin de talles) | No pasa por el ledger de movimientos de stock — exclusión consciente, no bug | tareas 1.2/2.1 de la auditoría |

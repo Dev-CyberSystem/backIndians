@@ -611,10 +611,10 @@ export async function generateInvoicePDF(
   // CAE (líneas para completar)
   const caeX = qrX + qrSize + 16;
   doc.fillColor('#000000').fontSize(8.5).font('Helvetica');
-  doc.text('CAE N°: ________________________', caeX, qrY + 2);
-  doc.text('VTO. CAE: _____ / _____ / ________', caeX, qrY + 18);
+  doc.text('Documento interno - no válido como factura', caeX, qrY + 2);
+  doc.text('El PDF fiscal se descarga desde ARCA en Facturas.', caeX, qrY + 18);
   doc.fontSize(7).fillColor('#444444').font('Helvetica')
-    .text('Comprobante autorizado por ARCA', caeX, qrY + 38, { width: 250 })
+    .text('Sin autorización fiscal en este documento', caeX, qrY + 38, { width: 250 })
     .text('Esta Administración Federal de Ingresos Públicos no se responsabiliza por los datos ingresados en el detalle de la operación.', caeX, qrY + 48, { width: 250 });
 
   // Firma

@@ -1,5 +1,18 @@
 # 03 — Reglas de negocio
 
+## Actualización ARCA — 2026-09-11
+
+### BR-AFIP-003 — Un intento incierto conserva número y payload
+
+El journal durable separa ambiente y origen. La recuperación consulta ARCA y verifica identidad fiscal antes de adoptar el CAE. Un pendiente bloquea otras emisiones del emisor/ambiente. No se reasigna número ante timeout. Un estado legado sin journal exige conciliación.
+
+### BR-AFIP-004 — Correcciones mediante notas de crédito
+
+La factura productiva conserva importes y snapshot. Su anulación administrativa requiere notas de crédito que cubran el total; los créditos parciales acumulados no pueden excederlo. El pedido con historial fiscal no se elimina. El reintegro de dinero y el movimiento de stock son operaciones separadas: registrar dinero ya devuelto sigue permitido y genera atención fiscal pendiente cuando corresponde.
+
+BR-AFIP-001 y 002 siguen vigentes: gate y emisión manual admin/billing. Homologación no modifica las columnas productivas `afip_*`. [Procedimiento](../ARCA-OPERACION.md).
+
+
 > Solo reglas verificadas contra código real o documentación de auditoría existente. Reglas no confirmables se marcan explícitamente `Pendiente de confirmar`. No se inventó ninguna regla.
 
 ## Autenticación / sesión

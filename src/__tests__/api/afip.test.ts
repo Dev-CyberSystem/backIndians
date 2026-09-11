@@ -1,272 +1,688 @@
-import * as forge from 'node-forge';
-import { api, API, loginAs, auth } from './helpers';
-import { Settings, Order, Invoice, Client, User } from '../../models';
+import * as forge from "node-forge";
+import { randomUUID, createHash } from "crypto";
+import { api, API, loginAs, auth } from "./helpers";
+import {
+  Settings,
+  Order,
+  Invoice,
+  Client,
+  User,
+  CatalogOrder,
+  CatalogInvoice,
+  StoreOrder,
+  OrderItem,
+  GarmentType,
+  CatalogProduct,
+  CatalogOrderItem,
+  StoreOrderItem,
+} from "../../models";
+import { AfipDocument, AfipAuthTicket } from "../../models/AfipDocument";
+import { withAfipLock } from "../../services/afip.transport";
+import {
+  buildTraXml,
+  buildDetail,
+  validateParams,
+  matches,
+} from "../../services/afip.protocol";
+import { fiscalQrPayload } from "../../utils/afip.pdf";
 
-/*
- * Robot de pruebas — Integración AFIP / ARCA (facturación electrónica).
- *
- * NO golpea los web services reales de AFIP (el certificado está en trámite).
- * En su lugar mockea el módulo `soap`: simula WSAA (loginCms → token/sign) y
- * WSFE (FECompUltimoAutorizado + FECAESolicitar → CAE). Esto permite validar
- * TODA la lógica propia del backend sin red ni certificado productivo:
- *
- *   1. Autenticación: arma el TRA, lo firma con node-forge (firma PKCS7 REAL) y
- *      parsea la respuesta WSAA. ← detecta si la firma/parсeo rompen en runtime.
- *   2. Cálculo del desglose IVA (neto + IVA a partir del total con IVA incluido).
- *   3. Numeración correlativa (último autorizado + 1).
- *   4. Persistencia del CAE, vencimiento, estado y tipo de comprobante.
- *   5. Rechazo de AFIP → estado 'error' + mensaje, sin romper.
- *   6. Una factura ya enviada no se reenvía.
- *   7. Permisos: un vendedor no puede enviar a AFIP.
- *   8. Stats del dashboard reflejan lo enviado.
- *
- * Requiere DB migrada + `npm run seed`.
- */
-
-// ── Mock controlable del módulo `soap` ──────────────────────────────────────
-// El prefijo `mock` es obligatorio para que jest permita referenciarlo dentro
-// del factory hoisteado.
-const mockState: {
-  ultimoAutorizado: number;
-  fecaeResponse: any;
-  capturedFecaeBody: any;
-  loginCalls: number;
-} = {
-  ultimoAutorizado: 10,
-  fecaeResponse: null,
-  capturedFecaeBody: null,
+const mockState = {
+  last: new Map<string, number>(),
+  remote: new Map<string, any>(),
+  calls: 0,
   loginCalls: 0,
+  failAfter: false,
+  reject: false,
+  invalidLast: false,
+  delay: false,
+  globalError: false,
 };
-
-jest.mock('soap', () => ({
+jest.mock("soap", () => ({
   createClientAsync: jest.fn(async (url: string) => {
-    if (url.includes('LoginCms')) {
-      // WSAA
+    const env = url.includes("homo") ? "homo" : "prod";
+    if (url.includes("LoginCms"))
       return {
-        loginCmsAsync: jest.fn(async () => {
+        loginCmsAsync: async () => {
           mockState.loginCalls++;
-          const exp = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
-          const xml =
-            `<?xml version="1.0"?>` +
-            `<loginTicketResponse>` +
-            `<header><expirationTime>${exp}</expirationTime></header>` +
-            `<credentials><token>TOKEN-FAKE-123</token><sign>SIGN-FAKE-456</sign></credentials>` +
-            `</loginTicketResponse>`;
-          return [{ loginCmsReturn: xml }];
-        }),
+          return [
+            {
+              loginCmsReturn:
+                "<loginTicketResponse><expirationTime>" +
+                new Date(Date.now() + 3600000).toISOString() +
+                "</expirationTime><token>TEST</token><sign>TEST-SIGN</sign></loginTicketResponse>",
+            },
+          ];
+        },
       };
-    }
-    // WSFE
+    const result = (name: string, value: any) => [{ [name + "Result"]: value }];
     return {
-      FECompUltimoAutorizadoAsync: jest.fn(async () => [
-        { FECompUltimoAutorizadoResult: { CbteNro: mockState.ultimoAutorizado } },
-      ]),
-      FECAESolicitarAsync: jest.fn(async (body: any) => {
-        mockState.capturedFecaeBody = body;
-        return [{ FECAESolicitarResult: { FeDetResp: { FECAEDetResponse: mockState.fecaeResponse } } }];
-      }),
+      FEParamGetTiposCbteAsync: async () =>
+        result("FEParamGetTiposCbte", {
+          ResultGet: { CbteTipo: [1, 6, 11, 3, 8, 13].map((Id) => ({ Id })) },
+        }),
+      FEParamGetPtosVentaAsync: async () =>
+        result("FEParamGetPtosVenta", {
+          ResultGet: {
+            PtoVenta: [{ Nro: 9998, Bloqueado: "N", FchBaja: "NULL" }],
+          },
+        }),
+      FEParamGetCondicionIvaReceptorAsync: async () =>
+        result("FEParamGetCondicionIvaReceptor", {
+          ResultGet: {
+            CondicionIvaReceptor: [1, 4, 5, 6].map((Id) => ({ Id })),
+          },
+        }),
+      FECompUltimoAutorizadoAsync: async (a: any) =>
+        result(
+          "FECompUltimoAutorizado",
+          mockState.invalidLast
+            ? { Errors: { Err: [{ Code: 500, Msg: "last unavailable" }] } }
+            : { CbteNro: mockState.last.get(env + ":" + a.CbteTipo) || 0 },
+        ),
+      FECompConsultarAsync: async (a: any) => {
+        const q = a.FeCompConsReq;
+        const found = mockState.remote.get(
+          env + ":" + q.CbteTipo + ":" + q.CbteNro,
+        );
+        return result(
+          "FECompConsultar",
+          found
+            ? { ResultGet: found }
+            : { Errors: { Err: [{ Code: 602, Msg: "No existe" }] } },
+        );
+      },
+      FECAESolicitarAsync: async (a: any) => {
+        mockState.calls++;
+        if (mockState.delay) await new Promise((r) => setTimeout(r, 150));
+        const h = a.FeCAEReq.FeCabReq,
+          d = a.FeCAEReq.FeDetReq.FECAEDetRequest[0],
+          key = env + ":" + h.CbteTipo;
+        if (mockState.globalError)
+          return result("FECAESolicitar", {
+            Errors: { Err: [{ Code: 500, Msg: "error global" }] },
+          });
+        if (mockState.reject)
+          return result("FECAESolicitar", {
+            FeDetResp: {
+              FECAEDetResponse: [
+                {
+                  Resultado: "R",
+                  Observaciones: {
+                    Obs: { Code: 10016, Msg: "Fecha inválida" },
+                  },
+                },
+              ],
+            },
+          });
+        mockState.last.set(key, d.CbteDesde);
+        const accepted = {
+          ...d,
+          PtoVta: h.PtoVta,
+          CbteTipo: h.CbteTipo,
+          Resultado: "A",
+          CAE: "71234567890123",
+          CAEFchVto: "20260930",
+          CodAutorizacion: "71234567890123",
+          FchVto: "20260930",
+          EmisionTipo: "CAE",
+        };
+        mockState.remote.set(key + ":" + d.CbteDesde, accepted);
+        if (mockState.failAfter) {
+          mockState.failAfter = false;
+          throw new Error("connection lost");
+        }
+        return result("FECAESolicitar", {
+          FeDetResp: { FECAEDetResponse: [accepted] },
+        });
+      },
     };
   }),
 }));
-
-// ── Helpers de fixtures ──────────────────────────────────────────────────────
-
-// Crea Order + Invoice directamente por modelo (con total fijo). Se evita la API
-// de pedidos a propósito: su generación de `order_number` colisiona al crear
-// varios en el mismo instante, y eso es ajeno a lo que prueba el robot AFIP.
 let seq = 0;
-async function makeInvoice(total = 80000): Promise<number> {
-  const client = await Client.findOne();
-  const user = await User.findOne();
-  if (!client || !user) throw new Error('Faltan cliente/usuario sembrados — corré "npm run seed".');
-
-  const uniq = `${Date.now().toString(36)}${seq++}`;
-  const order = await Order.create({
-    order_number: `QA${uniq}`.slice(0, 20),
-    client_id: client.id,
-    created_by: user.id,
-    total_amount: total,
-    status: 'pending',
-  });
-  const invoice = await Invoice.create({
-    order_id: order.id,
-    invoice_number: `FAC-QA-${uniq}`,
-    issue_date: new Date(),
-    status: 'issued',
-    total_amount: total,
-  });
-  return invoice.id;
-}
-
-const SEND_OK = {
-  tipoComprobante: 1,        // Factura A
-  concepto: 1,               // Productos
-  ivaAlicuota: 21,
-  docTipo: 80,               // CUIT
-  docNro: '20111111112',
-  condicionIvaReceptor: 1,   // Responsable Inscripto
+const targets: Array<{ target: string; id: number }> = [];
+const saved = new Map<string, string | null>();
+const testSettings = {
+  company_cuit: "20111111112",
+  company_name: "Emisor QA",
+  company_address: "Calle QA 123",
+  company_iibb: "Exento",
+  company_activity_start: "01/01/2020",
+  company_iva_condition: "Responsable Inscripto",
+  afip_punto_venta: "9998",
+  afip_environment: "homo",
+  afip_enabled: "true",
 };
-
-// ── Suite ────────────────────────────────────────────────────────────────────
-
-describe('AFIP / ARCA — Robot de pruebas (soap mockeado)', () => {
+const p = {
+  tipoComprobante: 1,
+  concepto: 1,
+  ivaAlicuota: 21,
+  docTipo: 80,
+  docNro: "20111111112",
+  condicionIvaReceptor: 1,
+  receptorNombre: "Receptor QA",
+  receptorDomicilio: "Calle QA 456",
+};
+const setting = async (key: string, value: string) => {
+  await Settings.upsert({
+    key,
+    value,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+};
+async function makeInvoice() {
+  const client = await Client.findOne(),
+    user = await User.findOne(),
+    garment = await GarmentType.findOne();
+  const uniq = Date.now().toString(36) + seq++;
+  const order = await Order.create({
+    order_number: "AF" + uniq,
+    client_id: client!.id,
+    created_by: user!.id,
+    total_amount: 121,
+    status: "pending",
+  });
+  await OrderItem.create({
+    order_id: order.id,
+    garment_type_id: garment!.id,
+    color: "Rojo",
+    sizes: { M: 1 },
+    unit_price: 121,
+  });
+  const inv = await Invoice.create({
+    order_id: order.id,
+    invoice_number: "AFIP-QA-" + uniq,
+    issue_date: new Date(),
+    status: "issued",
+    total_amount: 121,
+  });
+  targets.push({ target: "invoice", id: inv.id });
+  return inv;
+}
+async function documents(target: string, id: number) {
+  return AfipDocument.findAll({
+    where: { target, target_id: id },
+    order: [["createdAt", "ASC"]],
+  });
+}
+describe("ARCA - persistencia y contrato SOAP", () => {
   let admin: string;
-
+  const envNames = [
+    "AFIP_CERT_BASE64_HOMO",
+    "AFIP_KEY_BASE64_HOMO",
+    "AFIP_CERT_BASE64_PROD",
+    "AFIP_KEY_BASE64_PROD",
+  ];
+  const savedEnv: Record<string, string | undefined> = {};
+  const ticketIds: string[] = [];
   beforeAll(async () => {
-    admin = await loginAs('admin');
-
-    // Certificado + clave REALES (autofirmados) para que la firma PKCS7 del TRA
-    // se ejecute de verdad. 1024 bits = suficiente y rápido para un test.
-    const keys = forge.pki.rsa.generateKeyPair(1024);
-    const cert = forge.pki.createCertificate();
-    cert.publicKey = keys.publicKey;
-    cert.serialNumber = '01';
-    cert.validity.notBefore = new Date();
-    cert.validity.notAfter = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-    const attrs = [{ name: 'commonName', value: 'indians-test' }];
-    cert.setSubject(attrs);
-    cert.setIssuer(attrs);
-    cert.sign(keys.privateKey, forge.md.sha256.create());
-
-    process.env.AFIP_CERT_BASE64 = Buffer.from(forge.pki.certificateToPem(cert)).toString('base64');
-    process.env.AFIP_KEY_BASE64 = Buffer.from(forge.pki.privateKeyToPem(keys.privateKey)).toString('base64');
-
-    // Settings necesarios para el servicio.
-    const now = new Date();
-    for (const [key, value] of [
-      ['company_cuit', '20111111112'],
-      ['afip_punto_venta', '3'],
-      ['afip_environment', 'homo'],
-      ['afip_enabled', 'true'],
-    ] as const) {
-      await Settings.upsert({ key, value, createdAt: now, updatedAt: now });
+    admin = await loginAs("admin");
+    for (const [key, value] of Object.entries(testSettings)) {
+      const row = await Settings.findByPk(key);
+      saved.set(key, row?.value ?? null);
+      await setting(key, value);
+    }
+    for (const k of envNames) savedEnv[k] = process.env[k];
+    const pair = forge.pki.rsa.generateKeyPair(1024),
+      cert = forge.pki.createCertificate();
+    cert.publicKey = pair.publicKey;
+    cert.serialNumber = "01";
+    cert.validity.notBefore = new Date(Date.now() - 60000);
+    cert.validity.notAfter = new Date(Date.now() + 86400000);
+    cert.setSubject([{ name: "commonName", value: "QA" }]);
+    cert.setIssuer([{ name: "commonName", value: "QA" }]);
+    cert.sign(pair.privateKey);
+    const pem = forge.pki.certificateToPem(cert);
+    for (const env of ["HOMO", "PROD"]) {
+      process.env["AFIP_CERT_BASE64_" + env] =
+        Buffer.from(pem).toString("base64");
+      process.env["AFIP_KEY_BASE64_" + env] = Buffer.from(
+        forge.pki.privateKeyToPem(pair.privateKey),
+      ).toString("base64");
+      ticketIds.push(
+        createHash("sha256")
+          .update((env === "HOMO" ? "homo" : "prod") + pem)
+          .digest("hex"),
+      );
     }
   });
-
+  beforeEach(async () => {
+    mockState.calls = 0;
+    mockState.failAfter = false;
+    mockState.reject = false;
+    mockState.invalidLast = false;
+    mockState.delay = false;
+    mockState.globalError = false;
+    await setting("afip_enabled", "true");
+    await setting("afip_environment", "homo");
+    await setting("company_iva_condition", "Responsable Inscripto");
+  });
+  afterEach(async () => {
+    for (const t of targets) {
+      await AfipDocument.destroy({
+        where: { target: t.target, target_id: t.id },
+      });
+      if (t.target === "catalogInvoice")
+        await CatalogInvoice.destroy({ where: { id: t.id } });
+    }
+  });
   afterAll(async () => {
-    // Deja el módulo deshabilitado como estaba antes de este archivo — mismo
-    // criterio que otros tests que restauran settings al terminar.
-    await Settings.upsert({ key: 'afip_enabled', value: 'false', createdAt: new Date(), updatedAt: new Date() });
-  });
-
-  it('1. envía una factura a AFIP y persiste el CAE + numeración correlativa', async () => {
-    mockState.ultimoAutorizado = 10;
-    mockState.fecaeResponse = {
-      Resultado: 'A',
-      CAE: '71234567890123',
-      CAEFchVto: '20260710',
-    };
-
-    const invoiceId = await makeInvoice();
-
-    const res = await api()
-      .post(`${API}/invoices/${invoiceId}/afip`)
-      .set(...auth(admin))
-      .send(SEND_OK);
-
-    expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(true);
-    expect(res.body.invoice.afip_status).toBe('sent');
-    expect(res.body.invoice.afip_cae).toBe('71234567890123');
-    expect(res.body.invoice.afip_cae_vto).toBe('2026-07-10');   // YYYYMMDD → YYYY-MM-DD
-    expect(res.body.invoice.afip_cbte_nro).toBe(11);            // último(10) + 1
-    expect(res.body.invoice.afip_punto_venta).toBe(3);
-    expect(res.body.invoice.afip_tipo_comprobante).toBe(1);
-  });
-
-  it('2. calcula el desglose de IVA correctamente (neto + IVA sobre total con IVA incluido)', async () => {
-    // Del test anterior: total 80000 @ 21% → neto 66115.70 + IVA 13884.30
-    const det = mockState.capturedFecaeBody?.FeCAEReq?.FeDetReq?.FECAEDetRequest;
-    expect(det).toBeTruthy();
-    expect(det.ImpTotal).toBe(80000);
-    expect(det.ImpNeto).toBeCloseTo(66115.70, 2);
-    expect(det.ImpIVA).toBeCloseTo(13884.30, 2);
-    // El neto + IVA debe reconstruir el total
-    expect(det.ImpNeto + det.ImpIVA).toBeCloseTo(80000, 2);
-    // Desglose de alícuota: Id 5 = 21%
-    const alic = det.Iva?.AlicIva?.[0];
-    expect(alic?.Id).toBe(5);
-    expect(alic?.BaseImp).toBeCloseTo(66115.70, 2);
-    expect(alic?.Importe).toBeCloseTo(13884.30, 2);
-    // Datos del receptor y cabecera
-    expect(det.DocTipo).toBe(80);
-    expect(det.DocNro).toBe('20111111112');
-    expect(det.CondicionIVAReceptorId).toBe(1);
-    expect(mockState.capturedFecaeBody.FeCAEReq.FeCabReq.PtoVta).toBe(3);
-    expect(mockState.capturedFecaeBody.FeCAEReq.FeCabReq.CbteTipo).toBe(1);
-  });
-
-  it('3. una factura ya enviada no se puede reenviar', async () => {
-    mockState.ultimoAutorizado = 20;
-    mockState.fecaeResponse = { Resultado: 'A', CAE: '70000000000001', CAEFchVto: '20260710' };
-
-    const invoiceId = await makeInvoice();
-
-    const first = await api().post(`${API}/invoices/${invoiceId}/afip`).set(...auth(admin)).send(SEND_OK);
-    expect(first.status).toBe(200);
-
-    const second = await api().post(`${API}/invoices/${invoiceId}/afip`).set(...auth(admin)).send(SEND_OK);
-    expect(second.status).toBe(422);
-    expect(String(second.body.error)).toMatch(/ya fue enviada/i);
-  });
-
-  it('4. si AFIP rechaza el comprobante, la factura queda en estado error con el mensaje', async () => {
-    mockState.ultimoAutorizado = 30;
-    mockState.fecaeResponse = {
-      Resultado: 'R',
-      Observaciones: { Obs: [{ Code: 10016, Msg: 'Fecha del comprobante inválida' }] },
-    };
-
-    const invoiceId = await makeInvoice();
-
-    const res = await api().post(`${API}/invoices/${invoiceId}/afip`).set(...auth(admin)).send(SEND_OK);
-    expect(res.status).toBe(422);
-    expect(String(res.body.error)).toMatch(/10016/);
-
-    // La factura quedó marcada como error (no como enviada)
-    const inv = await api().get(`${API}/invoices/${invoiceId}`).set(...auth(admin));
-    expect(inv.body.data.afip_status).toBe('error');
-    expect(inv.body.data.afip_cae).toBeFalsy();
-    expect(String(inv.body.data.afip_error)).toMatch(/Fecha del comprobante/);
-  });
-
-  it('5. un vendedor no puede enviar facturas a AFIP', async () => {
-    const seller = await loginAs('seller');
-    mockState.ultimoAutorizado = 40;
-    mockState.fecaeResponse = { Resultado: 'A', CAE: '70000000000002', CAEFchVto: '20260710' };
-
-    const invoiceId = await makeInvoice();
-    const res = await api().post(`${API}/invoices/${invoiceId}/afip`).set(...auth(seller)).send(SEND_OK);
-    expect([401, 403]).toContain(res.status);
-  });
-
-  it('6. las stats del dashboard reflejan las facturas enviadas a AFIP', async () => {
-    const res = await api().get(`${API}/afip/stats`).set(...auth(admin));
-    expect(res.status).toBe(200);
-    // Ya enviamos al menos 2 facturas A exitosas en esta corrida
-    expect(res.body.grandCount).toBeGreaterThanOrEqual(2);
-    expect(res.body.grandTotal).toBeGreaterThanOrEqual(160000);
-    // Bucket de Factura A (tipo 1)
-    expect(res.body.byTipo?.['1']?.count).toBeGreaterThanOrEqual(2);
-    expect(res.body.invoices?.count).toBeGreaterThanOrEqual(2);
-  });
-
-  it('7. con afip_enabled=false, el envío se rechaza sin tocar el registro ni llamar a AFIP (2.5)', async () => {
-    await Settings.upsert({ key: 'afip_enabled', value: 'false', createdAt: new Date(), updatedAt: new Date() });
-    try {
-      const loginCallsBefore = mockState.loginCalls;
-      const invoiceId = await makeInvoice();
-
-      const res = await api().post(`${API}/invoices/${invoiceId}/afip`).set(...auth(admin)).send(SEND_OK);
-      expect(res.status).toBe(422);
-      expect(String(res.body.error)).toMatch(/deshabilitada/i);
-
-      // No se tocó el registro (sigue null, no 'error') ni se llamó a AFIP.
-      const inv = await api().get(`${API}/invoices/${invoiceId}`).set(...auth(admin));
-      expect(inv.body.data.afip_status).toBeFalsy();
-      expect(mockState.loginCalls).toBe(loginCallsBefore);
-    } finally {
-      await Settings.upsert({ key: 'afip_enabled', value: 'true', createdAt: new Date(), updatedAt: new Date() });
+    for (const [key, value] of saved) {
+      if (value === null) await Settings.destroy({ where: { key } });
+      else await setting(key, value);
     }
+    for (const key of envNames) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+    for (const id of ticketIds) await AfipAuthTicket.destroy({ where: { id } });
+  });
+  const send = (id: number, params: any = p) =>
+    api()
+      .post(API + "/invoices/" + id + "/afip")
+      .set(...auth(admin))
+      .send(params);
+  it("firma/autentica, acepta array SOAP y conserva CAE sin contaminar producción", async () => {
+    const inv = await makeInvoice();
+    const res = await send(inv.id);
+    expect(res.status).toBe(200);
+    const [doc] = await documents("invoice", inv.id);
+    expect(doc.status).toBe("sent");
+    expect(doc.response.authorization.CAE).toBe("71234567890123");
+    expect((await inv.reload()).afip_status).toBeNull();
+    expect(doc.snapshot.params.receptorNombre).toBe("Receptor QA");
+    const ticket = await AfipAuthTicket.findByPk(ticketIds[0]);
+    expect(ticket!.encrypted).not.toContain("TEST");
+    const again = await send(inv.id);
+    expect(again.status).toBe(200);
+    expect(mockState.calls).toBe(1);
+  });
+  it("recupera autorización perdida sin emitir otro número", async () => {
+    const inv = await makeInvoice();
+    mockState.failAfter = true;
+    expect((await send(inv.id)).status).toBe(422);
+    const [doc] = await documents("invoice", inv.id);
+    expect(doc.status).toBe("uncertain");
+    const result = await api()
+      .post(API + "/afip/documents/" + doc.id + "/recover")
+      .set(...auth(admin));
+    expect(result.status).toBe(200);
+    expect(mockState.calls).toBe(1);
+    expect((await doc.reload()).status).toBe("sent");
+  });
+  it("serializa solicitudes concurrentes y no agota conexiones esperando", async () => {
+    const inv = await makeInvoice();
+    mockState.delay = true;
+    const res = await Promise.all([send(inv.id), send(inv.id)]);
+    expect(res.map((x) => x.status).sort()).toEqual([200, 422]);
+    expect(mockState.calls).toBe(1);
+  });
+  it("no emite otro documento mientras hay un intento sin resolver", async () => {
+    const first = await makeInvoice();
+    mockState.failAfter = true;
+    await send(first.id);
+    const second = await makeInvoice();
+    const res = await send(second.id);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/pendiente/);
+    expect(mockState.calls).toBe(1);
+  });
+  it("rechazo explícito guarda observaciones y permite una solicitud corregida", async () => {
+    const inv = await makeInvoice();
+    mockState.reject = true;
+    const res = await send(inv.id);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/10016/);
+    mockState.reject = false;
+    expect((await send(inv.id)).status).toBe(200);
+    expect(
+      (await documents("invoice", inv.id)).map((d) => d.status).sort(),
+    ).toEqual(["rejected", "sent"]);
+  });
+  it("error global no se confunde con rechazo definitivo", async () => {
+    const inv = await makeInvoice();
+    mockState.globalError = true;
+    expect((await send(inv.id)).status).toBe(422);
+    expect((await documents("invoice", inv.id))[0].status).toBe("uncertain");
+  });
+  it("último autorizado inválido no deriva en número uno", async () => {
+    const inv = await makeInvoice();
+    mockState.invalidLast = true;
+    expect((await send(inv.id)).status).toBe(422);
+    expect(mockState.calls).toBe(0);
+    expect(await documents("invoice", inv.id)).toHaveLength(0);
+  });
+  it("gate deshabilitado no llama a SOAP ni toca documento", async () => {
+    const inv = await makeInvoice();
+    await setting("afip_enabled", "false");
+    expect((await send(inv.id)).status).toBe(422);
+    expect(mockState.calls).toBe(0);
+    expect(await documents("invoice", inv.id)).toHaveLength(0);
+  });
+  it("permisos bloquean vendedor y diseñador", async () => {
+    const inv = await makeInvoice();
+    for (const role of ["seller", "designer"] as const) {
+      const token = await loginAs(role);
+      expect(
+        (
+          await api()
+            .post(API + "/invoices/" + inv.id + "/afip")
+            .set(...auth(token))
+            .send(p)
+        ).status,
+      ).toBe(403);
+    }
+  });
+  it("homologación no impide emitir después en producción", async () => {
+    const inv = await makeInvoice();
+    await send(inv.id);
+    await setting("afip_environment", "prod");
+    expect((await send(inv.id)).status).toBe(200);
+    expect(await documents("invoice", inv.id)).toHaveLength(2);
+    expect((await inv.reload()).afip_status).toBe("sent");
+  });
+  it("producción congela importes y exige crédito antes de anular", async () => {
+    const inv = await makeInvoice();
+    await setting("afip_environment", "prod");
+    await send(inv.id);
+    const edit = await api()
+      .put(API + "/invoices/" + inv.id)
+      .set(...auth(admin))
+      .send({ discount_amount: 5 });
+    expect(edit.status).toBe(409);
+    const cancel = await api()
+      .put(API + "/invoices/" + inv.id)
+      .set(...auth(admin))
+      .send({ status: "cancelled" });
+    expect(cancel.status).toBe(409);
+  });
+  it("crédito parcial idempotente, saldo máximo y recuperación", async () => {
+    const inv = await makeInvoice();
+    await send(inv.id);
+    const [doc] = await documents("invoice", inv.id),
+      key = randomUUID();
+    const credit = (amount: number, k = key) =>
+      api()
+        .post(API + "/afip/documents/" + doc.id + "/credit")
+        .set(...auth(admin))
+        .send({ amount, reason: "Devolución parcial", key: k });
+    mockState.failAfter = true;
+    expect((await credit(21)).status).toBe(422);
+    expect((await credit(21)).status).toBe(200);
+    expect(mockState.calls).toBe(2);
+    expect((await credit(22)).status).toBe(422);
+    expect((await credit(101, randomUUID())).status).toBe(422);
+    expect((await credit(100, randomUUID())).status).toBe(200);
+  });
+  it("descarga fiscal y QR usan snapshot incluso si cambian settings", async () => {
+    const inv = await makeInvoice();
+    await send(inv.id);
+    const [doc] = await documents("invoice", inv.id);
+    const qr = fiscalQrPayload(doc);
+    expect(qr.importe).toBe(121);
+    expect(qr.codAut).toBe(71234567890123);
+    await setting("company_name", "Nombre cambiado");
+    const res = await api()
+      .get(API + "/afip/documents/" + doc.id + "/pdf")
+      .set(...auth(admin));
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/pdf/);
+    await setting("company_name", "Emisor QA");
+  });
+  it("emite B y C sin IVA discriminado en C", async () => {
+    const inv = await makeInvoice();
+    expect(
+      (
+        await send(inv.id, {
+          ...p,
+          tipoComprobante: 6,
+          condicionIvaReceptor: 5,
+          docTipo: 96,
+          docNro: "30123456",
+        })
+      ).status,
+    ).toBe(200);
+    await setting("company_iva_condition", "Monotributista");
+    const c = await makeInvoice();
+    expect(
+      (await send(c.id, { ...p, tipoComprobante: 11, ivaAlicuota: 0 })).status,
+    ).toBe(200);
+    const [doc] = await documents("invoice", c.id);
+    expect(doc.snapshot.detail.ImpIVA).toBe(0);
+    expect(doc.snapshot.detail.Iva).toBeUndefined();
+  });
+  it("servicios exige fechas y rechaza combinaciones inválidas", async () => {
+    const inv = await makeInvoice();
+    expect((await send(inv.id, { ...p, concepto: 2 })).status).toBe(422);
+    expect((await send(inv.id, { ...p, tipoComprobante: 11 })).status).toBe(
+      422,
+    );
+    expect(mockState.calls).toBe(0);
+  });
+  it("cubre catálogo y tienda, con snapshot del origen", async () => {
+    const user = await User.findOne(),
+      client = await Client.findOne();
+    const n = Date.now().toString(36);
+    const cat = await CatalogOrder.create({
+      order_number: "AC" + n,
+      seller_id: user!.id,
+      client_id: client!.id,
+      total_amount: 121,
+      payment_amount: 121,
+    });
+    const product = await CatalogProduct.findOne();
+    await CatalogOrderItem.create({
+      catalog_order_id: cat.id,
+      product_id: product!.id,
+      quantity: 1,
+      unit_price: 121,
+      subtotal: 121,
+    });
+    const inv = await CatalogInvoice.create({
+      catalog_order_id: cat.id,
+      invoice_number: "ACF" + n,
+      issue_date: new Date().toISOString().slice(0, 10),
+      total_amount: 121,
+      status: "paid",
+      payment_amount: 121,
+    });
+    targets.push({ target: "catalogInvoice", id: inv.id });
+    expect(
+      (
+        await api()
+          .post(API + "/catalog/invoices/" + inv.id + "/afip")
+          .set(...auth(admin))
+          .send(p)
+      ).status,
+    ).toBe(200);
+    const order = await StoreOrder.create({
+      order_number: "AS" + n,
+      customer_name: "Tienda QA",
+      customer_email: "qa@test.local",
+      customer_dni: "30123456",
+      subtotal: 121,
+      total_amount: 121,
+      status: "paid",
+    });
+    await StoreOrderItem.create({
+      store_order_id: order.id,
+      catalog_product_id: product!.id,
+      product_title: "Prenda QA",
+      quantity: 1,
+      unit_price: 121,
+      subtotal: 121,
+    });
+    targets.push({ target: "storeOrder", id: order.id });
+    expect(
+      (
+        await api()
+          .post(API + "/store/orders/" + order.id + "/afip")
+          .set(...auth(admin))
+          .send({
+            ...p,
+            tipoComprobante: 6,
+            docTipo: 96,
+            docNro: "30123456",
+            condicionIvaReceptor: 5,
+          })
+      ).status,
+    ).toBe(200);
+  });
+  it("no adopta una autorización con IVA o comprobante asociado distinto", async () => {
+    const inv = await makeInvoice();
+    mockState.failAfter = true;
+    await send(inv.id);
+    const [doc] = await documents("invoice", inv.id);
+    const remote = mockState.remote.get(
+      "homo:1:" + doc.snapshot.detail.CbteDesde,
+    );
+    remote.Iva = { AlicIva: [{ Id: 4, BaseImp: 100, Importe: 21 }] };
+    expect(
+      (
+        await api()
+          .post(API + "/afip/documents/" + doc.id + "/recover")
+          .set(...auth(admin))
+      ).status,
+    ).toBe(422);
+    expect(mockState.calls).toBe(1);
+    expect((await doc.reload()).status).toBe("uncertain");
+  });
+  it("recuperación exige ambiente original y no crea otro documento", async () => {
+    const inv = await makeInvoice();
+    mockState.failAfter = true;
+    await send(inv.id);
+    const [doc] = await documents("invoice", inv.id);
+    await setting("afip_environment", "prod");
+    expect(
+      (
+        await api()
+          .post(API + "/afip/documents/" + doc.id + "/recover")
+          .set(...auth(admin))
+      ).status,
+    ).toBe(422);
+    expect(await documents("invoice", inv.id)).toHaveLength(1);
+    expect(mockState.calls).toBe(1);
+  });
+  it("conserva pedido fiscal y admite edición administrativa sin alterar importes", async () => {
+    const inv = await makeInvoice();
+    await setting("afip_environment", "prod");
+    await send(inv.id);
+    expect(
+      (
+        await api()
+          .delete(API + "/orders/" + inv.order_id)
+          .set(...auth(admin))
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await api()
+          .put(API + "/invoices/" + inv.id)
+          .set(...auth(admin))
+          .send({
+            notes: "Seguimiento administrativo",
+            discount_amount: 0,
+            extra_items: [],
+          })
+      ).status,
+    ).toBe(200);
+    expect(Number((await inv.reload()).total_amount)).toBe(121);
+    const [doc] = await documents("invoice", inv.id);
+    expect(doc.snapshot.actorId).toBeGreaterThan(0);
+  });
+  it("créditos acumulados cierran neto e IVA y habilitan anulación", async () => {
+    const inv = await makeInvoice();
+    await setting("afip_environment", "prod");
+    await send(inv.id);
+    const [doc] = await documents("invoice", inv.id);
+    for (const amount of [40.33, 40.33, 40.34])
+      expect(
+        (
+          await api()
+            .post(API + "/afip/documents/" + doc.id + "/credit")
+            .set(...auth(admin))
+            .send({ amount, reason: "Ajuste total", key: randomUUID() })
+        ).status,
+      ).toBe(200);
+    const credits = (await documents("invoice", inv.id)).filter(
+      (d) => d.snapshot.kind === "credit",
+    );
+    expect(
+      credits.reduce(
+        (sum, d) => sum + Math.round(d.snapshot.detail.ImpNeto * 100),
+        0,
+      ),
+    ).toBe(10000);
+    expect(
+      credits.reduce(
+        (sum, d) => sum + Math.round(d.snapshot.detail.ImpIVA * 100),
+        0,
+      ),
+    ).toBe(2100);
+    expect(
+      (
+        await api()
+          .put(API + "/invoices/" + inv.id)
+          .set(...auth(admin))
+          .send({ status: "cancelled" })
+      ).status,
+    ).toBe(200);
+  });
+  it("emite servicios con fechas y exento sin array IVA", async () => {
+    const inv = await makeInvoice();
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Argentina/Buenos_Aires",
+    }).format(new Date());
+    expect(
+      (
+        await send(inv.id, {
+          ...p,
+          concepto: 2,
+          fechaServicioDesde: date,
+          fechaServicioHasta: date,
+          fechaVencimientoPago: date,
+          ivaAlicuota: 0,
+          ivaTratamiento: "exento",
+        })
+      ).status,
+    ).toBe(200);
+    const [doc] = await documents("invoice", inv.id);
+    expect(doc.snapshot.detail.ImpOpEx).toBe(121);
+    expect(doc.snapshot.detail.Iva).toBeUndefined();
+  });
+  it("intento legado sin snapshot exige conciliación antes de emitir", async () => {
+    const inv = await makeInvoice();
+    await inv.update({ afip_status: "pending" });
+    await setting("afip_environment", "prod");
+    expect((await send(inv.id)).status).toBe(422);
+    expect(mockState.calls).toBe(0);
+  });
+  it("libera lock ante excepción", async () => {
+    await expect(
+      withAfipLock("qa-lock", async () => {
+        throw new Error("QA");
+      }),
+    ).rejects.toThrow("QA");
+    expect(await withAfipLock("qa-lock", async () => true)).toBe(true);
+  });
+  it("TRA conserva UTC y comparación no acepta otro importe/receptor", () => {
+    const now = new Date("2026-09-10T01:00:00Z"),
+      xml = buildTraXml(now);
+    expect(xml).toContain(
+      "<generationTime>2026-09-10T00:50:00.000Z</generationTime>",
+    );
+    const d = buildDetail({ ...p, totalAmount: 121 }, 1);
+    expect(matches(d, { ...d, CbteTipo: 1, PtoVta: 9998 }, 1, 9998)).toBe(true);
+    expect(
+      matches(
+        d,
+        { ...d, DocNro: "30123456", CbteTipo: 1, PtoVta: 9998 },
+        1,
+        9998,
+      ),
+    ).toBe(false);
+    expect(() =>
+      validateParams({ ...p, totalAmount: 121, ivaAlicuota: 27 }, testSettings),
+    ).toThrow();
   });
 });

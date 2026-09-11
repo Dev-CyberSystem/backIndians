@@ -13,3 +13,6 @@ documentos/Users.txt
 
 # Resultados de corridas del test de estres (stress/): no se versionan
 stress/results/
+
+# Artefactos locales de verificación (PDF, capturas y logs)
+tmp/

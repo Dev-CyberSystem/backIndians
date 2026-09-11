@@ -4,7 +4,19 @@
 
 ---
 
-## Última actualización: 2026-09-10 — Correcciones del perfil diseñador
+## Última actualización: 2026-09-11 — Ajustes ARCA implementados
+
+El usuario autorizó crear branch y realizar los ajustes de la revisión. Branch `fix/arca-facturacion-segura` en ambos repos, creada desde master local. Se preservó gate y envío manual admin/billing. No se hizo push, release ni activación productiva.
+
+**Implementado**: WSAA UTC, respuesta SOAP colección, validaciones A/B/C/servicios, separación de ambientes, tickets cifrados persistentes, locks MySQL, journal con snapshot/número previo a emisión, recuperación sin duplicar, PDF con QR y notas de crédito parciales/totales. Protección de importes, anulaciones y borrado de pedidos fiscales; atención de reintegros con crédito pendiente. Operador de emisión incluido en snapshot. UI de historial, recuperación y ajustes; corregido ancho móvil del contenedor general.
+
+**Validación**: suite backend completa 494/495 con una comparación decimal defectuosa del test, corregida; reejecución final ARCA 24/24. Las otras 63 suites aprobaron. Typecheck backend/frontend, Vitest 52/52, build frontend, lint ARCA y Playwright escritorio/móvil 2/2 aprobados. PDF de tres páginas inspeccionado visualmente. Detalles y límites en [ARCA-OPERACION.md](../ARCA-OPERACION.md).
+
+**Base**: migración 108 aplicada y registrada solo localmente. Fixtures ACF de esta tarea aisladas para no interferir con numeración del catálogo. `scripts/test-local-guard.cjs` y guarda en db.ts abortan las pruebas si la configuración apunta a MySQL remoto. No se leyeron ni editaron secretos.
+
+**Pendiente externo**: preparar certificados/habilitaciones y datos fiscales con responsable contable, homologación real y release con migración 108. No borrar journal ni intentar resetear numeración. Conciliar legados sin snapshot antes de emitir. La revisión inicial se conserva como diagnóstico histórico y tiene seguimiento; DEC-027 documenta la decisión. No retomar el diagnóstico anterior como si las correcciones siguieran pendientes.
+
+## Sesión anterior: 2026-09-10 — Correcciones del perfil diseñador
 
 El usuario pidió implementar las correcciones de la revisión Go/No Go. Se corrigieron R1–R4 en `feature/perfil-disenador` y luego se integraron por fast-forward a `master` en ambos repos. HEAD funcional: back `e3fa4a7`, front `50c85a1`; parten del master local v1.11.0 (bases `6740474` / `4e8afd3`). No hubo push ni despliegue.
 

@@ -350,3 +350,12 @@ La transacción bloquea la fila del pedido y reúne edición, transición, histo
 ## Actualizar este documento cuando…
 
 Se tome una decisión técnica o funcional nueva con impacto duradero, o se revierta/reemplace una decisión ya registrada (agregar entrada nueva referenciando la anterior, no editar la histórica).
+## DEC-027 — ARCA con journal durable y correcciones fiscales explícitas
+
+**Fecha**: 2026-09-11. **Autorización**: el usuario pidió crear una branch y realizar todos los ajustes de la revisión ARCA.
+
+**Decisión**: persistir snapshot/número antes de solicitar CAE; serializar por origen y emisor mediante locks MySQL; conciliar resultados inciertos con FECompConsultar antes de cualquier reenvío. Separar homologación/producción y usar notas de crédito con idempotencia, asociación y tope acumulado. Conservar snapshot para PDF con QR y como evidencia independiente de cambios administrativos. Cifrar tickets WSAA persistentes para sobrevivir reinicios.
+
+**Motivo**: los estados en columnas y caché de proceso no resolvían concurrencia, reinicios o respuestas perdidas. Volver a numerar podía duplicar facturación. Cambiar importes o anular sin crédito desalineaba administración y ARCA.
+
+**Consecuencias**: migración 108; conciliación manual de legados sin snapshot; créditos separados de reintegros; homologación real pendiente. Se conserva emisión manual admin/billing y gate. [Procedimiento completo](../ARCA-OPERACION.md).

@@ -168,7 +168,7 @@ export async function syncDraftInvoiceForOrder(orderId: number, total: number, t
   const invoices = await Invoice.findAll({ where: { order_id: orderId }, transaction, lock: transaction.LOCK.UPDATE });
   for (const invoice of invoices) {
     const payments = await InvoicePayment.count({ where: { invoice_id: invoice.id }, transaction });
-    if (invoice.status !== 'draft' || payments > 0 || Number(invoice.payment_amount) > 0) {
+    if (invoice.status !== 'draft' || ['pending','sent'].includes(invoice.afip_status || '') || payments > 0 || Number(invoice.payment_amount) > 0) {
       throw new AppError('Facturación debe revisar el pedido antes de cambiar cantidades o ítems: la factura ya fue emitida o tiene cobros', 409);
     }
     await invoice.update({
@@ -182,12 +182,18 @@ export async function updateInvoice(
   input: UpdateInvoiceInput,
   currentUser: JwtPayload
 ): Promise<Invoice> {
+  return sequelize.transaction(async transaction => {
   const invoice = await Invoice.findByPk(id, {
-    include: [{ model: Order, as: 'order', attributes: ['total_amount'] }],
+    transaction, lock: transaction.LOCK.UPDATE,
   });
   if (!invoice) throw new AppError('Factura no encontrada', 404);
   if (invoice.status === 'cancelled') throw new AppError('No se puede modificar una factura anulada', 400);
   if (currentUser.role === 'seller') throw new AppError('No tenés permiso para modificar facturas', 403);
+  const amountsChanged = (input.discount_amount !== undefined && Number(input.discount_amount) !== Number(invoice.discount_amount || 0))
+    || (input.extra_items !== undefined && JSON.stringify(input.extra_items) !== JSON.stringify(invoice.extra_items || []));
+  if (['pending','sent'].includes(invoice.afip_status || '') && amountsChanged) {
+    throw new AppError('Los importes de una factura fiscal emitida o pendiente son inmutables. Usar nota de crédito.', 409);
+  }
 
   const updateData: Partial<Invoice> = {};
 
@@ -206,8 +212,9 @@ export async function updateInvoice(
   if (input.discount_amount !== undefined) updateData.discount_amount = newDiscount;
   if (input.extra_items     !== undefined) updateData.extra_items     = newExtras;
 
-  const orderTotal = Number((invoice as any).order?.total_amount ?? 0);
-  updateData.total_amount = calcTotal(orderTotal, newExtras, newDiscount);
+  const order = await Order.findByPk(invoice.order_id, { attributes: ['total_amount'], transaction });
+  const orderTotal = Number(order?.total_amount ?? 0);
+  if (!['pending','sent'].includes(invoice.afip_status || '')) updateData.total_amount = calcTotal(orderTotal, newExtras, newDiscount);
 
   // Al anular una factura con cobros ya asentados, revertir todos sus
   // ingresos de caja en la MISMA transacción del cambio de estado (DEC-012,
@@ -225,19 +232,20 @@ export async function updateInvoice(
   const cancelling = input.status === 'cancelled';
 
   if (cancelling) {
-    await sequelize.transaction(async (t) => {
-      await invoice.update(updateData, { transaction: t });
+      const { assertFiscalCancellation } = await import('./afip.guard');
+      await assertFiscalCancellation('invoice', invoice.id, invoice.afip_status, transaction);
+      await invoice.update(updateData, { transaction });
       await reverseAllForReference(
         'invoice', invoice.id,
         `Anulación de factura ${invoice.invoice_number}`,
-        currentUser.id, t
+        currentUser.id, transaction
       );
-    });
   } else {
-    await invoice.update(updateData);
+    await invoice.update(updateData, { transaction });
   }
 
-  return getInvoiceById(id);
+  return invoice;
+  }).then(() => getInvoiceById(id));
 }
 
 export async function getInvoiceByOrderId(orderId: number): Promise<Invoice | null> {

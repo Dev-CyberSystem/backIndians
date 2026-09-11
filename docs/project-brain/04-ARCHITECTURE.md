@@ -182,3 +182,7 @@ Dos sistemas de JWT completamente independientes y no intercambiables — ver [B
 ## Actualizar este documento cuando…
 
 Cambie el stack (versión mayor de una dependencia core, nuevo framework), se agregue una integración externa nueva, o cambie el mecanismo de auth/autorización.
+
+## ARCA — 2026-09-11
+
+`afip.protocol.ts` valida y construye el contrato; `afip.transport.ts` maneja gate, locks MySQL y tickets WSAA cifrados; `afip.service.ts` orquesta journal, recuperación y créditos; `afip.guard.ts` protege anulación; `afip.pdf.ts` genera PDFKit con QR. El journal es fuente fiscal y las columnas existentes una proyección. [DEC-027](08-DECISIONS.md).

@@ -55,7 +55,11 @@ export async function getInvoicePDF(req: AuthRequest, res: Response, next: NextF
   try {
     const invoice  = await invoiceService.getInvoiceById(parseInt(req.params.id), req.user!);
     const settings = await settingsService.getAllSettings();
-    const pdfBuffer = await generateInvoicePDF(invoice, settings);
+    const { AfipDocument } = await import('../models/AfipDocument');
+    const fiscal = await AfipDocument.findOne({where:{target:'invoice',target_id:invoice.id,environment:'prod',status:'sent','snapshot.kind':'invoice'}});
+    const pdfBuffer = fiscal && fiscal.snapshot.kind === 'invoice'
+      ? await (await import('../utils/afip.pdf')).generateFiscalPdf(fiscal)
+      : await generateInvoicePDF(invoice, settings);
 
     const filename = `factura-${invoice.invoice_number}.pdf`;
     res.set({

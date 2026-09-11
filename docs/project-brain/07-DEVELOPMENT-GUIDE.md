@@ -143,3 +143,9 @@ El release **no deploya**: al terminar imprime los comandos de push y de subida 
 ## Actualizar este documento cuando…
 
 Cambien los scripts de `package.json`, el flujo de setup, o se descubra una causa nueva y recurrente de un problema de entorno.
+
+## Verificación ARCA — 2026-09-11
+
+En PowerShell, `$env:NODE_OPTIONS='--require=./scripts/test-local-guard.cjs'` antes de `npm run test:full` restringe las pruebas a MySQL local sin imprimir secretos. Aplicar migración 108 antes de tests. SOAP se simula en `src/__tests__/api/afip.test.ts`; no equivale a homologación real. Regresión sin DB: `node docs/reviews/2026-09-10-arca-repro.cjs`. PDF ficticio: `node -r ts-node/register/transpile-only docs/reviews/2026-09-10-arca-pdf-qa.cjs`.
+
+Frontend: desde `e2e`, `npx playwright test --config playwright.arca.config.ts` usa Vite y API simulada, escritorio y móvil; guarda capturas. [Puesta en marcha real](../ARCA-OPERACION.md).

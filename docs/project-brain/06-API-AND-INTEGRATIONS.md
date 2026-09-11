@@ -1,5 +1,14 @@
 # 06 — API interna e integraciones externas
 
+## Actualización ARCA — 2026-09-11
+
+Se conservan los tres POST de emisión y GET stats. Nuevos endpoints admin/billing bajo `/api/v1`: GET `/afip/config`, `/afip/attention`, `/afip/targets/:target/:id/context`, `/afip/targets/:target/:id`, `/afip/documents/:documentId/pdf`; POST `/afip/documents/:documentId/recover` y `/afip/documents/:documentId/credit` (amount, reason, key UUID). Targets: invoice, catalogInvoice, storeOrder.
+
+Emisión admite receptorNombre, receptorDomicilio, ivaTratamiento gravado/exento y fechas de servicios ISO. Validación estricta de CUIT, tipos y coherencia fiscal; total obtenido del origen. El historial identifica invoice/credit, ambiente y estados prepared/uncertain/sent/rejected. Stats cuenta solo journal productivo autorizado y resta créditos.
+
+Credenciales separadas: `AFIP_CERT_BASE64_HOMO`/`AFIP_KEY_BASE64_HOMO` y `AFIP_CERT_BASE64_PROD`/`AFIP_KEY_BASE64_PROD`; las antiguas sin sufijo son fallback exclusivo de producción. Nuevo setting privado `company_iibb`. Servicios protocol/transport/journal separados. Tickets cifrados persistidos y gate en cada llamada. [Operación y límites](../ARCA-OPERACION.md).
+
+
 Todos los endpoints internos cuelgan de `/api/v1` (montaje en `backIndians/src/routes/index.ts`). Roles: `admin` | `billing` | `workshop` | `seller` | `designer` (staff); comprador de tienda no tiene roles, solo autenticado/no autenticado.
 
 ## Endpoints internos por router
@@ -87,11 +96,11 @@ CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso 
 ## Integraciones externas
 
 ### AFIP/ARCA (facturación electrónica)
-- **Estado**: Implementado y verificado en código, commiteado; **deshabilitado en producción** por defecto (`afip_enabled=false`, sin certificado real cargado).
+- **Estado**: correcciones en `fix/arca-facturacion-segura`. Homologación real y release pendientes; ver actualización ARCA y [operación](../ARCA-OPERACION.md).
 - **Cómo**: WSAA (autenticación por certificado, TRA firmado con CMS/PKCS#7 vía `node-forge`) + WSFEv1 (SOAP, `soap` package) para solicitar CAE.
 - **Servicio**: `backIndians/src/services/afip.service.ts`.
 - **Gate de seguridad**: `assertAfipEnabled()` — ver [BR-AFIP-001](03-BUSINESS-RULES.md).
-- **Env vars**: `AFIP_CERT_BASE64`, `AFIP_KEY_BASE64` (certificado/clave en base64; vacías por defecto).
+- **Env vars**: pares `AFIP_CERT_BASE64_HOMO`/`AFIP_KEY_BASE64_HOMO` y `AFIP_CERT_BASE64_PROD`/`AFIP_KEY_BASE64_PROD`. Los nombres anteriores son fallback exclusivo de producción.
 - **Settings relacionados** (tabla `settings`, no env): `afip_enabled`, `afip_environment` (`homo`/`prod`), `afip_punto_venta`, `afip_concepto_default`.
 - **Frontend**: `frontIndians/src/components/afip/AfipButton.tsx`, `AfipSendModal.tsx`, `src/api/afip.ts`.
 
@@ -156,7 +165,7 @@ CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso 
 | Avisos operativos | `ALERT_EMAIL_TO`, `ALERT_COOLDOWN_MINUTES`, `ALERTS_ENABLED`, `CATALOG_PAYMENT_NOTIFY_EMAIL` |
 | Jobs | `RECONCILE_JOB_ENABLED`, `RECONCILE_STALE_MINUTES`, `ORDER_EXPIRY_HOURS`, `CATALOG_RECONCILE_LOOKBACK_DAYS` (30 por defecto) |
 | MercadoPago | `MP_ACCESS_TOKEN`, `MP_PUBLIC_KEY`, `MP_WEBHOOK_SECRET` |
-| AFIP | `AFIP_CERT_BASE64`, `AFIP_KEY_BASE64` |
+| AFIP | `AFIP_CERT_BASE64_HOMO`, `AFIP_KEY_BASE64_HOMO`, `AFIP_CERT_BASE64_PROD`, `AFIP_KEY_BASE64_PROD`; legacy sin sufijo solo prod |
 | Google OAuth | `GOOGLE_CLIENT_ID` |
 | URLs públicas | `STORE_URL`, `BACKEND_PUBLIC_URL` (no en `.env.example`: `SYSTEM_URL`, fallback a `FRONTEND_URL`) |
 | Testing/seguridad | `RATE_LIMIT_DISABLED` (comentada por defecto) |
