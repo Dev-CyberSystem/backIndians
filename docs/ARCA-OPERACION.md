@@ -2,11 +2,13 @@
 
 ## Estado operativo local — 2026-09-14
 
-Se cargaron exclusivamente para homologación el certificado y la clave local del alias `IndiansQA`. El par coincide, corresponde a la CUIT `20-29323025-1` y está vigente hasta el 13/09/2028. Settings locales: razón social Indians, domicilio Gral. Paz 1071 Piso 4 Dpto. C (San Miguel de Tucumán), Monotributista, inicio 01/08/2026, ambiente homo y punto de venta 3. La emisión permanece deshabilitada.
+Se cargaron exclusivamente para homologación el certificado y la clave local del alias `IndiansQA`. El par coincide, corresponde a la CUIT `20-29323025-1` y está vigente hasta el 13/09/2028. Settings locales: razón social Indians, domicilio Gral. Paz 1071 Piso 4 Dpto. C (San Miguel de Tucumán), Monotributista, inicio 01/08/2026, ambiente homo y punto de venta 3. Como todavía no se dispone de número de IIBB, se usa `No informado - homologación` únicamente en pruebas; producción rechaza explícitamente ese marcador. La emisión permanece deshabilitada fuera de cada prueba controlada.
 
-La consulta de acceso a WSAA devolvió `coe.notAuthorized: Computador no autorizado a acceder al servicio`. Falta crear en WSASS la autorización del alias `IndiansQA` al servicio `wsfe`, representando la CUIT `20-29323025-1`. También falta completar `company_iibb` con el número real o la condición Exento confirmada. Después de ambos pasos, repetir autenticación y `FEParamGetPtosVenta`; el punto de venta 3 de la captura corresponde al sistema Monotributo - Web Services, pero debe confirmarse que homologación lo devuelve activo y no bloqueado.
+La autorización del alias `IndiansQA` a `wsfe` quedó operativa: WSAA autenticó y WSFE respondió para la CUIT representada. `FEParamGetPtosVenta` devuelve 602 sin resultados en testing, pero `FECompUltimoAutorizado` acepta el punto 3 para Factura C. Por ello el código tolera ese caso exacto solo en `homo` y conserva el catálogo obligatorio en producción.
 
-Implementación en `fix/arca-facturacion-segura`, backend y frontend. Revisión 2026-09-10/11. El usuario autorizó los ajustes fiscales y de esquema; no se desplegó ni se habilitó producción. Las pruebas SOAP son simuladas: no sustituyen homologación real.
+Prueba real completada el 14/09/2026: Factura C de homologación punto 3 número 1, total $121, autorizada con CAE y vencimiento 24/09/2026; luego Nota de Crédito C asociada, punto 3 número 1, por el total, también autorizada. Repetir la misma NC con su clave no generó otro comprobante. Los PDF reales fueron renderizados e inspeccionados: muestran ambiente sin validez fiscal, QR, CAE, vencimiento y asociación. El journal y el ticket cifrado quedaron persistidos localmente. No hubo llamadas a producción.
+
+Implementación en `fix/arca-facturacion-segura`, backend y frontend. Revisión 2026-09-10/11 y homologación real 2026-09-14. El usuario autorizó los ajustes fiscales y de esquema; no se desplegó ni se habilitó producción.
 
 ## Alcance
 

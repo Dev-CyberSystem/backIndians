@@ -101,6 +101,13 @@ async function config() {
     if (!settings[key]?.trim())
       throw new Error("Completar dato fiscal del emisor: " + key);
   }
+  if (
+    environment === "prod" &&
+    settings.company_iibb.trim() === "No informado - homologación"
+  )
+    throw new Error(
+      "Completar el número o condición real de Ingresos Brutos antes de usar producción",
+    );
   issuerKind(settings);
   return {
     settings,
@@ -472,15 +479,24 @@ async function emit(
           )
             throw new Error("Tipo de comprobante no habilitado en ARCA");
           const points = await client.call("FEParamGetPtosVenta", {});
-          errors(points);
-          if (
-            !list<any>(points?.ResultGet?.PtoVenta).some(
-              (x) =>
-                Number(x.Nro) === cfg.pv &&
-                x.Bloqueado !== "S" &&
-                (!x.FchBaja || x.FchBaja === "NULL"),
-            )
-          )
+          const pointErrors = list<any>(points?.Errors?.Err);
+          // WSFE de homologación puede autenticar y aceptar el PV aunque el
+          // catálogo todavía responda 602. La consulta del último autorizado
+          // que sigue abajo confirma que el PV/tipo son utilizables. Producción
+          // continúa exigiendo que el punto figure activo en el catálogo.
+          const emptyHomoCatalogue =
+            cfg.environment === "homo" &&
+            !points?.ResultGet &&
+            pointErrors.length === 1 &&
+            Number(pointErrors[0].Code) === 602;
+          if (!emptyHomoCatalogue) errors(points);
+          const activePoint = list<any>(points?.ResultGet?.PtoVenta).some(
+            (x) =>
+              Number(x.Nro) === cfg.pv &&
+              x.Bloqueado !== "S" &&
+              (!x.FchBaja || x.FchBaja === "NULL"),
+          );
+          if (!activePoint && !emptyHomoCatalogue)
             throw new Error("Punto de venta no habilitado para Web Services");
           const conditions = await client.call(
             "FEParamGetCondicionIvaReceptor",

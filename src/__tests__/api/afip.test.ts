@@ -36,6 +36,7 @@ const mockState = {
   invalidLast: false,
   delay: false,
   globalError: false,
+  emptyPoints: false,
 };
 jest.mock("soap", () => ({
   createClientAsync: jest.fn(async (url: string) => {
@@ -62,9 +63,13 @@ jest.mock("soap", () => ({
         }),
       FEParamGetPtosVentaAsync: async () =>
         result("FEParamGetPtosVenta", {
-          ResultGet: {
-            PtoVenta: [{ Nro: 9998, Bloqueado: "N", FchBaja: "NULL" }],
-          },
+          ...(mockState.emptyPoints
+            ? { Errors: { Err: [{ Code: 602, Msg: "Sin Resultados" }] } }
+            : {
+                ResultGet: {
+                  PtoVenta: [{ Nro: 9998, Bloqueado: "N", FchBaja: "NULL" }],
+                },
+              }),
         }),
       FEParamGetCondicionIvaReceptorAsync: async () =>
         result("FEParamGetCondicionIvaReceptor", {
@@ -253,9 +258,11 @@ describe("ARCA - persistencia y contrato SOAP", () => {
     mockState.invalidLast = false;
     mockState.delay = false;
     mockState.globalError = false;
+    mockState.emptyPoints = false;
     await setting("afip_enabled", "true");
     await setting("afip_environment", "homo");
     await setting("company_iva_condition", "Responsable Inscripto");
+    await setting("company_iibb", testSettings.company_iibb);
   });
   afterEach(async () => {
     for (const t of targets) {
@@ -380,6 +387,23 @@ describe("ARCA - persistencia y contrato SOAP", () => {
     expect((await send(inv.id)).status).toBe(200);
     expect(await documents("invoice", inv.id)).toHaveLength(2);
     expect((await inv.reload()).afip_status).toBe("sent");
+  });
+  it("homologación acepta catálogo de PV vacío si el punto responde; producción no", async () => {
+    mockState.emptyPoints = true;
+    const homo = await makeInvoice();
+    expect((await send(homo.id)).status).toBe(200);
+    const prod = await makeInvoice();
+    await setting("afip_environment", "prod");
+    expect((await send(prod.id)).status).toBe(422);
+    expect(await documents("invoice", prod.id)).toHaveLength(0);
+  });
+  it("producción rechaza el marcador temporal de IIBB usado en homologación", async () => {
+    const invoice = await makeInvoice();
+    await setting("afip_environment", "prod");
+    await setting("company_iibb", "No informado - homologación");
+    expect((await send(invoice.id)).status).toBe(422);
+    expect(mockState.calls).toBe(0);
+    expect(await documents("invoice", invoice.id)).toHaveLength(0);
   });
   it("producción congela importes y exige crédito antes de anular", async () => {
     const inv = await makeInvoice();

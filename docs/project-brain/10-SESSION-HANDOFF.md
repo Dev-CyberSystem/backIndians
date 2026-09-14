@@ -2,7 +2,9 @@
 
 ## Actualización operativa ARCA — 2026-09-14
 
-Certificado de homologación `IndiansQA` cargado solo en `.env` local mediante variables `_HOMO`; clave y certificado validados sin exponer contenido. CUIT 20-29323025-1, vigencia hasta 13/09/2028. Datos fiscales suministrados y PV 3 cargados en MySQL local; `afip_enabled=false`. Falta `company_iibb`. Prueba real de autenticación sin emisión: WSAA respondió `coe.notAuthorized`; el usuario debe autorizar en WSASS el alias `IndiansQA` para servicio `wsfe` y CUIT representada 20-29323025-1. Luego repetir WSAA y consultar puntos de venta antes de emitir homologación.
+Certificado de homologación `IndiansQA` cargado solo en `.env` local mediante variables `_HOMO`; clave y certificado validados sin exponer contenido. CUIT 20-29323025-1, vigencia hasta 13/09/2028. Autorización `wsfe` confirmada con WSAA real. Datos fiscales y PV 3 cargados en MySQL local; `afip_enabled=false` fuera de cada prueba. Falta IIBB real: placeholder `No informado - homologación`, bloqueado expresamente en prod.
+
+Homologación real aprobada: Factura C PV 3 número 1 por $121 y Nota de Crédito C PV 3 número 1 total, ambas con CAE y vencimiento 24/09/2026. Idempotencia de NC aprobada. PDF de ambos comprobantes renderizado e inspeccionado. `FEParamGetPtosVenta` devuelve 602 vacío pero `FECompUltimoAutorizado` acepta PV 3; se agregó excepción estricta solo para homo, producción sigue fail-closed. Suite ARCA final 26/26 y typecheck aprobados. No se llamó ni configuró producción.
 
 > Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)).
 
