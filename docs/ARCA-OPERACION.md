@@ -1,5 +1,11 @@
 # ARCA — operación y puesta en marcha
 
+## Estado operativo local — 2026-09-14
+
+Se cargaron exclusivamente para homologación el certificado y la clave local del alias `IndiansQA`. El par coincide, corresponde a la CUIT `20-29323025-1` y está vigente hasta el 13/09/2028. Settings locales: razón social Indians, domicilio Gral. Paz 1071 Piso 4 Dpto. C (San Miguel de Tucumán), Monotributista, inicio 01/08/2026, ambiente homo y punto de venta 3. La emisión permanece deshabilitada.
+
+La consulta de acceso a WSAA devolvió `coe.notAuthorized: Computador no autorizado a acceder al servicio`. Falta crear en WSASS la autorización del alias `IndiansQA` al servicio `wsfe`, representando la CUIT `20-29323025-1`. También falta completar `company_iibb` con el número real o la condición Exento confirmada. Después de ambos pasos, repetir autenticación y `FEParamGetPtosVenta`; el punto de venta 3 de la captura corresponde al sistema Monotributo - Web Services, pero debe confirmarse que homologación lo devuelve activo y no bloqueado.
+
 Implementación en `fix/arca-facturacion-segura`, backend y frontend. Revisión 2026-09-10/11. El usuario autorizó los ajustes fiscales y de esquema; no se desplegó ni se habilitó producción. Las pruebas SOAP son simuladas: no sustituyen homologación real.
 
 ## Alcance

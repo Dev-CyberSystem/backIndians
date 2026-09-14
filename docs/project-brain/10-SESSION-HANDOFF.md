@@ -1,5 +1,9 @@
 # 10 — Entrega entre sesiones
 
+## Actualización operativa ARCA — 2026-09-14
+
+Certificado de homologación `IndiansQA` cargado solo en `.env` local mediante variables `_HOMO`; clave y certificado validados sin exponer contenido. CUIT 20-29323025-1, vigencia hasta 13/09/2028. Datos fiscales suministrados y PV 3 cargados en MySQL local; `afip_enabled=false`. Falta `company_iibb`. Prueba real de autenticación sin emisión: WSAA respondió `coe.notAuthorized`; el usuario debe autorizar en WSASS el alias `IndiansQA` para servicio `wsfe` y CUIT representada 20-29323025-1. Luego repetir WSAA y consultar puntos de venta antes de emitir homologación.
+
 > Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)).
 
 ---
