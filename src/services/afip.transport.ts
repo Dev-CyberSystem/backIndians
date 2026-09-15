@@ -1,3 +1,4 @@
+import * as https from "https";
 import * as forge from "node-forge";
 import * as soap from "soap";
 import {
@@ -10,6 +11,7 @@ import { sequelize } from "../config/db";
 import { AfipAuthTicket } from "../models/AfipDocument";
 import { getAllSettings } from "./settings.service";
 import { buildTraXml } from "./afip.protocol";
+import { logger } from "../utils/logger";
 
 export const WSAA_URL = {
   homo: "https://wsaahomo.afip.gov.ar/ws/services/LoginCms?wsdl",
@@ -73,7 +75,26 @@ function tag(xml: string, name: string): string {
   if (!value) throw new Error("Respuesta WSAA inválida: falta " + name);
   return value.trim();
 }
-const timeout = { timeout: 15000 };
+/**
+ * WSFE de producción (`servicios1.afip.gov.ar`) negocia DHE con parámetros
+ * Diffie-Hellman de 1024 bits y no ofrece ECDHE, así que no se puede esquivar
+ * prefiriendo otra suite. OpenSSL 3 en su nivel de seguridad por defecto exige
+ * 2048 y aborta el handshake con `tls_process_ske_dhe:dh key too small`.
+ *
+ * Node 20.19 lo acepta, por eso la homologación local pasó; el contenedor
+ * productivo corre una versión posterior que lo rechaza y dejó la emisión real
+ * cortada antes de llegar a pedir el CAE (2026-09-15).
+ *
+ * El nivel se baja en un agente propio para que aplique SOLO a las conexiones
+ * con ARCA: `NODE_OPTIONS` habría degradado también MercadoPago, Resend,
+ * Cloudinary y la base. `minVersion` sostiene TLS 1.2 como piso, porque
+ * SECLEVEL=1 por sí solo volvería a habilitar 1.0/1.1.
+ */
+const arcaAgent = new https.Agent({
+  ciphers: "DEFAULT@SECLEVEL=1",
+  minVersion: "TLSv1.2",
+});
+const timeout = { timeout: 15000, httpsAgent: arcaAgent };
 async function ticket(env: "homo" | "prod") {
   const suffix = env === "homo" ? "_HOMO" : "_PROD";
   // Compatibilidad con credenciales existentes solo para producción.
@@ -192,9 +213,19 @@ async function ticket(env: "homo" | "prod") {
 export async function wsfe(env: "homo" | "prod", cuit: string) {
   await assertAfipEnabled();
   const auth = await ticket(env);
-  const client = await soap.createClientAsync(WSFE_URL[env], {
-    wsdl_options: timeout,
-  });
+  // Sin este catch, el error crudo del handshake/WSDL llegaba tal cual a la
+  // respuesta de la API (mismo motivo que el catch de `call`).
+  let client: soap.Client;
+  try {
+    client = await soap.createClientAsync(WSFE_URL[env], {
+      wsdl_options: timeout,
+    });
+  } catch (err) {
+    logger.error("afip.wsfe.connect", err as Error, { meta: { env } });
+    throw new Error(
+      "No se pudo establecer la conexión con WSFE de ARCA. Revisar conectividad y disponibilidad del servicio del ambiente seleccionado",
+    );
+  }
   return {
     async call(method: string, args: any): Promise<any> {
       await assertAfipEnabled();

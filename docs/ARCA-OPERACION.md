@@ -34,6 +34,24 @@ No incluye múltiples alícuotas dentro de un comprobante, moneda extranjera, ex
 
 Los tickets se conservan cifrados con AES-256-GCM, con clave derivada de la clave privada. Se reutilizan tras reiniciar y entre procesos. Una rotación de certificado cambia su identidad; no borrar tickets vigentes para forzar autenticaciones repetidas.
 
+## Requisito de TLS del ambiente productivo
+
+`servicios1.afip.gov.ar` (WSFE de producción) negocia DHE con parámetros
+Diffie-Hellman de 1024 bits y no ofrece ECDHE. OpenSSL 3, en su nivel de
+seguridad por defecto, exige 2048 y corta el handshake con
+`tls_process_ske_dhe:dh key too small`. Node 20.19 los acepta y las versiones
+posteriores no, así que la misma build funciona en una máquina y falla en otra
+según la versión de Node del contenedor.
+
+Por eso las conexiones con ARCA usan un agente HTTPS propio con el nivel de
+seguridad bajado y TLS 1.2 como piso, en `afip.transport.ts`. El alcance es
+deliberado: bajarlo por `NODE_OPTIONS` habría degradado también MercadoPago,
+Resend, Cloudinary y la base. No reemplazar ese agente por una configuración
+global ni quitarlo mientras ARCA siga publicando esos parámetros.
+
+Los cuatro endpoints de homologación y WSAA de producción usan ECDHE y no
+dependen de esto. El síntoma aparece recién en la primera emisión productiva.
+
 ## Emisión y recuperación
 
 Desde Facturas o el detalle del documento, un admin/billing abre **ARCA**, comprueba ambiente, receptor, importes y confirma. Se consulta la parametrización oficial y se persiste un snapshot antes de enviar.
