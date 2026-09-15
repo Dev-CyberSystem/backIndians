@@ -8,6 +8,8 @@ Homologación real aprobada: Factura C PV 3 número 1 por $121 y Nota de Crédit
 
 Fixture lista para la prueba manual: factura borrador ID 392, referencia `ARCA-MANUAL-QA-20260914212054`, cliente `Cliente Homologación Manual`, total $121. En el modal: Factura C, Productos, DNI `30123456`, Consumidor Final. Es exclusivamente local y aún no fue enviada.
 
+El generador fiscal se unificó con el formato visual de los demás comprobantes de Indians. Conserva letra/código/numeración oficial, snapshot, impuestos, asociaciones, QR, CAE y vencimiento; reemplaza únicamente la presentación anterior. Factura C y Nota de Crédito C reales de homologación fueron regeneradas e inspeccionadas. También se validó una factura ficticia de 30 renglones en tres páginas. Suite ARCA 26/26 y typecheck aprobados.
+
 > Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)).
 
 ---

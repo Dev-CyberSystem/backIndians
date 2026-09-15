@@ -54,7 +54,7 @@ El reintegro efectivo de dinero se registra separadamente: no se bloquea el regi
 
 ## PDF y auditoría
 
-El PDF fiscal sale exclusivamente de un snapshot autorizado y conserva emisor, receptor, detalle, impuestos, asociación, CAE, vencimiento y QR oficial. Los comprobantes de homologación dicen **SIN VALIDEZ FISCAL**. Sin journal productivo autorizado, el PDF administrativo conserva una advertencia de documento interno.
+El PDF fiscal sale exclusivamente de un snapshot autorizado y conserva emisor, receptor, detalle, impuestos, asociación, CAE, vencimiento y QR oficial. Usa el mismo formato visual que los comprobantes administrativos de Indians: membrete, marco, letra, datos del cliente, tabla, totales, firma y barra inferior. El bloque fiscal reemplaza el QR de muestra y la leyenda interna por el QR oficial, CAE y vencimiento. Los comprobantes de homologación dicen **SIN VALIDEZ FISCAL**. Sin journal productivo autorizado, el PDF administrativo conserva una advertencia de documento interno.
 
 El snapshot incluye operador que preparó la emisión, ambiente y fecha; el resultado de ARCA se guarda antes de proyectar el estado al documento administrativo. Respaldar journal y tickets junto con la base. No eliminar estas tablas en un rollback después de emitir: deshabilitar primero la emisión y conservar evidencia y numeración.
 
