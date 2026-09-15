@@ -4,7 +4,7 @@
 
 Se cargaron exclusivamente para homologación el certificado y la clave local del alias `IndiansQA`. El par coincide, corresponde a la CUIT `20-29323025-1` y está vigente hasta el 13/09/2028. La constancia de opción aportada confirma como titular fiscal a `CARRILLO LEITO GONZALO SEBASTIAN`, domicilio General Paz 1071 Piso 4 Dpto. C, San Miguel de Tucumán, CP 4000, Monotributo categoría F e inicio 01/08/2026. El usuario confirmó que IIBB no corresponde y el setting quedó como `No corresponde`.
 
-Para preparar producción se validaron dos certificados `IndiansProd`, ambos emitidos por la AC productiva de ARCA para la CUIT correcta, vigentes hasta el 14/09/2028 y coincidentes con la clave privada. Se seleccionó localmente el más reciente (`IndiansProd_2383dd0cd48d394f.crt`) en variables `_PROD`, sin versionar secretos. El preflight productivo de solo lectura devolvió `coe.notAuthorized` con ambos certificados: falta vincular el computador fiscal `IndiansProd` al servicio `wsfe` en Administrador de Relaciones. Hasta resolverlo, `afip_environment=homo` y `afip_enabled=false`; no hubo emisión productiva.
+Para preparar producción se validaron dos certificados `IndiansProd`, ambos emitidos por la AC productiva de ARCA para la CUIT correcta, vigentes hasta el 14/09/2028 y coincidentes con la clave privada. Se seleccionó localmente el más reciente (`IndiansProd_2383dd0cd48d394f.crt`) en variables `_PROD`, sin versionar secretos. Después de vincular `IndiansProd` al servicio `wsfe`, el preflight productivo de solo lectura autenticó ambos certificados. WSFE confirmó Factura C y Consumidor Final, punto de venta 3 activo (`CAE - Monotributo`, no bloqueado) y último número autorizado 0. No se solicitó CAE ni se emitió un comprobante productivo. La configuración local permanece en `afip_environment=homo` y `afip_enabled=false`.
 
 La autorización del alias `IndiansQA` a `wsfe` quedó operativa: WSAA autenticó y WSFE respondió para la CUIT representada. `FEParamGetPtosVenta` devuelve 602 sin resultados en testing, pero `FECompUltimoAutorizado` acepta el punto 3 para Factura C. Por ello el código tolera ese caso exacto solo en `homo` y conserva el catálogo obligatorio en producción.
 
@@ -64,7 +64,14 @@ El snapshot incluye operador que preparó la emisión, ambiente y fecha; el resu
 
 Con certificados y habilitaciones reales, ejecutar en homologación los tipos aplicables al emisor: factura, consulta de la autorización, repetición sin duplicar, nota parcial y total, PDF y QR, servicios si corresponden. Verificar con el responsable contable razón social, IIBB, inicio de actividades, IVA y documentos.
 
-Registrar CUIT, ambiente, punto de venta, tipos/números, CAE y resultado de cada caso en un acta sin secretos. Luego autorizar la puesta en producción, elegir credenciales/punto productivos y verificar el primer comprobante. Esta validación externa sigue pendiente.
+Registrar CUIT, ambiente, punto de venta, tipos/números, CAE y resultado de cada caso en un acta sin secretos. El preflight productivo de credenciales, tipo de comprobante y punto de venta está aprobado. Quedan el despliegue controlado, la carga de secretos en Railway, la configuración fiscal con emisión deshabilitada y la autorización separada del primer comprobante productivo.
+
+## Preflight productivo y ensayo de release — 2026-09-14
+
+- WSAA producción autenticó con ambos certificados `IndiansProd`; se usará el certificado más reciente, que coincide con la clave privada y la CUIT `20-29323025-1`.
+- WSFE producción confirmó Factura C, Consumidor Final y PV 3 activo. Última Factura C autorizada: 0. El primer número esperado es 1 si no existe otra emisión sobre ese punto antes del alta.
+- No se solicitó CAE y no se modificaron settings ni base de producción.
+- Ensayo `v1.11.2` aprobado: backend typecheck, 64 suites/497 tests; frontend 52 tests, build y 38/38 rutas prerenderizadas. El modo dry-run no creó commits, tags, backups ni despliegues.
 
 ## Referencias oficiales consultadas
 
