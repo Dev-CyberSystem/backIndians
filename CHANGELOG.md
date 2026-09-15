@@ -3,6 +3,22 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.11.2 — 2026-09-15
+
+### backIndians (fda9d43)
+
+- docs(arca): confirmar preflight productivo
+- docs(arca): registrar preparacion productiva
+- fix(arca): unificar formato del comprobante fiscal
+- docs(arca): registrar prueba manual de homologacion
+- fix(arca): validar punto de venta en homologacion real
+- docs(arca): registrar configuracion de homologacion
+- fix(arca): persistir emisiones y recuperar CAE sin duplicar
+
+### frontIndians (fb2f92a)
+
+- feat(arca): historial fiscal, recuperacion y notas de credito
+
 ## v1.11.1 — 2026-09-10
 
 ### backIndians (e96fb04)
