@@ -3,6 +3,17 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.11.3 — 2026-09-15
+
+### backIndians (a1061f7)
+
+- test(caja): comparar los totales al centavo, no por igualdad exacta
+- fix(arca): habilitar el handshake con WSFE de produccion
+
+### frontIndians (b62e0da)
+
+- sin cambios desde el release anterior
+
 ## v1.11.2 — 2026-09-15
 
 ### backIndians (fda9d43)
