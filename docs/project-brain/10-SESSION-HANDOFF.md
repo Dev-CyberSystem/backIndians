@@ -2,9 +2,11 @@
 
 ## Actualización operativa ARCA — 2026-09-14
 
-Certificado de homologación `IndiansQA` cargado solo en `.env` local mediante variables `_HOMO`; clave y certificado validados sin exponer contenido. CUIT 20-29323025-1, vigencia hasta 13/09/2028. Autorización `wsfe` confirmada con WSAA real. Datos fiscales y PV 3 cargados en MySQL local; `afip_enabled=false` fuera de cada prueba. Falta IIBB real: placeholder `No informado - homologación`, bloqueado expresamente en prod.
+Certificado de homologación `IndiansQA` cargado solo en `.env` local mediante variables `_HOMO`; clave y certificado validados sin exponer contenido. CUIT 20-29323025-1, vigencia hasta 13/09/2028. Autorización `wsfe` confirmada con WSAA real. Datos fiscales y PV 3 cargados en MySQL local. A pedido del usuario, `afip_enabled=true` está activo para prueba manual y los servidores locales responden en puertos 5173/3000. Falta IIBB real: placeholder `No informado - homologación`, bloqueado expresamente en prod.
 
 Homologación real aprobada: Factura C PV 3 número 1 por $121 y Nota de Crédito C PV 3 número 1 total, ambas con CAE y vencimiento 24/09/2026. Idempotencia de NC aprobada. PDF de ambos comprobantes renderizado e inspeccionado. `FEParamGetPtosVenta` devuelve 602 vacío pero `FECompUltimoAutorizado` acepta PV 3; se agregó excepción estricta solo para homo, producción sigue fail-closed. Suite ARCA final 26/26 y typecheck aprobados. No se llamó ni configuró producción.
+
+Fixture lista para la prueba manual: factura borrador ID 392, referencia `ARCA-MANUAL-QA-20260914212054`, cliente `Cliente Homologación Manual`, total $121. En el modal: Factura C, Productos, DNI `30123456`, Consumidor Final. Es exclusivamente local y aún no fue enviada.
 
 > Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)).
 

@@ -2,11 +2,13 @@
 
 ## Estado operativo local — 2026-09-14
 
-Se cargaron exclusivamente para homologación el certificado y la clave local del alias `IndiansQA`. El par coincide, corresponde a la CUIT `20-29323025-1` y está vigente hasta el 13/09/2028. Settings locales: razón social Indians, domicilio Gral. Paz 1071 Piso 4 Dpto. C (San Miguel de Tucumán), Monotributista, inicio 01/08/2026, ambiente homo y punto de venta 3. Como todavía no se dispone de número de IIBB, se usa `No informado - homologación` únicamente en pruebas; producción rechaza explícitamente ese marcador. La emisión permanece deshabilitada fuera de cada prueba controlada.
+Se cargaron exclusivamente para homologación el certificado y la clave local del alias `IndiansQA`. El par coincide, corresponde a la CUIT `20-29323025-1` y está vigente hasta el 13/09/2028. Settings locales: razón social Indians, domicilio Gral. Paz 1071 Piso 4 Dpto. C (San Miguel de Tucumán), Monotributista, inicio 01/08/2026, ambiente homo y punto de venta 3. Como todavía no se dispone de número de IIBB, se usa `No informado - homologación` únicamente en pruebas; producción rechaza explícitamente ese marcador. A pedido del usuario, `afip_enabled=true` quedó activo localmente para la prueba manual. Los servicios de desarrollo responden en `http://localhost:5173` y `http://localhost:3000`.
 
 La autorización del alias `IndiansQA` a `wsfe` quedó operativa: WSAA autenticó y WSFE respondió para la CUIT representada. `FEParamGetPtosVenta` devuelve 602 sin resultados en testing, pero `FECompUltimoAutorizado` acepta el punto 3 para Factura C. Por ello el código tolera ese caso exacto solo en `homo` y conserva el catálogo obligatorio en producción.
 
 Prueba real completada el 14/09/2026: Factura C de homologación punto 3 número 1, total $121, autorizada con CAE y vencimiento 24/09/2026; luego Nota de Crédito C asociada, punto 3 número 1, por el total, también autorizada. Repetir la misma NC con su clave no generó otro comprobante. Los PDF reales fueron renderizados e inspeccionados: muestran ambiente sin validez fiscal, QR, CAE, vencimiento y asociación. El journal y el ticket cifrado quedaron persistidos localmente. No hubo llamadas a producción.
+
+Para la prueba manual se creó la factura local borrador `ARCA-MANUAL-QA-20260914212054`, ID 392, cliente `Cliente Homologación Manual`, total $121. En el modal se debe usar Factura C, Productos, DNI `30123456` y Consumidor Final. Es una fixture local: no representa una venta ni un cliente real.
 
 Implementación en `fix/arca-facturacion-segura`, backend y frontend. Revisión 2026-09-10/11 y homologación real 2026-09-14. El usuario autorizó los ajustes fiscales y de esquema; no se desplegó ni se habilitó producción.
 
