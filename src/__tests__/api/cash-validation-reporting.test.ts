@@ -213,8 +213,12 @@ describe('Validación de cuentas y contabilidad del resumen — P0 de verificaci
     const after = await periodSummary();
 
     // Antes: delta_income=+5000, delta_expense=+5000 (net_balance daba 0 igual).
-    expect(after.total_income - before.total_income).toBe(0);
-    expect(after.total_expense - before.total_expense).toBe(0);
+    // Comparación al centavo, no igualdad exacta: los totales vienen de sumas
+    // DECIMAL convertidas a number, y restar dos acumulados grandes deja error
+    // de punto flotante (1000 − 400 dio 599.9999999999995 cuando el período ya
+    // tenía movimientos suficientes). El producto devuelve el valor correcto.
+    expect(after.total_income - before.total_income).toBeCloseTo(0, 2);
+    expect(after.total_expense - before.total_expense).toBeCloseTo(0, 2);
   });
 
   it('un egreso revertido por completo tampoco infla los totales (caso simétrico)', async () => {
@@ -240,8 +244,8 @@ describe('Validación de cuentas y contabilidad del resumen — P0 de verificaci
 
     const after = await periodSummary();
 
-    expect(after.total_income - before.total_income).toBe(0);
-    expect(after.total_expense - before.total_expense).toBe(0);
+    expect(after.total_income - before.total_income).toBeCloseTo(0, 2);
+    expect(after.total_expense - before.total_expense).toBeCloseTo(0, 2);
   });
 
   it('una reversión PARCIAL deja el remanente vigente, no hace desaparecer todo (el caso que distingue excluir de compensar)', async () => {
@@ -263,8 +267,8 @@ describe('Validación de cuentas y contabilidad del resumen — P0 de verificaci
 
     // Con exclusión de filas esto daría 0 (desaparece el movimiento entero).
     // Compensando por signo (DEC-013) queda el remanente real: 1000 − 400 = 600.
-    expect(after.total_income - before.total_income).toBe(600);
-    expect(after.total_expense - before.total_expense).toBe(0);
+    expect(after.total_income - before.total_income).toBeCloseTo(600, 2);
+    expect(after.total_expense - before.total_expense).toBeCloseTo(0, 2);
   });
 
   it('daily_evolution del día de hoy sigue el mismo criterio de neteo que los totales', async () => {
@@ -289,8 +293,8 @@ describe('Validación de cuentas y contabilidad del resumen — P0 de verificaci
 
     const after = dayRowOf((await periodSummary()).daily_evolution);
 
-    expect(after.income - before.income).toBe(600); // 900 − 300
-    expect(after.expense - before.expense).toBe(0);
+    expect(after.income - before.income).toBeCloseTo(600, 2); // 900 − 300
+    expect(after.expense - before.expense).toBeCloseTo(0, 2);
   });
 
   it('el saldo de la cuenta no cambia por ninguna de estas validaciones', async () => {
