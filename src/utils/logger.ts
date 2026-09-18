@@ -69,8 +69,11 @@ const basePino = pino({
 
 const includeStack = ENV !== 'production';
 
-/** Convierte cualquier error capturado en un ErrorDetail estructurado. */
-function toErrorDetail(error: unknown): ErrorDetail {
+/**
+ * Convierte cualquier error capturado en un ErrorDetail estructurado.
+ * Exportada para poder testear la normalización sin levantar toda la app.
+ */
+export function toErrorDetail(error: unknown): ErrorDetail {
   if (error instanceof Error) {
     const anyErr = error as Error & { code?: string | number; type?: string; originalError?: unknown };
     return {
@@ -81,6 +84,37 @@ function toErrorDetail(error: unknown): ErrorDetail {
       originalError: anyErr.originalError ? sanitize(anyErr.originalError) : undefined,
     };
   }
+
+  // Error serializado: llega como objeto plano, no como Error. Es el caso de
+  // todo lo que reporta el frontend por POST /logs/client (JSON no transporta
+  // instancias de Error) y de cualquier error que haya cruzado un límite de
+  // proceso. Sin esta rama caía en `String(error)` y el log quedaba en
+  // "[object Object]", tirando el mensaje real: los errores del cliente en
+  // producción eran ilegibles y no servían para diagnosticar nada.
+  if (error !== null && typeof error === 'object') {
+    const obj = error as { message?: unknown; name?: unknown; type?: unknown; code?: unknown; stack?: unknown };
+    const message = typeof obj.message === 'string' ? obj.message : undefined;
+    const type = typeof obj.type === 'string' ? obj.type : typeof obj.name === 'string' ? obj.name : undefined;
+    if (message || type) {
+      return {
+        message: message ?? type ?? 'Error sin mensaje',
+        code: typeof obj.code === 'string' || typeof obj.code === 'number' ? obj.code : undefined,
+        type: type ?? 'SerializedError',
+        stack: includeStack && typeof obj.stack === 'string' ? obj.stack : undefined,
+      };
+    }
+    // Objeto sin forma de error: se serializa entero (sanitizado) en vez de
+    // perderlo, porque "[object Object]" no dice absolutamente nada. Acotado en
+    // largo y a prueba de referencias circulares: un log nunca debe romper nada.
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(sanitize(error))?.slice(0, 2000) ?? '[no serializable]';
+    } catch {
+      serialized = '[no serializable]';
+    }
+    return { message: serialized, type: 'UnknownError' };
+  }
+
   return { message: String(error), type: 'UnknownError' };
 }
 
