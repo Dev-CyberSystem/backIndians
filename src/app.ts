@@ -60,7 +60,18 @@ if (process.env.NODE_ENV === 'development') {
 // ─── Parseo de cuerpo ────────────────────────────────────────────────────────
 // 1mb alcanza de sobra para cualquier JSON legítimo de la app (las imágenes van
 // por multipart/multer, no por JSON). Reduce la superficie de DoS por body grande.
-app.use(express.json({ limit: '1mb' }));
+app.use(
+  express.json({
+    limit: '1mb',
+    // El webhook de Resend se verifica con la firma Svix sobre el cuerpo CRUDO
+    // (byte a byte): re-serializar el JSON parseado rompería la firma.
+    verify: (req, _res, buf) => {
+      if ((req as { url?: string }).url?.startsWith('/api/v1/newsletter/webhook')) {
+        (req as { rawBody?: string }).rawBody = buf.toString('utf8');
+      }
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ─── Contexto de transacción + logger por request ─────────────────────────────

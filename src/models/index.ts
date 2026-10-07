@@ -55,6 +55,9 @@ import { CashAccount } from './CashAccount';
 import { CashTransactionCategory } from './CashTransactionCategory';
 import { CashTransaction } from './CashTransaction';
 import { CashAuditEvent } from './CashAuditEvent';
+import { NewsletterSubscriber } from './NewsletterSubscriber';
+import { NewsletterCampaign } from './NewsletterCampaign';
+import { NewsletterCampaignRecipient } from './NewsletterCampaignRecipient';
 
 // ─── Asociaciones ───────────────────────────────────────────────────────────
 
@@ -312,6 +315,12 @@ InvoicePayment.belongsTo(Invoice, { foreignKey: 'invoice_id', as: 'invoice' });
 CatalogInvoice.hasMany(CatalogInvoicePayment, { foreignKey: 'catalog_invoice_id', as: 'payments', onDelete: 'CASCADE' });
 CatalogInvoicePayment.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
 
+// ─── Newsletter (migración 109) ─────────────────────────────────────────────
+NewsletterCampaign.hasMany(NewsletterCampaignRecipient, { foreignKey: 'campaign_id', as: 'recipients', onDelete: 'CASCADE' });
+NewsletterCampaignRecipient.belongsTo(NewsletterCampaign, { foreignKey: 'campaign_id', as: 'campaign' });
+NewsletterCampaignRecipient.belongsTo(NewsletterSubscriber, { foreignKey: 'subscriber_id', as: 'subscriber', constraints: false });
+NewsletterCampaign.belongsTo(User, { foreignKey: 'created_by_user_id', as: 'author', constraints: false });
+
 export {
   StoreEvent,
   StoreCustomer,
@@ -367,4 +376,7 @@ export {
   CashTransaction,
   CashAuditEvent,
   ProductCategory,
+  NewsletterSubscriber,
+  NewsletterCampaign,
+  NewsletterCampaignRecipient,
 };

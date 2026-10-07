@@ -453,6 +453,28 @@ Además, al entrar al checkout se muestra una **advertencia no bloqueante** si e
 
 ---
 
+## Newsletter
+
+### BR-NEWSLETTER-001 — Alta con doble opt-in y respuesta que no revela la lista
+- **Regla**: un alta desde el footer queda `pending` hasta que la persona confirma desde el mail (link de 7 días). El endpoint público responde siempre el mismo mensaje, esté o no la dirección en la lista, y no reenvía la confirmación más de una vez cada 10 minutos. Registro con casilla → se activa al verificar la cuenta; checkout/"Mis datos" con cuenta verificada → directo.
+- **Fuente**: `services/newsletter.service.ts` (`requestSubscription`, `registerOptIn`, `onCustomerEmailVerified`, `checkoutOptIn`). Test `newsletter.test.ts`.
+- **Estado**: Implementado y verificado.
+
+### BR-NEWSLETTER-002 — La baja es inmediata y solo el titular puede revertirla
+- **Regla**: toda campaña lleva link de baja y headers RFC 8058. La baja se aplica al instante y es idempotente. Un admin puede dar de baja, pero **no** re-suscribir a quien se dio de baja (409): solo la persona puede volver a suscribirse. Rebote permanente o denuncia de spam → `bounced`/`complained`, nunca más se le envía. Antes de cada lote se re-chequea el estado del suscriptor.
+- **Fuente**: `newsletter.service.ts` (`unsubscribeByToken`, `addSubscriberManually`), `newsletterSender.service.ts` (`sendBatch`, `handleResendEvent`).
+- **Estado**: Implementado y verificado.
+
+### BR-NEWSLETTER-003 — Los clientes existentes se importan una sola vez
+- **Regla**: decisión del usuario (2026-10-07): las cuentas existentes (activas, email verificado o Google) se suman como suscriptas por relación comercial previa (art. 27 Ley 25.326), con baja fácil. La importación es única (`settings.newsletter_customers_imported_at`); desde ahí, los clientes nuevos eligen con la casilla. Política de Privacidad 1.1.
+- **Fuente**: `importExistingCustomers`, `config/legalDocs.ts`, `PrivacyPage.tsx`. [DEC-028](08-DECISIONS.md).
+- **Estado**: Implementado y verificado.
+
+### BR-NEWSLETTER-004 — Una campaña enviada no se edita ni se borra
+- **Regla**: solo `draft` se edita o borra. El HTML y la lista se congelan al ARRANCAR el envío (no al programar). Arranque con UPDATE condicional (sin doble envío). Cancelar un envío en curso deja lo pendiente `skipped`.
+- **Fuente**: `scheduleCampaign`, `startSending`, `cancelCampaign`.
+- **Estado**: Implementado y verificado.
+
 ## Devoluciones
 
 ### BR-RETURN-001 — Ninguna devolución se resuelve automáticamente

@@ -538,3 +538,32 @@ export async function sendWithdrawalAdminEmail(params: {
     `),
   });
 }
+
+/**
+ * Doble opt-in de la newsletter: el suscriptor tiene que confirmar que la
+ * dirección es suya antes de recibir campañas. Evita direcciones mal tipeadas,
+ * altas de terceros y "trampas de spam" que dañan la reputación del dominio.
+ */
+export async function sendNewsletterConfirmationEmail(email: string, name: string | null, confirmUrl: string) {
+  // Resend informa los rechazos (cuota, rate limit, remitente inválido) en el
+  // resultado, sin lanzar: se convierte en error para que `emailQueue` reintente
+  // y lo registre como fallido en vez de como enviado.
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: 'Confirmá tu suscripción a las novedades de Indians',
+    html: emailWrapper(`
+      <h2 style="color:#1A1A1A;font-size:20px;margin:0 0 12px;">${name ? `¡Hola, ${escapeHtml(name)}!` : '¡Hola!'}</h2>
+      <p style="color:#374151;line-height:1.6;">Recibimos un pedido para sumar esta dirección a la lista de novedades, lanzamientos y promociones de Indians.</p>
+      <p style="color:#374151;line-height:1.6;">Para confirmarlo, hacé clic en el botón:</p>
+      <p style="text-align:center;margin:24px 0;">
+        <a href="${escapeHtml(confirmUrl)}" style="display:inline-block;background:#1A1A1A;color:#ffffff;padding:14px 28px;text-decoration:none;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-size:12px;">
+          Confirmar suscripción
+        </a>
+      </p>
+      <p style="color:#6b7280;font-size:13px;">Si no fuiste vos, ignorá este mensaje: no te vamos a agregar a ninguna lista.</p>
+      <p style="color:#6b7280;font-size:13px;">El enlace vence en 7 días.</p>
+    `),
+  });
+  if (error) throw new Error(`Resend: ${error.name}: ${error.message}`);
+}

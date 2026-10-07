@@ -1,5 +1,9 @@
 # 00 — Índice del cerebro documental (Indians)
 
+## Actualización 2026-10-07 — Newsletter y campañas de email
+
+Lista de suscriptores propia (doble opt-in, baja RFC 8058, importación única de clientes) + editor de campañas por bloques y envío por lotes con Resend. Migración 109, Política de Privacidad 1.1. Ver [02 módulo 11d](02-FUNCTIONAL-MAP.md), BR-NEWSLETTER-001..004, [DEC-028](08-DECISIONS.md) y [handoff](10-SESSION-HANDOFF.md).
+
 ## Actualización 2026-09-11 — Integración ARCA
 
 Branch `fix/arca-facturacion-segura` en ambos repos. Correcciones de autenticación, diario fiscal durable, recuperación sin duplicar, ambientes separados, PDF con QR y notas de crédito. La afirmación histórica «solo falta certificado» queda reemplazada por el estado de [operación ARCA](../ARCA-OPERACION.md): falta homologación real y puesta en marcha. Ver DEC-027 y handoff.

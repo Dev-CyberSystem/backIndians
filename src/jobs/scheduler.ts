@@ -5,6 +5,7 @@ import { reconcilePendingPayments } from './reconcilePayments';
 import { reconcileCatalogPayments } from './reconcileCatalogPayments';
 import { reportDailyInconsistencies } from './reportInconsistencies';
 import { expireStaleOrders } from './expireStaleOrders';
+import { processNewsletterQueue } from '../services/newsletterSender.service';
 
 /**
  * Corre un job programado avisando si se cae (D-02 de la auditoría del
@@ -95,7 +96,18 @@ export function startScheduledJobs(): void {
     })
   );
 
+  // Cada minuto: campañas de newsletter programadas que vencieron + despacho
+  // por lotes de las que están en envío. El estado vive en la base, así que un
+  // reinicio no pierde nada: la corrida siguiente retoma las filas `queued`.
+  cron.schedule('* * * * *', () =>
+    runScheduledJob('newsletterQueue', processNewsletterQueue, {
+      impact:
+        'Las campañas de newsletter dejan de enviarse: las programadas no arrancan y las que ' +
+        'están en envío quedan a medias (las filas pendientes siguen en la base y se retoman al volver).',
+    })
+  );
+
   logger.info('jobs.scheduler.started', {
-    message: 'Jobs de reconciliación de tienda y de catálogo (10 min cada uno), expiración de pedidos (1 hora) e inconsistencias (diario 03:00) programados',
+    message: 'Jobs de reconciliación de tienda y de catálogo (10 min cada uno), expiración de pedidos (1 hora), inconsistencias (diario 03:00) y envío de newsletter (1 min) programados',
   });
 }

@@ -347,6 +347,23 @@ La transacción bloquea la fila del pedido y reúne edición, transición, histo
 
 **Validación:** regresiones API en `factory-designer.test.ts`, reproducción aislada actualizada y E2E `frontIndians/e2e/tests/designer.spec.ts` en escritorio/móvil. Resultado general en el handoff. No cambia la migración 107 ni se ejecuta despliegue.
 
+## DEC-028 — Newsletter propia (lista en nuestra base + Resend batch), doble opt-in y clientes existentes incluidos con baja fácil
+
+**Fecha**: 2026-10-07. **Estado**: vigente.
+
+**Contexto**: el formulario del footer no guardaba nada. Se pidió guardar esos mails, sumarlos a los clientes registrados y poder armar y enviar newsletters desde el panel, "de la manera más profesional".
+
+**Decisión** (consultada con el usuario):
+1. **Motor propio + Resend batch** (elegido sobre Resend Broadcasts/Mailchimp): la lista, el consentimiento, el editor, los segmentos y las métricas viven en nuestra base y en nuestro panel; Resend solo entrega. Sin costo por contacto y sin sincronizar listas con terceros.
+2. **Doble opt-in** en el footer (y en checkout invitado); directo cuando la dirección ya está verificada por la cuenta. Turnstile + rate limit + respuesta idéntica (sin enumeración).
+3. **Clientes existentes incluidos** (decisión del usuario, sobre la alternativa recomendada de una campaña de permiso): base legal relación comercial previa (Ley 25.326 art. 27), baja en un clic en cada mail. Importación **única** y solo de cuentas con email verificado (reducir rebotes). Se actualizó la Política de Privacidad a **1.1** (antes decía "únicamente si lo aceptaste"). Hacia adelante, casilla opcional y sin pre-tildar en registro y checkout.
+4. **Cumplimiento de requisitos de envío masivo (Gmail/Yahoo)**: `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058), link visible, baja inmediata, supresión automática de rebotes/denuncias, remitente en **subdominio propio** con SPF/DKIM/DMARC (el usuario confirmó acceso al DNS).
+5. **Editor por bloques**, no HTML libre: el HTML de mail es frágil; con bloques el resultado sale siempre con la marca y es seguro (todo escapado, solo links http(s)/mailto).
+6. **Envío durable**: destinatarios en tabla + job por minuto, reanudable tras reinicios, Idempotency-Key por lote. Se descartó la cola en memoria (`emailQueue.ts`) para campañas.
+7. **Roles**: `admin`, `billing`, `designer` en una sola constante (`NEWSLETTER_ROLES`) para sumar "marketing" cuando exista. `designer` ve precios PÚBLICOS en el bloque de productos (no contradice BR-ORDER-008: no son costos ni precio mayorista).
+
+**Alternativas descartadas**: Resend Broadcasts (lista fuera del sistema, costo por contacto); Mailchimp/Brevo (otra herramienta y otra base de datos de clientes); editor HTML libre / WYSIWYG genérico.
+
 ## Actualizar este documento cuando…
 
 Se tome una decisión técnica o funcional nueva con impacto duradero, o se revierta/reemplace una decisión ya registrada (agregar entrada nueva referenciando la anterior, no editar la histórica).
