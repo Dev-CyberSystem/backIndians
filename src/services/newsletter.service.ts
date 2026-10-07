@@ -128,6 +128,9 @@ export type SubscribeOutcome = 'confirmation_sent' | 'subscribed' | 'already_sub
  */
 export async function requestSubscription(input: SubscribeInput, meta: RequestMeta = {}): Promise<SubscribeOutcome> {
   const email = normalizeEmail(input.email);
+  // Defensa en profundidad: las rutas ya validan el formato, pero un llamador
+  // interno con el campo equivocado no debe poder dejar una fila sin dirección.
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new AppError('Email inválido', 400);
   const name = input.name?.trim().slice(0, 200) || null;
   const now = new Date();
 

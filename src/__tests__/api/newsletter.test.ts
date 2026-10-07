@@ -37,6 +37,10 @@ function spyConfirmation() {
 const flush = () => new Promise((r) => setTimeout(r, 50));
 
 describe('Newsletter — suscripción pública', () => {
+  beforeAll(async () => {
+    // Limpia filas basura que haya dejado una corrida anterior (ver test de registro).
+    await NewsletterSubscriber.destroy({ where: { email: '' } });
+  });
   afterEach(() => jest.restoreAllMocks());
 
   it('alta desde el footer: queda pendiente, confirma por link y responde igual si ya estaba', async () => {
@@ -122,6 +126,9 @@ describe('Newsletter — suscripción pública', () => {
     const sub = await NewsletterSubscriber.findOne({ where: { email: addr } });
     expect(sub?.status).toBe('pending');
     expect(sub?.source).toBe('register');
+    // El registro no debe pasar por el opt-in del checkout (que lee
+    // customerEmail, ausente acá) y dejar una fila con email vacío.
+    expect(await NewsletterSubscriber.count({ where: { email: '' } })).toBe(0);
 
     const customer = await StoreCustomer.findOne({ where: { email: addr } });
     const ver = await api().get(`${API}/store/auth/verify-email?token=${customer!.verification_token}`);

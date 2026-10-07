@@ -29,14 +29,6 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });
-    // Casilla opcional de novedades: después de crear el pedido y sin poder
-    // voltearlo (`checkoutOptIn` nunca tira).
-    if (req.body.newsletter_opt_in === true || req.body.newsletter_opt_in === 'true') {
-      await checkoutOptIn(
-        { email: req.body.customerEmail, name: req.body.customerName, customerId: req.storeCustomerId ?? null },
-        { ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null }
-      );
-    }
     res.status(201).json({ success: true, data: result });
   } catch (err) {
     next(err);

@@ -545,7 +545,10 @@ export async function sendWithdrawalAdminEmail(params: {
  * altas de terceros y "trampas de spam" que dañan la reputación del dominio.
  */
 export async function sendNewsletterConfirmationEmail(email: string, name: string | null, confirmUrl: string) {
-  await resend.emails.send({
+  // Resend informa los rechazos (cuota, rate limit, remitente inválido) en el
+  // resultado, sin lanzar: se convierte en error para que `emailQueue` reintente
+  // y lo registre como fallido en vez de como enviado.
+  const { error } = await resend.emails.send({
     from: FROM,
     to: email,
     subject: 'Confirmá tu suscripción a las novedades de Indians',
@@ -562,4 +565,5 @@ export async function sendNewsletterConfirmationEmail(email: string, name: strin
       <p style="color:#6b7280;font-size:13px;">El enlace vence en 7 días.</p>
     `),
   });
+  if (error) throw new Error(`Resend: ${error.name}: ${error.message}`);
 }

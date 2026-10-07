@@ -128,3 +128,20 @@ describe('sendOrderConfirmationEmail — advertencia de cancelación automática
     expect(arg.html).not.toMatch(/horas/);
   });
 });
+
+describe('sendNewsletterConfirmationEmail', () => {
+  it('manda el link de confirmación', async () => {
+    const { sendNewsletterConfirmationEmail } = await import('../utils/email.service');
+    await sendNewsletterConfirmationEmail('lector@test.local', 'Ana', 'https://indians.com.ar/tienda/newsletter/confirmar?token=abc');
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0].html).toContain('newsletter/confirmar?token=abc');
+  });
+
+  it('un rechazo de Resend ({ error }) se propaga para que la cola reintente', async () => {
+    const { sendNewsletterConfirmationEmail } = await import('../utils/email.service');
+    mockSend.mockResolvedValueOnce({ data: null, error: { name: 'rate_limit_exceeded', message: 'Too many requests', statusCode: 429 } });
+    await expect(
+      sendNewsletterConfirmationEmail('lector@test.local', null, 'https://indians.com.ar/x')
+    ).rejects.toThrow(/rate_limit_exceeded/);
+  });
+});
