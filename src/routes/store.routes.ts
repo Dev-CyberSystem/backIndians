@@ -128,7 +128,9 @@ const productQueryValidators = [
   query('search').optional().isString().isLength({ max: 120 }),
   query('category').optional().isString().isLength({ max: 60 }),
   query('gender').optional().isString().isLength({ max: 30 }),
-  query('tag').optional().isString().isLength({ max: 60 }),
+  // Un tag o varios separados por coma ("Top,Remera").
+  query('tag').optional().isString().isLength({ max: 200 }),
+  query('on_sale').optional().isIn(['true', 'false', '1', '0']),
   query('size').optional().isString().isLength({ max: 60 }),
   query('sort').optional().isIn(['newest', 'price_asc', 'price_desc', 'name_asc']),
   query('garment_type_id').optional().isInt({ min: 1 }),

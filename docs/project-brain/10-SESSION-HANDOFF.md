@@ -18,6 +18,14 @@ El generador fiscal se unificó con el formato visual de los demás comprobantes
 
 ---
 
+## Última actualización: 2026-10-07 (3) — Brief de modificaciones web, Entrega 3 de 5
+
+**Pedido 04, menú nuevo + Ofertas**, implementado con los supuestos del plan porque Indians todavía no respondió (ver [DEC-028](08-DECISIONS.md)). Backend (aditivo, sin migración): `GET /store/products` con `on_sale=true` y `tag` multivalor; `GET /store/products/filters` con `category_genders|category_tags|category_clients`; lógica pura en `utils/storeNav.ts`. Frontend: `utils/storeNav.ts` (`buildNavLinks`) reemplaza el `NAV_LINKS` fijo de `StoreLayout`; `StoreProductsPage` soporta `on_sale` (título «Ofertas», pill y filtro lateral) y acepta las categorías del menú aunque aún no tengan productos; `SUGGESTED_TAGS` del admin suma `Top` y `Selección`. Tests: `unit/storeNav.test.ts` (7/7, sin DB), `__tests__/storeNav.test.ts` de Vitest (10 casos; Vitest total 62/62) y `api/store-nav-filters.test.ts` (**escrito pero NO ejecutado: sin MySQL**). Verificado en Chromium con la API simulada: orden del menú, clubes dinámicos, Pádel sin Mujer, mobile y llamada `on_sale=true`. Typecheck de ambos repos limpio; lint sin errores nuevos.
+
+**Pendiente / a confirmar con Indians**: (a) cargar las categorías **Pádel** y **Abrigos** y los tags `Top`/`Selección` en los productos — sin eso esas secciones se ven vacías; (b) los 5 supuestos de DEC-028; (c) si la «sección destacada» activa debe seguir entre Hombre y Mujer (rompe el orden pedido); (d) correr `test:full` con MySQL.
+
+---
+
 ## Última actualización: 2026-10-07 (2) — Brief de modificaciones web, Entrega 2 de 5
 
 **Pedido 06, Piso y Departamento opcionales** (rama `claude/pensive-brown-georw3`, ambos repos). Checkout y «Mi cuenta» tienen dos campos opcionales; se puede comprar sin completarlos. Backend: `floor`/`apartment` en `ShippingAddress` (JSON del pedido, sin migración), validadores en `store.routes.ts` (máx. 20), normalización `normalizeShippingAddress` en `store.service.ts`, `utils/address.ts` (`streetWithUnit`) usado por los PDFs de comprobante/etiqueta, **migración 109** (`store_addresses.floor|apartment`) + espejo en `ensureSchema.ts`. Frontend: `StoreCheckoutPage` (con autocompletado desde direcciones guardadas), `StoreAccountPage`, y la dirección se ve con piso/depto en «Mis pedidos» y en el detalle del panel (`EcommerceOrdersPage`). Tests: `unit/address.test.ts` (6/6, corrido sin DB) y `api/checkout-floor-apartment.test.ts` (**escrito pero NO ejecutado: no hay MySQL en el entorno**). Typecheck de ambos repos limpio, Vitest 52/52, build OK.

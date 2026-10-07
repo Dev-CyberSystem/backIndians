@@ -34,6 +34,7 @@ import { getOrderExpiryHours, orderExpiresUnpaid } from '../config/orderExpiry';
 import { recordLegalAcceptance } from './legal.service';
 import { StoreOrderStatus, type ShippingAddress } from '../models/StoreOrder';
 import { optionalUnit } from '../utils/address';
+import { parseTagFilter, buildNavAvailability, type NavProductRow } from '../utils/storeNav';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
 import { CashTransaction } from '../models/CashTransaction';
 import { CashAccount } from '../models/CashAccount';
@@ -177,7 +178,10 @@ export interface StoreProductFilters {
   search?: string;
   category?: string;
   gender?: string;
+  /** Uno o varios tags separados por coma (basta con que el producto tenga alguno). */
   tag?: string;
+  /** Solo productos con descuento activo (`discount_percentage` entre 1 y 100). */
+  on_sale?: boolean;
   garment_type_id?: number;
   size?: string;
   price_min?: number;
@@ -256,14 +260,21 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
     conditions.push({ client_id: filters.client_id });
   }
 
-  if (filters.tag) {
-    // JSON_CONTAINS necesita un valor JSON válido: '"tag_name"' (con comillas dobles dentro)
-    conditions.push(
+  const tags = parseTagFilter(filters.tag);
+  if (tags.length > 0) {
+    // JSON_CONTAINS necesita un valor JSON válido: '"tag_name"' (con comillas dobles dentro).
+    // Con varios tags alcanza con que el producto tenga alguno (OR): "Tops y remeras".
+    const hasTag = (tag: string) =>
       sequelize.where(
-        sequelize.fn('JSON_CONTAINS', sequelize.col('CatalogProduct.tags'), sequelize.literal(sequelize.escape(JSON.stringify(filters.tag)))),
+        sequelize.fn('JSON_CONTAINS', sequelize.col('CatalogProduct.tags'), sequelize.literal(sequelize.escape(JSON.stringify(tag)))),
         1
-      )
-    );
+      );
+    conditions.push(tags.length === 1 ? hasTag(tags[0]) : { [Op.or]: tags.map(hasTag) });
+  }
+
+  if (filters.on_sale) {
+    // Misma definición de "descuento activo" que usa la tienda para mostrar el precio tachado.
+    conditions.push({ discount_percentage: { [Op.gt]: 0, [Op.lte]: 100 } });
   }
 
   if (filters.garment_type_id) {
@@ -350,18 +361,23 @@ async function computeStoreFilterOptions() {
 
   const range = (priceRange as Array<{ min_price: number; max_price: number }>)[0] ?? { min_price: 0, max_price: 0 };
 
-  // Extraer tags únicos de los arrays JSON de cada producto
-  const tagRows = await CatalogProduct.findAll({
-    attributes: ['tags'],
+  // Tags únicos de los arrays JSON de cada producto, más la disponibilidad por
+  // categoría que usa el menú (géneros, tags y clubes con productos).
+  const productRows = await CatalogProduct.findAll({
+    attributes: ['tags', 'category', 'gender', 'client_id'],
     where: { show_in_store: true, active: true },
     raw: true,
   });
   const allTags = new Set<string>();
-  for (const row of tagRows) {
+  for (const row of productRows) {
     const t = (row as any).tags;
     const parsed = typeof t === 'string' ? JSON.parse(t) : t;
     if (Array.isArray(parsed)) parsed.forEach((v: string) => allTags.add(v));
   }
+  const navAvailability = buildNavAvailability(
+    productRows as unknown as NavProductRow[],
+    new Map((clients as Array<{ id: number; name: string }>).map((c) => [c.id, c.name])),
+  );
 
   const [garmentTypeRows] = await sequelize.query(`
     SELECT DISTINCT gt.id, gt.name, gt.sort_order
@@ -379,6 +395,7 @@ async function computeStoreFilterOptions() {
     clients:       (clients as Array<{ id: number; name: string; logo_url: string | null }>).map((r) => ({ id: r.id, name: r.name, logo_url: r.logo_url ?? null })),
     price_range:   { min: Number(range.min_price ?? 0), max: Number(range.max_price ?? 0) },
     garment_types: (garmentTypeRows as Array<{ id: number; name: string }>).map((r) => ({ id: r.id, name: r.name })),
+    ...navAvailability,
   };
 }
 

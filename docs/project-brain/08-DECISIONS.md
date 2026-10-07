@@ -359,3 +359,18 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 **Motivo**: los estados en columnas y caché de proceso no resolvían concurrencia, reinicios o respuestas perdidas. Volver a numerar podía duplicar facturación. Cambiar importes o anular sin crédito desalineaba administración y ARCA.
 
 **Consecuencias**: migración 108; conciliación manual de legados sin snapshot; créditos separados de reintegros; homologación real pendiente. Se conserva emisión manual admin/billing y gate. [Procedimiento completo](../ARCA-OPERACION.md).
+
+## DEC-028 — Menú nuevo de la tienda: supuestos hasta que Indians los confirme
+
+**Contexto**: el brief del cliente (06.10.2026, pedido 04) fija el orden del menú pero deja abiertas tres cosas. Se implementó con supuestos, sin esperar la respuesta.
+
+**Decisión (supuestos vigentes)**:
+1. **Clubes** de Fútbol = los **clientes** (`client_id`) con productos publicados en la categoría Fútbol (ya existía el filtro por club). Cargar un club nuevo no requiere código.
+2. **Selecciones** = productos con el tag exacto **`Selección`** (constante `SELECTION_TAG`, en back y front). Esos productos no se cuentan como club. El ítem solo aparece si existe al menos un producto con ese tag.
+3. **Abrigos** = una **categoría** `Abrigos` con productos por género (Hombre/Mujer), igual que Vóley y Running. No agrupa Buzos ni Camperas de otras categorías.
+4. **Ofertas** = `discount_percentage` entre 1 y 100 (misma regla que el precio tachado). El modelo no tiene fechas de vigencia del descuento.
+5. «Tops y remeras» filtra por los tags `Top` o `Remera` (OR) con `?tag=Top,Remera`.
+
+**Si Indians responde distinto**: cambiar `SELECTION_TAG` / la regla de clubes (`utils/storeNav.ts` en ambos repos) es un cambio chico; si Abrigos debiera juntar varias categorías haría falta un filtro por varias categorías.
+
+**Consecuencias**: aditivo, sin migración. Se quitó del menú el ítem «Ver todo» suelto y los submenús viejos (Camperas, Pantalones, Camisetas, Medias, Botines, Pelotas, Rodilleras, Zapatillas). Si hay una «sección destacada» activa, sigue mostrándose segunda en el menú (queda entre Hombre y Mujer).
