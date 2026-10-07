@@ -33,6 +33,7 @@ import { getAllSettings, PUBLIC_SETTING_KEYS } from './settings.service';
 import { getOrderExpiryHours, orderExpiresUnpaid } from '../config/orderExpiry';
 import { recordLegalAcceptance } from './legal.service';
 import { StoreOrderStatus, type ShippingAddress } from '../models/StoreOrder';
+import { optionalUnit } from '../utils/address';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
 import { CashTransaction } from '../models/CashTransaction';
 import { CashAccount } from '../models/CashAccount';
@@ -464,6 +465,18 @@ async function hasCustomerUsedCoupon(
     },
   });
   return count > 0;
+}
+
+/**
+ * Piso y departamento son opcionales: se recortan y, si quedaron vacíos, se
+ * omiten del JSON guardado (el pedido sin ellos queda idéntico al de antes).
+ */
+function normalizeShippingAddress(addr: ShippingAddress | null | undefined): ShippingAddress | null {
+  if (!addr) return null;
+  const { floor, apartment, ...rest } = addr;
+  const f = optionalUnit(floor);
+  const a = optionalUnit(apartment);
+  return { ...rest, ...(f ? { floor: f } : {}), ...(a ? { apartment: a } : {}) };
 }
 
 export async function validateCoupon(
@@ -1098,7 +1111,7 @@ export async function createStoreOrder(input: CheckoutInput): Promise<CheckoutRe
             shipping_cost: shippingCost,
             total_amount: totalAmount,
             shipping_type: input.shipping_type,
-            shipping_address: input.shipping_address ?? null,
+            shipping_address: normalizeShippingAddress(input.shipping_address),
             coupon_id: couponId,
             coupon_code: couponCode,
             payment_method: input.payment_method ?? 'mercadopago',

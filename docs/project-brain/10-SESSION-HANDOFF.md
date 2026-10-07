@@ -18,6 +18,16 @@ El generador fiscal se unificó con el formato visual de los demás comprobantes
 
 ---
 
+## Última actualización: 2026-10-07 (2) — Brief de modificaciones web, Entrega 2 de 5
+
+**Pedido 06, Piso y Departamento opcionales** (rama `claude/pensive-brown-georw3`, ambos repos). Checkout y «Mi cuenta» tienen dos campos opcionales; se puede comprar sin completarlos. Backend: `floor`/`apartment` en `ShippingAddress` (JSON del pedido, sin migración), validadores en `store.routes.ts` (máx. 20), normalización `normalizeShippingAddress` en `store.service.ts`, `utils/address.ts` (`streetWithUnit`) usado por los PDFs de comprobante/etiqueta, **migración 109** (`store_addresses.floor|apartment`) + espejo en `ensureSchema.ts`. Frontend: `StoreCheckoutPage` (con autocompletado desde direcciones guardadas), `StoreAccountPage`, y la dirección se ve con piso/depto en «Mis pedidos» y en el detalle del panel (`EcommerceOrdersPage`). Tests: `unit/address.test.ts` (6/6, corrido sin DB) y `api/checkout-floor-apartment.test.ts` (**escrito pero NO ejecutado: no hay MySQL en el entorno**). Typecheck de ambos repos limpio, Vitest 52/52, build OK.
+
+**Corrección de la Entrega 1**: el «typecheck limpio» del backend informado entonces no era válido (el backend no tenía `node_modules` y `npx` bajó otro TypeScript). Ya con dependencias instaladas, `npm run typecheck` pasa para ambas entregas.
+
+**Pendiente**: correr `npm run migrate` (109) en producción antes o junto con el deploy del backend; correr `test:full` con MySQL; probar en navegador. `afip.service.ts` arma el domicilio del receptor sin piso/depto a propósito (campo fiscal: requiere confirmación explícita para tocarlo).
+
+---
+
 ## Última actualización: 2026-10-07 — Brief de modificaciones web, Entrega 1 de 5
 
 Brief del cliente (06.10.2026, 6 pedidos) dividido en 5 entregas: **1** fotos + despacho (hecha), **2** piso/depto en checkout (pedido 06), **3** menú nuevo + Ofertas (04), **4** video en inicio (02), **5** pop-up de registro 10% OFF (03, bloqueada por definiciones del cliente: vigencia, usos, acumulación). Rama `claude/pensive-brown-georw3` en ambos repos.
