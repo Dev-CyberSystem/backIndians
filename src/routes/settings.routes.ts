@@ -47,6 +47,16 @@ router.put(
     body('invoice_default_type')
       .optional().trim()
       .matches(/^[ABCEMX]$/i).withMessage('Tipo de comprobante inválido (A, B, C, E, M o X)'),
+    // Video de la página principal: solo URLs https (se muestran en un <video> público).
+    body('store_home_video_url').optional({ checkFalsy: true }).trim()
+      .isURL({ protocols: ['https'], require_protocol: true }).withMessage('La URL del video debe ser https')
+      .isLength({ max: 500 }),
+    body('store_home_video_poster_url').optional({ checkFalsy: true }).trim()
+      .isURL({ protocols: ['https'], require_protocol: true }).withMessage('La URL de la portada debe ser https')
+      .isLength({ max: 500 }),
+    body('store_home_video_title').optional().trim().isLength({ max: 120 }).withMessage('Título demasiado largo (máx. 120 caracteres)'),
+    body('store_home_video_enabled').optional().isIn(['true', 'false']).withMessage('Valor inválido'),
+    body('store_home_video_public_id').optional().trim().isLength({ max: 200 }),
     validate,
   ],
   ctrl.updateSettings

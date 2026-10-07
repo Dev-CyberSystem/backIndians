@@ -27,3 +27,28 @@ export const upload = multer({
     files: 10,
   },
 });
+
+// ─── Video (bloque de la página principal) ────────────────────────────────────
+
+/** Tope del video del inicio. Cloudinary (plan gratis) admite hasta 100 MB; se deja margen. */
+export const MAX_VIDEO_BYTES = 60 * 1024 * 1024;
+
+function videoFileFilter(
+  _req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+) {
+  const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new AppError('Tipo de archivo no permitido. Solo se aceptan videos MP4, WEBM o MOV', 400));
+  }
+}
+
+export const uploadVideo = multer({
+  storage,
+  fileFilter: videoFileFilter,
+  limits: { fileSize: MAX_VIDEO_BYTES, files: 1 },
+});

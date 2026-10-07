@@ -374,3 +374,13 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 **Si Indians responde distinto**: cambiar `SELECTION_TAG` / la regla de clubes (`utils/storeNav.ts` en ambos repos) es un cambio chico; si Abrigos debiera juntar varias categorías haría falta un filtro por varias categorías.
 
 **Consecuencias**: aditivo, sin migración. Se quitó del menú el ítem «Ver todo» suelto y los submenús viejos (Camperas, Pantalones, Camisetas, Medias, Botines, Pelotas, Rodilleras, Zapatillas). Si hay una «sección destacada» activa, sigue mostrándose segunda en el menú (queda entre Hombre y Mujer).
+
+## DEC-029 — Video del inicio: subida desde el servidor, un solo video, sin autoplay
+
+**Decisión**: el video se sube por el backend (`POST /upload/video`) a Cloudinary, como el resto de las imágenes, con tope de 60 MB y solo para `admin`/`billing`. Un único video para escritorio y celular. Se reproduce solo con la acción del visitante (controles, sin autoplay ni sonido automático), con portada y `preload="none"`.
+
+**Motivo**: es el mismo patrón que ya usa el panel (sin firmas ni CORS nuevos) y el brief pide «controles y sin sonido automático». El tope deja margen bajo el límite de 100 MB por video del plan gratis de Cloudinary.
+
+**Alternativas descartadas**: subida directa del navegador a Cloudinary con firma (evita pasar 60 MB por el servidor y sus timeouts, pero suma una superficie de firma y configuración); versión vertical aparte para celular (el brief no lo pide; el video se ve entero con `object-contain`).
+
+**Consecuencias**: sin migración. Al reemplazar o quitar el video, el anterior se borra de Cloudinary al guardar. Un video de ~60 MB pasa por la memoria del proceso (multer en memoria) durante la subida. **La subida real a Cloudinary no se probó** (sin credenciales en el entorno de desarrollo).

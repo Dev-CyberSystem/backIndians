@@ -18,6 +18,14 @@ El generador fiscal se unificó con el formato visual de los demás comprobantes
 
 ---
 
+## Última actualización: 2026-10-07 (4) — Brief de modificaciones web, Entrega 4 de 5
+
+**Pedido 02, video en la página principal** ([DEC-029](08-DECISIONS.md)). Backend: `POST /upload/video` (admin/billing, 60 MB, MP4/WEBM/MOV → Cloudinary), 5 claves `store_home_video_*` (4 públicas + `public_id` interna), validación https en `PUT /settings`, y borrado best-effort del video anterior al reemplazarlo (`updateSettings`). Frontend: `VideoUploadInput` (con barra de progreso y validación previa de tipo/tamaño), sección «Landing — Video» en `EcommerceSettingsPage`, y `HomeVideoSection` en `StoreLandingPage` después de Novedades. Sin migración. Tests: `unit/homeVideo.test.ts` (4/4, sin DB) y `api/store-home-video-settings.test.ts` (**escrito pero NO ejecutado: sin MySQL**). Vitest 62/62, typecheck de ambos repos y build OK, lint sin errores nuevos. Verificado en Chromium con la API simulada: posición, controles, sin autoplay, `preload`, desktop y celular, y que no aparece si está desactivado / sin URL / URL http.
+
+**NO probado**: la subida real a Cloudinary (sin credenciales acá), ni el panel de administración en el navegador, ni la reproducción de un MP4 real en iOS/Android. **Antes de publicar**: subir un video real desde el panel y revisar que cargue, que la portada sea la esperada y que el reemplazo borre el anterior; confirmar con Indians duración/peso del video y si quieren versión vertical para celular.
+
+---
+
 ## Última actualización: 2026-10-07 (3) — Brief de modificaciones web, Entrega 3 de 5
 
 **Pedido 04, menú nuevo + Ofertas**, implementado con los supuestos del plan porque Indians todavía no respondió (ver [DEC-028](08-DECISIONS.md)). Backend (aditivo, sin migración): `GET /store/products` con `on_sale=true` y `tag` multivalor; `GET /store/products/filters` con `category_genders|category_tags|category_clients`; lógica pura en `utils/storeNav.ts`. Frontend: `utils/storeNav.ts` (`buildNavLinks`) reemplaza el `NAV_LINKS` fijo de `StoreLayout`; `StoreProductsPage` soporta `on_sale` (título «Ofertas», pill y filtro lateral) y acepta las categorías del menú aunque aún no tengan productos; `SUGGESTED_TAGS` del admin suma `Top` y `Selección`. Tests: `unit/storeNav.test.ts` (7/7, sin DB), `__tests__/storeNav.test.ts` de Vitest (10 casos; Vitest total 62/62) y `api/store-nav-filters.test.ts` (**escrito pero NO ejecutado: sin MySQL**). Verificado en Chromium con la API simulada: orden del menú, clubes dinámicos, Pádel sin Mujer, mobile y llamada `on_sale=true`. Typecheck de ambos repos limpio; lint sin errores nuevos.
