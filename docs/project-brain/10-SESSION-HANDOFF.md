@@ -18,6 +18,19 @@ El generador fiscal se unificó con el formato visual de los demás comprobantes
 
 ---
 
+## Última actualización: 2026-10-07 — Brief de modificaciones web, Entrega 1 de 5
+
+Brief del cliente (06.10.2026, 6 pedidos) dividido en 5 entregas: **1** fotos + despacho (hecha), **2** piso/depto en checkout (pedido 06), **3** menú nuevo + Ofertas (04), **4** video en inicio (02), **5** pop-up de registro 10% OFF (03, bloqueada por definiciones del cliente: vigencia, usos, acumulación). Rama `claude/pensive-brown-georw3` en ambos repos.
+
+**Entrega 1 (sin migración, sin cambio de contrato):**
+- Pedido 01: máximo de fotos por producto de catálogo 3 → 5 (`MAX_PRODUCT_IMAGES` en `catalog.service.ts`; espejo en `CatalogPage.tsx`). La ficha pública ordena las imágenes por `sort_order, id`. La galería ya soportaba N fotos.
+- Pedido 05: mensaje único en `frontIndians/src/utils/shippingPolicy.ts` («Despachamos tu pedido dentro de las 48 horas hábiles. Envíos a todo el país.») usado en inicio, ficha, carrito (página y drawer), checkout, ayuda, chatbot y barra de anuncio por defecto. La ayuda dejó de prometer «7 a 9 días hábiles».
+- Validación: backend `tsc` limpio; frontend `tsc`, Vitest 52/52 y build OK; lint sin errores nuevos (176 preexistentes). **No corrió `test:full` (no hay MySQL en el entorno) ni se probó en navegador.**
+
+**Pendiente de esta entrega**: probar galería con 5 fotos en celular/PC; **actualizar `store_announcement` y `store_marquee` en producción desde el panel** (si tienen valor guardado pisan el default nuevo); validar con Indians el texto de la ayuda; el chatbot todavía menciona «retirar en el local» (contradice la ayuda: no hay retiro) — no se tocó.
+
+---
+
 ## Última actualización: 2026-09-11 — Ajustes ARCA implementados
 
 El usuario autorizó crear branch y realizar los ajustes de la revisión. Branch `fix/arca-facturacion-segura` en ambos repos, creada desde master local. Se preservó gate y envío manual admin/billing. No se hizo push, release ni activación productiva.
@@ -511,7 +524,7 @@ La página `/tienda/ayuda` ya existía, con cuatro bloques (envíos, cambios, ta
 | Solo Mercado Pago | `StoreCheckoutPage.tsx` ofrecía MP + efectivo + transferencia | Se publica "Mercado Pago" y **se ocultó la transferencia** en el checkout (el efectivo ya estaba oculto desde el 2026-08-19) |
 | No hay retiro en local | `shipping_type: 'pickup'` era el **default** del checkout | **Se ocultó el retiro** y el default pasó a `'delivery'` |
 | Cambios: 15 días hábiles | La ayuda publicaba 30 días corridos | Se adoptan los 15 días hábiles |
-| Envío: 7 a 9 días hábiles | La ayuda publicaba 3-7 días + 24-48 h de despacho | Se adoptan los 7 a 9 días hábiles |
+| Envío: 7 a 9 días hábiles | La ayuda publicaba 3-7 días + 24-48 h de despacho | Se adoptan los 7 a 9 días hábiles — **superado el 2026-10-06** por el brief de modificaciones web (despacho en 48 horas hábiles) |
 | Garantía: 6 meses | La ayuda no hablaba de garantía | Se publica la garantía legal de 6 meses (Ley 24.240) |
 | No publicar tabla de talles genérica | Ya había una publicada | Se **mantienen** las tablas y se suma el instructivo de medición |
 

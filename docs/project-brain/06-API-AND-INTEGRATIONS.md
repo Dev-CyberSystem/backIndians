@@ -126,7 +126,7 @@ CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso 
 
 ### Cloudinary (almacenamiento de imágenes)
 - **Estado**: Implementado y verificado.
-- **Uso**: imágenes de pedidos, tabla de talles, productos de catálogo (hasta 3 por producto, normalizadas a 3:4 / 1200x1600), comprobantes de transferencia (URLs **firmadas/autenticadas**, no públicas), logos.
+- **Uso**: imágenes de pedidos, tabla de talles, productos de catálogo (hasta 5 por producto, `MAX_PRODUCT_IMAGES` en `catalog.service.ts`; antes 3, normalizadas a 3:4 / 1200x1600), comprobantes de transferencia (URLs **firmadas/autenticadas**, no públicas), logos.
 - **Config**: `backIndians/src/config/cloudinary.ts`.
 - **Env vars**: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
 

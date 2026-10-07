@@ -425,6 +425,11 @@ export async function getStoreProduct(id: number) {
       { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'] },
       { model: CatalogProductSize, as: 'sizes', attributes: ['id', 'size_name', 'stock_quantity', 'stock_reserved', 'sort_order'] },
     ],
+    // Galería de hasta 5 fotos: orden estable por sort_order (id desempata).
+    order: [
+      [{ model: CatalogProductImage, as: 'images' }, 'sort_order', 'ASC'],
+      [{ model: CatalogProductImage, as: 'images' }, 'id', 'ASC'],
+    ],
   });
   if (!product) throw new AppError('Producto no encontrado', 404);
   return product;

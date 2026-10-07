@@ -307,7 +307,7 @@ Desde el **2026-09-08** esa misma sección tiene una **franja de 3 detalles de l
 
 | Tema | Valor publicado |
 |---|---|
-| Envío | 7 a 9 días hábiles desde la acreditación del pago |
+| Despacho | 48 horas hábiles (preparación y entrega al transportista, a todo el país). La entrega depende del destino y del correo. *Reemplaza al «7 a 9 días hábiles» del 2026-08-24 por el brief del cliente del 2026-10-06; texto en `frontIndians/src/utils/shippingPolicy.ts`.* |
 | Cambios y devoluciones | 15 días hábiles desde la recepción |
 | Reembolso | hasta 10 días hábiles + el plazo del emisor |
 | Garantía legal | 6 meses para productos nuevos (Ley 24.240) |
