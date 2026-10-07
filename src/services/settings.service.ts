@@ -58,6 +58,9 @@ export const VALID_KEYS: string[] = [
   // Tienda — landing banner promo
   'store_promo_image_url', 'store_promo_image_mobile_url', 'store_promo_title',
   'store_promo_subtitle', 'store_promo_cta',
+  // Tienda — pop-up de registro con descuento (cupón personal de bienvenida).
+  // Apagado por defecto: lo activa el admin cuando Indians confirma las condiciones.
+  'store_welcome_popup_enabled', 'store_welcome_discount_percent', 'store_welcome_valid_days',
   // Tienda — video de la página principal (después de Novedades). `public_id` es
   // interno (sirve para borrar el video de Cloudinary al reemplazarlo): NO va en
   // PUBLIC_SETTING_KEYS.
@@ -161,6 +164,8 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   // Tienda — banner promo y barra de promociones
   'store_promo_image_url', 'store_promo_image_mobile_url', 'store_promo_title', 'store_promo_subtitle', 'store_promo_cta',
   'store_promo_pills',
+  // Tienda — pop-up de registro con descuento (el pop-up muestra el % y la vigencia)
+  'store_welcome_popup_enabled', 'store_welcome_discount_percent', 'store_welcome_valid_days',
   // Tienda — video de la página principal
   'store_home_video_enabled', 'store_home_video_url', 'store_home_video_poster_url', 'store_home_video_title',
   // Tienda — "sección destacada / lanzamiento" genérica (la tienda la renderiza públicamente)

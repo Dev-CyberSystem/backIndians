@@ -18,6 +18,20 @@ El generador fiscal se unificó con el formato visual de los demás comprobantes
 
 ---
 
+## Última actualización: 2026-10-08 — Brief de modificaciones web, Entrega 5 de 5
+
+**Pedido 03, pop-up de registro con 10% OFF**, con supuestos para lo «por definir» ([DEC-030](08-DECISIONS.md), [BR-STORE-015](03-BUSINESS-RULES.md)). Backend: **migración 110** (`store_subscribers`), modelo, `storeSubscriber.service.ts` (cupón personal de un solo uso, reenvío con enfriamiento, listado y CSV), `utils/welcomeCoupon.ts` (puro), mail `sendWelcomeCouponEmail`, `POST /store/subscribe` (Turnstile + 5/h por IP), `GET /store/admin/subscribers[/export]`, 3 settings públicas con validación, y `listCoupons` ya no muestra los cupones de bienvenida. Frontend: `WelcomePopup` (en `StoreLayout`, junto a `CouponPopup`), `utils/welcomePopup.ts` (reglas de aparición), sección «Pop-up de registro con descuento» en Configuración de la tienda y pantalla `/ecommerce/subscribers` (sidebar «Suscriptores»). **Viene apagado**: el admin lo enciende.
+
+Tests: `unit/welcomeCoupon.test.ts` (12/12, sin DB), Vitest `welcomePopup.test.ts` (Vitest total 74/74), `api/store-subscribe.test.ts` (**escrito pero NO ejecutado: sin MySQL**). Typecheck de ambos repos limpio, build OK, lint sin errores nuevos. Verificado en Chromium con la API simulada: aparece a los 6 s, validación de email, envío, pantalla con el código, no reaparece tras registrarse ni tras cerrar en la misma visita, no aparece apagado / con cupón promocional / en checkout, y celular. (La prueba en navegador detectó y permitió corregir un bug: `storeApi` ya desenvuelve `{ success, data }`.)
+
+**NO probado**: el envío real del mail (Resend), el canje del cupón de punta a punta en un checkout real, ni el panel de administración en el navegador. **Antes de publicar**: (1) correr `npm run migrate` (110) en producción; (2) `test:full` con MySQL; (3) confirmar con Indians las condiciones de DEC-030 y **encender el pop-up desde el panel**; (4) actualizar la Política de Privacidad (la captación de emails no figura); (5) confirmar que `TURNSTILE_SECRET_KEY` y `VITE_TURNSTILE_SITE_KEY` están en producción (sin ellas el anti-bot queda desactivado).
+
+**Hallazgo previo, sin tocar**: el formulario «Sumate a la lista» del pie de la tienda (`StoreLayout.tsx`) muestra «¡Gracias por suscribirte!» pero **descarta el email**. Conviene conectarlo a `store_subscribers` (decidir si también entrega cupón) o quitarlo.
+
+**Brief completo**: las 5 entregas están hechas (1 fotos + despacho, 2 piso/depto, 3 menú, 4 video, 5 pop-up). Pendientes transversales: `test:full` con MySQL, pruebas en navegador del panel, y las confirmaciones con Indians listadas en cada entrega.
+
+---
+
 ## Última actualización: 2026-10-07 (4) — Brief de modificaciones web, Entrega 4 de 5
 
 **Pedido 02, video en la página principal** ([DEC-029](08-DECISIONS.md)). Backend: `POST /upload/video` (admin/billing, 60 MB, MP4/WEBM/MOV → Cloudinary), 5 claves `store_home_video_*` (4 públicas + `public_id` interna), validación https en `PUT /settings`, y borrado best-effort del video anterior al reemplazarlo (`updateSettings`). Frontend: `VideoUploadInput` (con barra de progreso y validación previa de tipo/tamaño), sección «Landing — Video» en `EcommerceSettingsPage`, y `HomeVideoSection` en `StoreLandingPage` después de Novedades. Sin migración. Tests: `unit/homeVideo.test.ts` (4/4, sin DB) y `api/store-home-video-settings.test.ts` (**escrito pero NO ejecutado: sin MySQL**). Vitest 62/62, typecheck de ambos repos y build OK, lint sin errores nuevos. Verificado en Chromium con la API simulada: posición, controles, sin autoplay, `preload`, desktop y celular, y que no aparece si está desactivado / sin URL / URL http.

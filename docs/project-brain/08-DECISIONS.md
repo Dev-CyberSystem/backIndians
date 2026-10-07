@@ -384,3 +384,21 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 **Alternativas descartadas**: subida directa del navegador a Cloudinary con firma (evita pasar 60 MB por el servidor y sus timeouts, pero suma una superficie de firma y configuración); versión vertical aparte para celular (el brief no lo pide; el video se ve entero con `object-contain`).
 
 **Consecuencias**: sin migración. Al reemplazar o quitar el video, el anterior se borra de Cloudinary al guardar. Un video de ~60 MB pasa por la memoria del proceso (multer en memoria) durante la subida. **La subida real a Cloudinary no se probó** (sin credenciales en el entorno de desarrollo).
+
+## DEC-030 — Pop-up de registro con 10% OFF: condiciones asumidas hasta que Indians las confirme
+
+**Contexto**: el brief (06.10.2026, pedido 03) deja «por definir con Indians»: vigencia, cantidad de usos y acumulación con otras promociones. Se implementó con supuestos explícitos, todos cambiables desde el panel o con un cambio chico.
+
+**Decisión (supuestos vigentes)**:
+1. **Vigencia**: 30 días desde el registro (`store_welcome_valid_days`, editable).
+2. **Usos**: un solo uso por persona (`max_uses = 1`), y un email solo puede registrarse una vez.
+3. **Acumulación**: se aplica sobre el subtotal **ya con los descuentos de producto** (se suma a las prendas en oferta) y **no se acumula con otros cupones** (el pedido admite uno solo). Sin monto mínimo.
+4. **Descuento**: 10% (`store_welcome_discount_percent`, editable).
+5. **Apagado por defecto**: el pop-up no se publica solo; el admin lo enciende cuando Indians confirme.
+6. **Cupón personal, no un código genérico**: cada registro crea un cupón con código aleatorio (`BIENVENIDA-XXXXXX`). Un código único para todos se filtraría en redes y no habría forma de «habilitar el beneficio al completar el registro».
+7. **El código se muestra en pantalla la primera vez y también se envía por mail**. Mostrarlo mejora la conversión; la contrapartida es que no se verifica que el email sea real (alcanzan Turnstile, 5 registros/hora por IP y un registro por email para limitar el abuso; con alias de email sigue siendo posible obtener más de un cupón).
+8. **Es una captación de email, no una cuenta**: no hay contraseña ni se crea un `StoreCustomer`. Se guarda `consent_at`; el pop-up muestra el aviso de privacidad pegado al botón (sin checkbox).
+
+**Alternativas descartadas**: un cupón genérico compartido; exigir verificación por mail antes de mostrar el código (más fricción); crear una cuenta de comprador.
+
+**Consecuencias**: migración 110 (tabla nueva). La **Política de Privacidad** (`legal/PrivacyPage.tsx`, versionada) todavía no menciona esta captación de emails: hay que actualizarla con Indians. El formulario «Sumate a la lista» del pie de la tienda **no guarda nada** (solo muestra un toast): sigue sin conectarse.

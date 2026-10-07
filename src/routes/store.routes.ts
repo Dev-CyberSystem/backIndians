@@ -17,6 +17,7 @@ import {
   trackLimiter,
   webhookLimiter,
   withdrawalLimiter,
+  subscribeLimiter,
 } from '../middlewares/rateLimit';
 import * as ctrl from '../controllers/store.controller';
 import * as legalCtrl from '../controllers/legal.controller';
@@ -94,6 +95,14 @@ const checkoutValidators = [
   validate,
 ];
 
+// Pop-up de registro: email obligatorio, nombre opcional. No hay checkbox: el pop-up
+// muestra el aviso de privacidad al lado del botón y el envío del form es el consentimiento.
+const subscribeValidators = [
+  emailField('email'),
+  body('name').optional({ nullable: true }).isString().trim().isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
+  validate,
+];
+
 const withdrawalValidators = [
   body('customer_name').trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 120 }),
   body('customer_email').trim().isEmail().withMessage('Email inválido').isLength({ max: 254 }),
@@ -161,6 +170,9 @@ router.get('/legal', cache(300), legalCtrl.getLegalDocuments);
 // ningún trámite previo — la resolución lo prohíbe expresamente. `optionalStoreAuth`
 // solo sirve para vincular la solicitud si el comprador está logueado.
 router.post('/legal/withdrawal', withdrawalLimiter, optionalStoreAuth, withdrawalValidators, legalCtrl.createWithdrawal);
+
+// Pop-up de registro con descuento: crea un cupón personal, así que va con captcha y límite por IP.
+router.post('/subscribe', subscribeLimiter, verifyTurnstile, subscribeValidators, ctrl.subscribeWelcome);
 
 // ─── SSE: actualizaciones en tiempo real ────────────────────────────────────
 router.get('/events', ctrl.sseStoreEvents);
@@ -246,6 +258,8 @@ const updateStatusValidators = [
   validate,
 ];
 
+router.get('/admin/subscribers', authenticate, authorize('admin', 'billing'), ctrl.listSubscribers);
+router.get('/admin/subscribers/export', authenticate, authorize('admin', 'billing'), ctrl.exportSubscribers);
 router.get('/admin/orders', authenticate, authorize('admin', 'billing'), ctrl.listOrders);
 router.get('/admin/orders/:id', authenticate, authorize('admin', 'billing'), ctrl.getOrder);
 router.patch('/admin/orders/:id/status', authenticate, authorize('admin', 'billing'), updateStatusValidators, ctrl.updateOrderStatus);
