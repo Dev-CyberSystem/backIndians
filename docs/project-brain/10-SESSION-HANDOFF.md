@@ -1,5 +1,27 @@
 # 10 — Entrega entre sesiones
 
+## Última sesión: 2026-10-07 — Newsletter y campañas de email
+
+Pedido: el formulario "Sumate a la lista" del footer no guardaba nada; guardar esos mails, sumarlos a los clientes registrados, poder mandar campañas y tener una sección para armar la newsletter. Decidido con el usuario: **motor propio + Resend batch**, **clientes existentes incluidos con baja fácil** (Política de Privacidad 1.1), roles **admin/billing/designer** (+ "marketing" futuro vía `NEWSLETTER_ROLES`), **subdominio de envío** (tienen acceso al DNS). Detalle en [DEC-028](08-DECISIONS.md) y [02 módulo 11d](02-FUNCTIONAL-MAP.md).
+
+**Backend**: migración 109 (3 tablas), modelos `Newsletter*`, `config/newsletter.ts`, `utils/newsletterRender.ts` (bloques → HTML de mail, puro), `services/newsletter.service.ts` (suscriptores, segmentos, campañas), `services/newsletterSender.service.ts` (job por lotes + webhook Resend), `controllers/newsletter.controller.ts`, `routes/newsletter.routes.ts` + rutas públicas en `store.routes.ts`, job cada minuto en `jobs/scheduler.ts`, `rawBody` para el webhook en `app.ts`, hooks en registro/verificación (`store.auth.service.ts`) y checkout (`store.controller.ts`), `sendNewsletterConfirmationEmail`, `legalDocs` privacy 1.1.
+
+**Frontend**: `api/newsletter.ts`, `pages/ecommerce/newsletter/{NewsletterPage,CampaignEditorPage}.tsx`, `components/store/NewsletterSignup.tsx` (footer real), `pages/store/StoreNewsletterPages.tsx` (confirmar / baja), casilla en registro y checkout, interruptor en "Mis datos", rutas + sidebar, texto de `PrivacyPage`.
+
+**Validación**: typecheck back/front limpio; `newsletter.test.ts` 14/14 + `newsletterRender.test.ts` 5/5; legal/store-public/purchase-flow en verde; suite completa sin regresiones (las 11 suites que fallan en la base local fallan idéntico sin el cambio — ver 09). Vitest 52/52, build OK, lint sin problemas nuevos (salvo el patrón ya existente de rutas lazy). Playwright en navegador: footer → confirmar → baja, panel como diseñador → crear campaña con productos y cupón → vista previa → enviar; vista móvil.
+
+**Para salir a producción** (en este orden):
+1. DNS: crear el subdominio (p. ej. `novedades.indians.com.ar`) en Resend → Domains y cargar sus registros SPF/DKIM (+ DMARC `p=none` como mínimo).
+2. Railway: `NEWSLETTER_FROM_EMAIL="Indians <novedades@novedades.indians.com.ar>"`, opcional `NEWSLETTER_REPLY_TO`; revisar `NEWSLETTER_MAX_PER_RUN` según el plan de Resend.
+3. Resend → Webhooks: endpoint `${BACKEND_PUBLIC_URL}/api/v1/newsletter/webhook/resend`, eventos delivered/opened/clicked/bounced/complained; copiar el secreto a `RESEND_WEBHOOK_SECRET`. (Activar open/click tracking en el dominio si se quieren esas métricas.)
+4. Deploy conjunto back+front + `npm run migrate` (109).
+5. Panel (admin) → Newsletter → Suscriptores → "Importar clientes registrados" (una sola vez).
+6. Primera campaña: enviar prueba a uno mismo, revisar en Gmail y celular, recién después enviar.
+
+**No hecho / ideas siguientes**: segmentos por categoría comprada o por fecha de última compra; plantillas guardadas; A/B de asunto; métricas de ventas atribuidas por UTM (hoy solo quedan en analytics).
+
+---
+
 ## Actualización operativa ARCA — 2026-09-14
 
 Certificado de homologación `IndiansQA` cargado solo en `.env` local mediante variables `_HOMO`; clave y certificado validados sin exponer contenido. CUIT 20-29323025-1, vigencia hasta 13/09/2028. Autorización `wsfe` de homologación confirmada con WSAA real. La constancia aportada confirma titular `CARRILLO LEITO GONZALO SEBASTIAN`, domicilio General Paz 1071 Piso 4 Dpto. C, San Miguel de Tucumán, CP 4000, Monotributo categoría F e inicio 01/08/2026. El usuario confirmó IIBB `No corresponde` y PV productivo 3 exclusivo.

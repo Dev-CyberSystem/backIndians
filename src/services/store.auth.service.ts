@@ -9,6 +9,8 @@ import {
   sendPasswordResetEmailStore,
 } from '../utils/email.service';
 import { recordLegalAcceptance } from './legal.service';
+import { registerOptIn, onCustomerEmailVerified } from './newsletter.service';
+import { logger } from '../utils/logger';
 
 /** Datos del request que quedan en la constancia de aceptación de términos. */
 export interface RequestMeta {
@@ -49,6 +51,8 @@ export async function storeRegisterService(
     name: string;
     email: string;
     password: string;
+    /** Casilla opcional "Quiero recibir novedades" (nunca pre-tildada). */
+    newsletter_opt_in?: boolean;
   },
   meta: RequestMeta = {}
 ): Promise<{ message: string }> {
@@ -77,6 +81,15 @@ export async function storeRegisterService(
     userAgent: meta.userAgent,
   });
 
+  // Novedades: queda pendiente y se activa al verificar la cuenta (el mail de
+  // verificación ya prueba que la dirección es de quien se registra). Nunca
+  // voltea el registro.
+  if (data.newsletter_opt_in === true) {
+    await registerOptIn(customer.id, data.email, data.name, meta).catch((err) =>
+      logger.error('newsletter.registerOptIn.failed', err, { meta: { customerId: customer.id } })
+    );
+  }
+
   await sendVerificationEmail(data.email, data.name, verification_token);
 
   return { message: 'Cuenta creada. Revisá tu email para verificarla.' };
@@ -90,6 +103,10 @@ export async function storeVerifyEmailService(token: string): Promise<void> {
   customer.verification_token = null;
   customer.token_expires_at = null;
   await customer.save();
+
+  await onCustomerEmailVerified(customer.id, customer.email).catch((err) =>
+    logger.error('newsletter.onEmailVerified.failed', err, { meta: { customerId: customer.id } })
+  );
 }
 
 // token_expires_at NULL = sin vencimiento (tokens previos a la migración 051).

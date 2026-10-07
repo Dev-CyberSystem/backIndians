@@ -23,6 +23,7 @@ Desde el detalle de un pedido pendiente, en revisión u observado, «Editar fich
 11. [Devoluciones de tienda](#11-devoluciones-de-tienda)
 11b. [Legales de la tienda](#11b-legales-de-la-tienda-textos-aceptación-y-arrepentimiento)
 11c. [Centro de ayuda de la tienda](#11c-centro-de-ayuda-de-la-tienda)
+11d. [Newsletter y campañas de email](#11d-newsletter-y-campañas-de-email)
 12. [Facturación electrónica AFIP/ARCA](#12-facturación-electrónica-afipARCA)
 13. [Dashboard y analítica](#13-dashboard-y-analítica)
 14. [Settings](#14-settings)
@@ -324,6 +325,24 @@ Desde el **2026-09-08** esa misma sección tiene una **franja de 3 detalles de l
 **Nivel de implementación**: **Implementado y verificado** (typecheck, build, Vitest y prueba en navegador con Playwright: deep links, buscador, mobile sin scroll horizontal). Fuente: `frontIndians/src/pages/store/StoreHelpPage.tsx`, `pages/store/help/helpContent.ts`.
 
 ---
+
+## 11d. Newsletter y campañas de email
+
+**Objetivo**: juntar en una lista propia los emails de quienes quieren novedades (footer, registro, checkout, "Mis datos") más los clientes ya registrados, y mandarles campañas (novedades, lanzamientos, promociones) armadas en el panel. Antes de 2026-10-07 el formulario "Sumate a la lista" del footer **no guardaba nada** (solo mostraba un toast).
+
+**Usuarios**: panel → `admin`, `billing`, `designer` (lista única `NEWSLETTER_ROLES`, back `config/newsletter.ts` + front `api/newsletter.ts`; el futuro rol "marketing" se suma ahí). La importación de clientes y el borrado definitivo de un suscriptor son solo `admin`. Tienda → visitante y comprador.
+
+**Flujo de suscripción**: footer (`NewsletterSignup.tsx`) → `POST /store/newsletter/subscribe` (Turnstile + rate limit + respuesta idéntica siempre) → fila `pending` + mail de confirmación (doble opt-in, link 7 días, antirrebote de 10 min) → `/tienda/newsletter/confirmar?token=` → `subscribed`. Registro con la casilla opcional → `pending` sin mail propio; se activa al verificar la cuenta. Checkout con la casilla → directo si el comprador está logueado con el email verificado de su cuenta; si no, doble opt-in. "Mis datos" → interruptor (directo si la cuenta está verificada). **Clientes existentes**: importación ÚNICA desde el panel (cuentas activas con email verificado o Google), marcada en `settings.newsletter_customers_imported_at` ([DEC-028](08-DECISIONS.md)).
+
+**Baja**: link visible en el pie de cada mail (`/tienda/newsletter/baja/:token`, pide un clic de confirmación para que los escáneres de links no den de baja a nadie) + header `List-Unsubscribe`/`List-Unsubscribe-Post` (RFC 8058, baja en un clic desde Gmail/Yahoo → `POST /store/newsletter/unsubscribe/:token`). También desde "Mis datos" y desde el panel. Un rebote permanente o una denuncia de spam (webhook de Resend) bloquean la dirección para siempre.
+
+**Campañas** (`/ecommerce/newsletter`, `/ecommerce/newsletter/:id`): editor por **bloques** (título, texto con `**negrita**`/`[link](https://…)`, imagen Cloudinary, botón, productos de la tienda con foto y precio público vigente, cupón, separador, espacio), `{{nombre}}` en asunto y cuerpo, texto de vista previa (preheader), segmento (todos / con cuenta / compraron / no compraron), vista previa en vivo escritorio/celular (render real del backend), envío de prueba (hasta 5 direcciones, asunto con `[PRUEBA]`), enviar ya o programar, cancelar/desprogramar, duplicar. Métricas por campaña: enviados, entregados, aperturas, clics, bajas, rebotes, spam + tabla de destinatarios. Links a la tienda llevan UTM (`utm_source=newsletter&utm_medium=email&utm_campaign=<slug>`).
+
+**Envío**: al arrancar se congelan el HTML (`html_snapshot`) y la lista de destinatarios (`newsletter_campaign_recipients`, `queued`). Job `newsletterQueue` (cada minuto, `jobs/scheduler.ts`) despacha de a 100 con `resend.batch.send` + Idempotency-Key por lote, hasta `NEWSLETTER_MAX_PER_RUN` (500) por corrida, re-chequeando que cada suscriptor siga `subscribed`. Cuota/rate limit de Resend → pausa y reintenta (alerta si es cuota). Pasa por `mailGuard` como todo mail.
+
+**Estados**: suscriptor `pending|subscribed|unsubscribed|bounced|complained`; campaña `draft|scheduled|sending|sent|cancelled` (solo `draft` se edita/borra); destinatario `queued|sent|failed|skipped`.
+
+**Nivel**: Implementado y verificado (tests API 14/14 + unit 5/5, Playwright en navegador del footer/confirmación/baja/editor/envío). **Pendiente de producción**: subdominio de envío en DNS + dominio verificado en Resend, `NEWSLETTER_FROM_EMAIL`, webhook de Resend + `RESEND_WEBHOOK_SECRET`, migración 109, y correr la importación de clientes. Ver [10-SESSION-HANDOFF.md](10-SESSION-HANDOFF.md).
 
 ## 12. Facturación electrónica AFIP/ARCA
 

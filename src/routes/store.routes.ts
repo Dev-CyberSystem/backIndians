@@ -17,9 +17,12 @@ import {
   trackLimiter,
   webhookLimiter,
   withdrawalLimiter,
+  newsletterLimiter,
+  newsletterTokenLimiter,
 } from '../middlewares/rateLimit';
 import * as ctrl from '../controllers/store.controller';
 import * as legalCtrl from '../controllers/legal.controller';
+import * as newsletterCtrl from '../controllers/newsletter.controller';
 import { EMAIL_NORMALIZE_OPTS } from '../utils/emailNormalize';
 
 const router = Router();
@@ -48,6 +51,8 @@ const registerValidators = [
   // pre-tildada desde el frontend ni inferirse). Es lo que después queda como
   // constancia en `legal_acceptances`.
   body('accept_terms').custom(acceptTermsRule),
+  // Casilla OPCIONAL de novedades (nunca pre-tildada en el frontend).
+  body('newsletter_opt_in').optional().isBoolean(),
   validate,
 ];
 
@@ -88,6 +93,7 @@ const checkoutValidators = [
   // El comprador invitado nunca pasa por el registro: si la aceptación no se
   // pide acá, de esa compra no queda ninguna constancia.
   body('accept_terms').custom(acceptTermsRule),
+  body('newsletter_opt_in').optional().isBoolean(),
   validate,
 ];
 
@@ -157,6 +163,26 @@ router.get('/legal', cache(300), legalCtrl.getLegalDocuments);
 // solo sirve para vincular la solicitud si el comprador está logueado.
 router.post('/legal/withdrawal', withdrawalLimiter, optionalStoreAuth, withdrawalValidators, legalCtrl.createWithdrawal);
 
+// ─── Newsletter (público) ────────────────────────────────────────────────────
+// Alta desde el footer con doble opt-in: Turnstile + límite por IP + respuesta
+// idéntica sea cual sea el resultado (no revela si la dirección ya está).
+router.post(
+  '/newsletter/subscribe',
+  newsletterLimiter,
+  verifyTurnstile,
+  optionalStoreAuth,
+  emailField('email'),
+  body('name').optional({ nullable: true }).isString().trim().isLength({ max: 120 }),
+  validate,
+  newsletterCtrl.subscribe
+);
+router.get('/newsletter/confirm', newsletterTokenLimiter, query('token').isString().isLength({ min: 16, max: 128 }), validate, newsletterCtrl.confirm);
+// Baja: GET muestra a quién se da de baja (página de la tienda); POST la
+// ejecuta. El POST es también el endpoint one-click de RFC 8058 que llaman
+// Gmail/Yahoo desde el header List-Unsubscribe — sin login ni captcha.
+router.get('/newsletter/unsubscribe/:token', newsletterTokenLimiter, param('token').isString().isLength({ min: 16, max: 64 }), validate, newsletterCtrl.unsubscribeInfo);
+router.post('/newsletter/unsubscribe/:token', newsletterTokenLimiter, param('token').isString().isLength({ min: 16, max: 64 }), validate, newsletterCtrl.unsubscribe);
+
 // ─── SSE: actualizaciones en tiempo real ────────────────────────────────────
 router.get('/events', ctrl.sseStoreEvents);
 
@@ -181,6 +207,8 @@ router.put(
   validate,
   ctrl.updateProfile
 );
+router.get('/me/newsletter', requireStoreAuth, newsletterCtrl.getMyNewsletter);
+router.put('/me/newsletter', requireStoreAuth, body('subscribed').isBoolean().withMessage('Valor inválido'), validate, newsletterCtrl.setMyNewsletter);
 router.post('/me/addresses', requireStoreAuth, ctrl.upsertAddress);
 router.delete('/me/addresses/:addressId', requireStoreAuth, ctrl.deleteAddress);
 router.get('/me/orders', requireStoreAuth, ctrl.getMyOrders);

@@ -10,6 +10,7 @@ import { storeEvents } from '../events/storeEvents';
 import { verifyWebhookSignature } from '../services/mercadopago.service';
 import * as abandonedCart from '../services/abandonedCart.service';
 import { AuthRequest } from '../types';
+import { checkoutOptIn } from '../services/newsletter.service';
 
 // ─── Settings públicas ────────────────────────────────────────────────────────
 
@@ -28,6 +29,14 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });
+    // Casilla opcional de novedades: después de crear el pedido y sin poder
+    // voltearlo (`checkoutOptIn` nunca tira).
+    if (req.body.newsletter_opt_in === true || req.body.newsletter_opt_in === 'true') {
+      await checkoutOptIn(
+        { email: req.body.customerEmail, name: req.body.customerName, customerId: req.storeCustomerId ?? null },
+        { ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null }
+      );
+    }
     res.status(201).json({ success: true, data: result });
   } catch (err) {
     next(err);
@@ -281,6 +290,14 @@ export async function checkout(req: Request, res: Response, next: NextFunction) 
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });
+    // Casilla opcional de novedades: después de crear el pedido y sin poder
+    // voltearlo (`checkoutOptIn` nunca tira).
+    if (req.body.newsletter_opt_in === true || req.body.newsletter_opt_in === 'true') {
+      await checkoutOptIn(
+        { email: req.body.customerEmail, name: req.body.customerName, customerId: req.storeCustomerId ?? null },
+        { ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null }
+      );
+    }
     res.status(201).json({ success: true, data: result });
   } catch (err) {
     next(err);
