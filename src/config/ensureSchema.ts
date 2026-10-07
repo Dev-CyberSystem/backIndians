@@ -164,6 +164,22 @@ export async function ensureSchema(): Promise<void> {
     logger.error('ensureSchema.checkoutDni', err, { meta: { fatal: false } });
   }
 
+  // ─── Piso y departamento opcionales en direcciones guardadas (migración 109) ─
+  try {
+    const storeAddresses = await qi.describeTable('store_addresses');
+    for (const column of ['floor', 'apartment'] as const) {
+      if (!storeAddresses[column]) {
+        await qi.addColumn('store_addresses', column, {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+        });
+        logger.info('ensureSchema.addColumn', { meta: { table: 'store_addresses', column } });
+      }
+    }
+  } catch (err) {
+    logger.error('ensureSchema.storeAddressUnit', err, { meta: { fatal: false } });
+  }
+
   // ─── Inmutabilidad y reversión de caja (migración 091) ──────────────────────
   try {
     const cashTransactions = await qi.describeTable('cash_transactions');

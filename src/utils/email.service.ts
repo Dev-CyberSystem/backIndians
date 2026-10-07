@@ -470,6 +470,45 @@ export async function sendAbandonedCartEmail(
   });
 }
 
+// ─── Cupón de bienvenida (pop-up de registro) ────────────────────────────────
+
+export async function sendWelcomeCouponEmail(params: {
+  email: string;
+  name?: string | null;
+  code: string;
+  percent: number;
+  expiresAt?: Date | null;
+}) {
+  const { email, name, code, percent, expiresAt } = params;
+  const greeting = name ? `¡Hola ${escapeHtml(name)}!` : '¡Hola!';
+  const validUntil = expiresAt
+    ? `<p style="color:#6b7280;font-size:13px;margin:0 0 4px;">Válido hasta el ${expiresAt.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Tucuman' })}, por única vez.</p>`
+    : '<p style="color:#6b7280;font-size:13px;margin:0 0 4px;">Válido por única vez.</p>';
+
+  await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: `Tu ${percent}% OFF en Indians`,
+    html: emailWrapper(`
+      <h2 style="color:#1d4ed8;margin:0 0 8px;">${greeting} Sumate a Indians</h2>
+      <p style="margin:0 0 12px;">Gracias por registrarte. Este es tu cupón de <strong>${percent}% OFF en todas las prendas</strong>:</p>
+      <div style="text-align:center;margin:20px 0;">
+        <span style="display:inline-block;background:#f9fafb;border:2px dashed #1d4ed8;border-radius:10px;padding:14px 28px;font-family:monospace;font-size:22px;font-weight:700;letter-spacing:2px;color:#111;">
+          ${escapeHtml(code)}
+        </span>
+      </div>
+      <p style="margin:0 0 12px;">Ingresalo en el carrito al finalizar tu compra.</p>
+      ${validUntil}
+      <div style="text-align:center;margin:20px 0 4px;">
+        <a href="${STORE_URL}/productos" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">
+          Ir a la tienda
+        </a>
+      </div>
+      <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;">Si no pediste este cupón, podés ignorar este mensaje.</p>
+    `, 520),
+  });
+}
+
 // ─── Arrepentimiento (Res. 424/2020) ─────────────────────────────────────────
 
 /**

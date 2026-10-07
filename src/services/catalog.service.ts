@@ -403,6 +403,9 @@ export async function deleteProduct(id: number): Promise<{ soft: boolean }> {
 
 // ─── Imágenes de productos ───────────────────────────────────────────────────
 
+/** Máximo de fotos por producto de catálogo (la carga de las cinco es opcional). */
+export const MAX_PRODUCT_IMAGES = 5;
+
 export async function addProductImage(
   productId: number,
   file: Express.Multer.File
@@ -413,8 +416,8 @@ export async function addProductImage(
   if (!product) throw new AppError('Producto no encontrado', 404);
 
   const images = (product as CatalogProduct & { images?: CatalogProductImage[] }).images ?? [];
-  if (images.length >= 3) {
-    throw new AppError('El producto ya tiene el máximo de 3 imágenes', 400);
+  if (images.length >= MAX_PRODUCT_IMAGES) {
+    throw new AppError(`El producto ya tiene el máximo de ${MAX_PRODUCT_IMAGES} imágenes`, 400);
   }
 
   const result = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {

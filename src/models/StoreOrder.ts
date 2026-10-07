@@ -27,6 +27,10 @@ export interface ShippingAddress {
   city: string;
   state?: string;
   zip_code?: string;
+  /** Piso (opcional, texto libre: "4", "PB"). */
+  floor?: string;
+  /** Departamento (opcional, texto libre: "B", "12"). */
+  apartment?: string;
   country?: string;
   /** Zona de envío elegida en el checkout, para saber qué tarifa se aplicó. */
   shipping_zone?: 'national' | 'tucuman_capital' | 'tucuman_interior';

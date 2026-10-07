@@ -6,6 +6,7 @@ import { StoreWishlist } from './StoreWishlist';
 import { StoreCustomer } from './StoreCustomer';
 import { StoreAddress } from './StoreAddress';
 import { StoreCoupon } from './StoreCoupon';
+import { StoreSubscriber } from './StoreSubscriber';
 import { StoreOrder } from './StoreOrder';
 import { StoreOrderItem } from './StoreOrderItem';
 import { StoreOrderStatusHistory } from './StoreOrderStatusHistory';
@@ -223,6 +224,9 @@ CatalogProduct.hasMany(StoreOrderItem, { foreignKey: 'catalog_product_id', as: '
 // StoreOrderItem ↔ CatalogProductSize
 StoreOrderItem.belongsTo(CatalogProductSize, { foreignKey: 'catalog_product_size_id', as: 'size' });
 
+// StoreSubscriber ↔ StoreCoupon (el cupón personal de bienvenida)
+StoreSubscriber.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon', constraints: false });
+
 // StoreOrder ↔ StoreCoupon
 StoreCoupon.hasMany(StoreOrder, { foreignKey: 'coupon_id', as: 'orders' });
 StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
@@ -317,6 +321,7 @@ export {
   StoreCustomer,
   StoreAddress,
   StoreCoupon,
+  StoreSubscriber,
   StoreOrder,
   StoreOrderItem,
   StoreOrderSequence,

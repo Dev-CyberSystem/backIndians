@@ -1,5 +1,13 @@
 # 05 — Base de datos
 
+## Actualización 2026-10-08 — Suscriptores del pop-up de registro
+
+Migración `20261008-110-create-store-subscribers.js`: tabla **`store_subscribers`** (`email` VARCHAR 254 **único** —constraint `uq_store_subscribers_email`, solo en la migración, como `suppliers`—, `name` nullable, `coupon_id` nullable **sin FK** a propósito, `source`, `consent_at`, `coupon_sent_at`, timestamps). Cada fila apunta al cupón personal que se le creó en `store_coupons`. Tabla nueva: en desarrollo la crea `sequelize.sync()`; `ensureSchema.ts` no necesita parche.
+
+## Actualización 2026-10-07 — Piso y departamento
+
+Migración `20261007-109-add-floor-apartment-to-store-addresses.js` (2026-10-07): `store_addresses.floor` y `store_addresses.apartment`, `VARCHAR(20) NULL` (piso y departamento opcionales de las direcciones guardadas). Espejada en `ensureSchema.ts`. En el pedido (`store_orders.shipping_address`, JSON) viajan como `floor`/`apartment` sin migración; aditivo, los pedidos anteriores no los tienen.
+
 ## Actualización ARCA — 2026-09-11
 
 Migración nueva `20260910-108-create-afip-journal.js`: `afip_documents` (PK id, origen, ambiente, stream, status, snapshot JSON, response JSON, error, timestamps) y `afip_auth_tickets` (PK id, ticket cifrado, expiración, timestamps). Índices no únicos stream/status y target/target_id. Modelos registrados para sync e índices equivalentes en ensureSchema. Las columnas `afip_*` existentes quedan como proyección productiva; la evidencia fiscal vive en el journal. No ejecutar down tras emisiones; conservar tablas y backups. Migración aplicada y registrada solo en la base local de pruebas.

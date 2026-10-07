@@ -17,6 +17,7 @@ import {
   trackLimiter,
   webhookLimiter,
   withdrawalLimiter,
+  subscribeLimiter,
 } from '../middlewares/rateLimit';
 import * as ctrl from '../controllers/store.controller';
 import * as legalCtrl from '../controllers/legal.controller';
@@ -75,6 +76,9 @@ const checkoutValidators = [
   body('items.*.size_name').optional({ nullable: true }).isString().isLength({ max: 60 }),
   body('shipping_type').optional().isIn(['pickup', 'delivery']).withMessage('Tipo de envío inválido'),
   body('shipping_address.state').optional({ nullable: true }).isString().isLength({ max: 100 }),
+  // Piso y departamento: OPCIONALES. Se puede finalizar la compra sin ellos.
+  body('shipping_address.floor').optional({ nullable: true }).isString().isLength({ max: 20 }).withMessage('Piso demasiado largo (máx. 20 caracteres)'),
+  body('shipping_address.apartment').optional({ nullable: true }).isString().isLength({ max: 20 }).withMessage('Departamento demasiado largo (máx. 20 caracteres)'),
   body('shipping_address.shipping_zone').optional({ nullable: true })
     .isIn(['national', 'tucuman_capital', 'tucuman_interior']).withMessage('Zona de envío inválida'),
   // 'cash' se dejó de aceptar en el checkout de tienda online (pago en efectivo
@@ -88,6 +92,14 @@ const checkoutValidators = [
   // El comprador invitado nunca pasa por el registro: si la aceptación no se
   // pide acá, de esa compra no queda ninguna constancia.
   body('accept_terms').custom(acceptTermsRule),
+  validate,
+];
+
+// Pop-up de registro: email obligatorio, nombre opcional. No hay checkbox: el pop-up
+// muestra el aviso de privacidad al lado del botón y el envío del form es el consentimiento.
+const subscribeValidators = [
+  emailField('email'),
+  body('name').optional({ nullable: true }).isString().trim().isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
   validate,
 ];
 
@@ -125,7 +137,9 @@ const productQueryValidators = [
   query('search').optional().isString().isLength({ max: 120 }),
   query('category').optional().isString().isLength({ max: 60 }),
   query('gender').optional().isString().isLength({ max: 30 }),
-  query('tag').optional().isString().isLength({ max: 60 }),
+  // Un tag o varios separados por coma ("Top,Remera").
+  query('tag').optional().isString().isLength({ max: 200 }),
+  query('on_sale').optional().isIn(['true', 'false', '1', '0']),
   query('size').optional().isString().isLength({ max: 60 }),
   query('sort').optional().isIn(['newest', 'price_asc', 'price_desc', 'name_asc']),
   query('garment_type_id').optional().isInt({ min: 1 }),
@@ -156,6 +170,9 @@ router.get('/legal', cache(300), legalCtrl.getLegalDocuments);
 // ningún trámite previo — la resolución lo prohíbe expresamente. `optionalStoreAuth`
 // solo sirve para vincular la solicitud si el comprador está logueado.
 router.post('/legal/withdrawal', withdrawalLimiter, optionalStoreAuth, withdrawalValidators, legalCtrl.createWithdrawal);
+
+// Pop-up de registro con descuento: crea un cupón personal, así que va con captcha y límite por IP.
+router.post('/subscribe', subscribeLimiter, verifyTurnstile, subscribeValidators, ctrl.subscribeWelcome);
 
 // ─── SSE: actualizaciones en tiempo real ────────────────────────────────────
 router.get('/events', ctrl.sseStoreEvents);
@@ -241,6 +258,8 @@ const updateStatusValidators = [
   validate,
 ];
 
+router.get('/admin/subscribers', authenticate, authorize('admin', 'billing'), ctrl.listSubscribers);
+router.get('/admin/subscribers/export', authenticate, authorize('admin', 'billing'), ctrl.exportSubscribers);
 router.get('/admin/orders', authenticate, authorize('admin', 'billing'), ctrl.listOrders);
 router.get('/admin/orders/:id', authenticate, authorize('admin', 'billing'), ctrl.getOrder);
 router.patch('/admin/orders/:id/status', authenticate, authorize('admin', 'billing'), updateStatusValidators, ctrl.updateOrderStatus);

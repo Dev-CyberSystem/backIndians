@@ -359,3 +359,46 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 **Motivo**: los estados en columnas y caché de proceso no resolvían concurrencia, reinicios o respuestas perdidas. Volver a numerar podía duplicar facturación. Cambiar importes o anular sin crédito desalineaba administración y ARCA.
 
 **Consecuencias**: migración 108; conciliación manual de legados sin snapshot; créditos separados de reintegros; homologación real pendiente. Se conserva emisión manual admin/billing y gate. [Procedimiento completo](../ARCA-OPERACION.md).
+
+## DEC-028 — Menú nuevo de la tienda: supuestos hasta que Indians los confirme
+
+**Contexto**: el brief del cliente (06.10.2026, pedido 04) fija el orden del menú pero deja abiertas tres cosas. Se implementó con supuestos, sin esperar la respuesta.
+
+**Decisión (supuestos vigentes)**:
+1. **Clubes** de Fútbol = los **clientes** (`client_id`) con productos publicados en la categoría Fútbol (ya existía el filtro por club). Cargar un club nuevo no requiere código.
+2. **Selecciones** = productos con el tag exacto **`Selección`** (constante `SELECTION_TAG`, en back y front). Esos productos no se cuentan como club. El ítem solo aparece si existe al menos un producto con ese tag.
+3. **Abrigos** = una **categoría** `Abrigos` con productos por género (Hombre/Mujer), igual que Vóley y Running. No agrupa Buzos ni Camperas de otras categorías.
+4. **Ofertas** = `discount_percentage` entre 1 y 100 (misma regla que el precio tachado). El modelo no tiene fechas de vigencia del descuento.
+5. «Tops y remeras» filtra por los tags `Top` o `Remera` (OR) con `?tag=Top,Remera`.
+
+**Si Indians responde distinto**: cambiar `SELECTION_TAG` / la regla de clubes (`utils/storeNav.ts` en ambos repos) es un cambio chico; si Abrigos debiera juntar varias categorías haría falta un filtro por varias categorías.
+
+**Consecuencias**: aditivo, sin migración. Se quitó del menú el ítem «Ver todo» suelto y los submenús viejos (Camperas, Pantalones, Camisetas, Medias, Botines, Pelotas, Rodilleras, Zapatillas). Si hay una «sección destacada» activa, sigue mostrándose segunda en el menú (queda entre Hombre y Mujer).
+
+## DEC-029 — Video del inicio: subida desde el servidor, un solo video, sin autoplay
+
+**Decisión**: el video se sube por el backend (`POST /upload/video`) a Cloudinary, como el resto de las imágenes, con tope de 60 MB y solo para `admin`/`billing`. Un único video para escritorio y celular. Se reproduce solo con la acción del visitante (controles, sin autoplay ni sonido automático), con portada y `preload="none"`.
+
+**Motivo**: es el mismo patrón que ya usa el panel (sin firmas ni CORS nuevos) y el brief pide «controles y sin sonido automático». El tope deja margen bajo el límite de 100 MB por video del plan gratis de Cloudinary.
+
+**Alternativas descartadas**: subida directa del navegador a Cloudinary con firma (evita pasar 60 MB por el servidor y sus timeouts, pero suma una superficie de firma y configuración); versión vertical aparte para celular (el brief no lo pide; el video se ve entero con `object-contain`).
+
+**Consecuencias**: sin migración. Al reemplazar o quitar el video, el anterior se borra de Cloudinary al guardar. Un video de ~60 MB pasa por la memoria del proceso (multer en memoria) durante la subida. **La subida real a Cloudinary no se probó** (sin credenciales en el entorno de desarrollo).
+
+## DEC-030 — Pop-up de registro con 10% OFF: condiciones asumidas hasta que Indians las confirme
+
+**Contexto**: el brief (06.10.2026, pedido 03) deja «por definir con Indians»: vigencia, cantidad de usos y acumulación con otras promociones. Se implementó con supuestos explícitos, todos cambiables desde el panel o con un cambio chico.
+
+**Decisión (supuestos vigentes)**:
+1. **Vigencia**: 30 días desde el registro (`store_welcome_valid_days`, editable).
+2. **Usos**: un solo uso por persona (`max_uses = 1`), y un email solo puede registrarse una vez.
+3. **Acumulación**: se aplica sobre el subtotal **ya con los descuentos de producto** (se suma a las prendas en oferta) y **no se acumula con otros cupones** (el pedido admite uno solo). Sin monto mínimo.
+4. **Descuento**: 10% (`store_welcome_discount_percent`, editable).
+5. **Apagado por defecto**: el pop-up no se publica solo; el admin lo enciende cuando Indians confirme.
+6. **Cupón personal, no un código genérico**: cada registro crea un cupón con código aleatorio (`BIENVENIDA-XXXXXX`). Un código único para todos se filtraría en redes y no habría forma de «habilitar el beneficio al completar el registro».
+7. **El código se muestra en pantalla la primera vez y también se envía por mail**. Mostrarlo mejora la conversión; la contrapartida es que no se verifica que el email sea real (alcanzan Turnstile, 5 registros/hora por IP y un registro por email para limitar el abuso; con alias de email sigue siendo posible obtener más de un cupón).
+8. **Es una captación de email, no una cuenta**: no hay contraseña ni se crea un `StoreCustomer`. Se guarda `consent_at`; el pop-up muestra el aviso de privacidad pegado al botón (sin checkbox).
+
+**Alternativas descartadas**: un cupón genérico compartido; exigir verificación por mail antes de mostrar el código (más fricción); crear una cuenta de comprador.
+
+**Consecuencias**: migración 110 (tabla nueva). La **Política de Privacidad** (`legal/PrivacyPage.tsx`, versionada) todavía no menciona esta captación de emails: hay que actualizarla con Indians. El formulario «Sumate a la lista» del pie de la tienda **no guarda nada** (solo muestra un toast): sigue sin conectarse.

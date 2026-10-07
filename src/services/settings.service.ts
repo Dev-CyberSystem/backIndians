@@ -2,6 +2,8 @@ import { sequelize } from '../config/db';
 import { Settings, CashAccount } from '../models';
 import { invalidateCache } from '../utils/cache';
 import { AppError } from '../middlewares/errorHandler';
+import { deleteVideo } from '../config/cloudinary';
+import { logger } from '../utils/logger';
 
 export interface CompanySettings {
   company_name: string;
@@ -56,6 +58,14 @@ export const VALID_KEYS: string[] = [
   // Tienda — landing banner promo
   'store_promo_image_url', 'store_promo_image_mobile_url', 'store_promo_title',
   'store_promo_subtitle', 'store_promo_cta',
+  // Tienda — pop-up de registro con descuento (cupón personal de bienvenida).
+  // Apagado por defecto: lo activa el admin cuando Indians confirma las condiciones.
+  'store_welcome_popup_enabled', 'store_welcome_discount_percent', 'store_welcome_valid_days',
+  // Tienda — video de la página principal (después de Novedades). `public_id` es
+  // interno (sirve para borrar el video de Cloudinary al reemplazarlo): NO va en
+  // PUBLIC_SETTING_KEYS.
+  'store_home_video_enabled', 'store_home_video_url', 'store_home_video_poster_url',
+  'store_home_video_title', 'store_home_video_public_id',
   // Tienda — barra de promociones (pills)
   'store_promo_pills',
   // Tienda — "sección destacada / lanzamiento" (GENÉRICA y reutilizable: hoy
@@ -154,6 +164,10 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   // Tienda — banner promo y barra de promociones
   'store_promo_image_url', 'store_promo_image_mobile_url', 'store_promo_title', 'store_promo_subtitle', 'store_promo_cta',
   'store_promo_pills',
+  // Tienda — pop-up de registro con descuento (el pop-up muestra el % y la vigencia)
+  'store_welcome_popup_enabled', 'store_welcome_discount_percent', 'store_welcome_valid_days',
+  // Tienda — video de la página principal
+  'store_home_video_enabled', 'store_home_video_url', 'store_home_video_poster_url', 'store_home_video_title',
   // Tienda — "sección destacada / lanzamiento" genérica (la tienda la renderiza públicamente)
   'store_collection_enabled', 'store_collection_label', 'store_collection_slug',
   'store_collection_tag', 'store_collection_kicker',
@@ -231,6 +245,11 @@ export async function updateSettings(
     }
   }
 
+  // Si cambia el video del inicio, el anterior queda huérfano en Cloudinary (storage que se paga).
+  const VIDEO_ID_KEY = 'store_home_video_public_id';
+  const touchesVideo = entries.some(([k]) => k === VIDEO_ID_KEY);
+  const previousVideoId = touchesVideo ? (await Settings.findByPk(VIDEO_ID_KEY))?.value ?? '' : '';
+
   const now = new Date();
   await sequelize.transaction(async (t) => {
     for (const [key, value] of entries) {
@@ -243,6 +262,13 @@ export async function updateSettings(
 
   // El comprador ve estos settings cacheados: invalidamos para reflejar el cambio ya.
   invalidateCache('store:settings');
+
+  if (touchesVideo && previousVideoId && previousVideoId !== (data[VIDEO_ID_KEY] ?? '')) {
+    // Best-effort: ya se guardó el cambio, un fallo de Cloudinary no debe revertirlo ni romper el guardado.
+    deleteVideo(previousVideoId).catch((err) =>
+      logger.error('settings.deleteOldHomeVideo', err, { meta: { publicId: previousVideoId, fatal: false } })
+    );
+  }
 
   return getAllSettings();
 }

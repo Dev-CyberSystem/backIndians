@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as storeAuth from '../services/store.auth.service';
+import * as subscribers from '../services/storeSubscriber.service';
 import * as store from '../services/store.service';
 import * as storeReturns from '../services/storeReturns.service';
 import * as analytics from '../services/storeAnalytics.service';
@@ -156,12 +157,13 @@ export async function mergeWishlist(req: Request, res: Response, next: NextFunct
 
 export async function listProducts(req: Request, res: Response, next: NextFunction) {
   try {
-    const { search, category, gender, tag, garment_type_id, size, price_min, price_max, sort, client_id, page, limit } = req.query;
+    const { search, category, gender, tag, on_sale, garment_type_id, size, price_min, price_max, sort, client_id, page, limit } = req.query;
     const result = await store.listStoreProducts({
       search:          search          as string | undefined,
       category:        category        as string | undefined,
       gender:          gender          as string | undefined,
       tag:             tag             as string | undefined,
+      on_sale:         on_sale === 'true' || on_sale === '1' ? true : undefined,
       garment_type_id: garment_type_id ? Number(garment_type_id) : undefined,
       size:            size            as string | undefined,
       price_min:       price_min ? Number(price_min) : undefined,
@@ -746,4 +748,41 @@ export function sseStoreEvents(req: Request, res: Response) {
     if (n <= 0) sseConnectionsByIp.delete(ip);
     else sseConnectionsByIp.set(ip, n);
   });
+}
+
+// ─── Pop-up de registro con descuento ─────────────────────────────────────────
+
+export async function subscribeWelcome(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await subscribers.subscribeWelcome({ email: req.body.email, name: req.body.name });
+    res.status(result.status === 'created' ? 201 : 200).json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listSubscribers(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { search, page, limit } = req.query;
+    const result = await subscribers.listSubscribers({
+      search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.json({ success: true, data: result.data, meta: result.meta });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function exportSubscribers(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const csv = await subscribers.exportSubscribersCsv();
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="suscriptores-indians.csv"');
+    // BOM para que Excel reconozca los acentos.
+    res.send('\uFEFF' + csv);
+  } catch (err) {
+    next(err);
+  }
 }

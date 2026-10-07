@@ -243,6 +243,12 @@ Estado global: **las siete brechas de la auditoría original con corrección pla
 
 **Usuarios**: `StoreCustomer` (comprador, autenticado u opcional según endpoint); `admin`/`billing` (panel de administración de pedidos/devoluciones/cupones/configuración).
 
+**Pop-up de registro con descuento (2026-10-08, brief 06.10.2026 pedido 03)**: ventana «Sumate a Indians» (email obligatorio, nombre opcional) que entrega un cupón personal de un solo uso ([BR-STORE-015](03-BUSINESS-RULES.md)). Se enciende y configura (porcentaje y vigencia) en Configuración de la tienda → «Pop-up de registro con descuento»; los registros se ven y exportan en `/ecommerce/subscribers`. Aparece a los 6 s, con cierre visible; no vuelve en la misma visita si se cierra ni nunca más (en ese navegador) tras registrarse; no se muestra con sesión iniciada, en checkout/login/Mi cuenta/seguimiento ni junto a un cupón promocional con pop-up. Reglas en `frontIndians/src/utils/welcomePopup.ts`.
+
+**Video del inicio (2026-10-07, brief 06.10.2026 pedido 02)**: bloque de video en la landing, después de «Novedades». Se carga, reemplaza, quita o desactiva desde Configuración de la tienda → «Landing — Video» (claves `store_home_video_enabled|url|poster_url|title`; `public_id` es interno). Se reproduce con controles y sin autoplay (no suena solo), `preload="none"` con portada, y se ve entero (`object-contain`) en escritorio y celular. Un solo video para ambos (no hay versión vertical aparte). Si no está activo, no hay URL o la URL no es https, el bloque no se dibuja.
+
+**Menú (2026-10-07, brief 06.10.2026 pedido 04)**: orden fijo Hombre · Mujer · Fútbol · Vóley · Running · Pádel · Abrigos · Ofertas, igual en escritorio y celular (`frontIndians/src/utils/storeNav.ts`). Fútbol lista los clubes (clientes con productos publicados) y «Selecciones» (tag `Selección`); Pádel muestra «Mujer» solo si hay productos de mujer; Ofertas (`/tienda/productos?on_sale=true`) reúne todo producto con descuento activo. Los tags `Remera`, `Short`, `Buzo`, `Calza`, `Top` y `Selección` deben cargarse EXACTOS en cada producto, y las categorías `Pádel` y `Abrigos` deben existir en el catálogo.
+
 **Flujo principal**: navegación de catálogo público (con filtros, búsqueda, trending, "también visto") → carrito (zustand persistido) → checkout (`checkout/quote` para presupuesto en vivo con envío incluido → `POST /checkout` con `Idempotency-Key`) → reserva de stock con vencimiento → pago (MercadoPago Checkout Pro; **efectivo y transferencia ya no se ofrecen en el checkout** — el efectivo además está desactivado en el backend desde el 2026-08-19, la transferencia sólo oculta en el front desde el 2026-08-24, con su pantalla de comprobante todavía viva para pedidos existentes) → confirmación (webhook MP con verificación de firma, o carga manual del comprobante) → confirmación de stock (resta real) + registro en caja + mail de confirmación → seguimiento por token público o desde "Mis pedidos" → estado avanza (`review`→...→`shipped`/`delivered`, o `delayed`/`returned`/`cancelled`) con mail por cada transición.
 
 **Flujos alternativos**: cupón de descuento (uno por cliente, aplicado atómicamente), carrito abandonado (recordatorio por mail, con envío manual desde el panel admin también), wishlist, direcciones múltiples, cancelación (restituye stock y libera cupón), expiración automática de pedidos impagos a 48hs (job programado).
@@ -307,7 +313,7 @@ Desde el **2026-09-08** esa misma sección tiene una **franja de 3 detalles de l
 
 | Tema | Valor publicado |
 |---|---|
-| Envío | 7 a 9 días hábiles desde la acreditación del pago |
+| Despacho | 48 horas hábiles (preparación y entrega al transportista, a todo el país). La entrega depende del destino y del correo. *Reemplaza al «7 a 9 días hábiles» del 2026-08-24 por el brief del cliente del 2026-10-06; texto en `frontIndians/src/utils/shippingPolicy.ts`.* |
 | Cambios y devoluciones | 15 días hábiles desde la recepción |
 | Reembolso | hasta 10 días hábiles + el plazo del emisor |
 | Garantía legal | 6 meses para productos nuevos (Ley 24.240) |
