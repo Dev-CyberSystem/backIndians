@@ -104,7 +104,7 @@ router.put(
 
 // ─── Imágenes de producto ─────────────────────────────────────────────────────
 
-// POST /catalog/products/:id/images (máx 1 imagen por llamada, máx 3 por producto)
+// POST /catalog/products/:id/images (máx 1 imagen por llamada, máx 5 por producto (MAX_PRODUCT_IMAGES))
 router.post(
   '/products/:id/images',
   authorize('admin', 'billing'),

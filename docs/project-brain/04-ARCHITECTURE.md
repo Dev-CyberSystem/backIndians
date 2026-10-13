@@ -155,7 +155,7 @@ Dos sistemas de JWT completamente independientes y no intercambiables — ver [B
 - **`AppError`** (`middlewares/errorHandler.ts`) — error de negocio con `statusCode`, `code`, `type`, `originalError` opcional.
 - **`errorHandler`** — middleware final: `UniqueConstraintError` de Sequelize → 409 (con mensaje amigable para el caso de nombre de prenda duplicado), `ValidationError` → 422, `AppError` → su propio `statusCode`, cualquier otro → 500 (detalle solo en `development`).
 - Todo error 4xx/5xx pasa por el logger con nivel `warn`/`error` según corresponda.
-- El frontend replica errores relevantes hacia `POST /logs/client` para que queden en el mismo pipeline de logs.
+- El frontend replica errores relevantes hacia `POST /logs/client` para que queden en el mismo pipeline de logs. Ese error viaja como **objeto plano**, no como instancia de `Error` (JSON no las transporta): `toErrorDetail` en `utils/logger.ts` lo normaliza. Hasta 2026-09-18 no lo hacía y el log quedaba en `"[object Object]"`, perdiendo el mensaje — si se toca esa función, el test `__tests__/unit/logger-error-detail.test.ts` cubre la regresión.
 
 ## Archivos principales para orientarse rápido
 

@@ -1,5 +1,34 @@
 # 10 — Entrega entre sesiones
 
+## Última sesión: 2026-10-12 — Integración de lo pendiente en dos releases
+
+Se revisó todo lo que estaba sin mergear a `master` (v1.11.3) y se armaron dos ramas **locales** de integración en ambos repos. **Nada pusheado, nada mergeado a master, nada desplegado.**
+
+**`integracion/release-a`** = master + `fix/logs-cliente-legibles` + entregas 1–4 del brief (5 fotos y despacho en 48 hs, piso/depto, menú nuevo + Ofertas, video del inicio). Migración **109** (`store_addresses.floor|apartment`, con espejo en `ensureSchema.ts`). Validación: typecheck back/front limpio, **Jest 71/71 suites y 534/534 tests contra MySQL real** (era lo que el brief nunca había podido correr), Vitest 62/62, build del front OK, lint con los mismos 176 hallazgos preexistentes. **Falta**: prueba manual en navegador (panel incluido) y subir un video real — depende de que Cloudinary vuelva a estar habilitado (incidente del 2026-09-18, sin re-verificar).
+
+**`integracion/release-b`** = release-a + newsletter + pop-up de bienvenida (entrega 5), **unificados en una sola lista de suscriptores** ([DEC-032](08-DECISIONS.md)). Migración **110** (3 tablas `newsletter_*`). Validación: typecheck back/front limpio, **Jest 75/75 suites y 576/576 tests** contra MySQL real, Vitest 74/74, build del front OK, lint +4 por el patrón conocido de rutas lazy. **Falta**: prueba en navegador del pop-up unificado y del mail del cupón con el link de confirmación. El pop-up se sacó del Release A a propósito: llevarlo solo habría creado en producción una tabla que después había que migrar.
+
+**Ojo al correr la suite completa en esta máquina**: `npm run test:full` se queda sin memoria (heap de Node por defecto, ~6 min). Corre bien con `NODE_OPTIONS=--max-old-space-size=8192`.
+
+**Descartado**: `integracionarca` (2026-06-29) está íntegramente portada a master (migraciones renumeradas 074–078, mismas funciones, rutas y dependencias) — se puede borrar. **Sin integrar**: `feature/google-analytics-tienda` (46/28 commits atrás, conflictos en `StoreCheckoutPage.tsx`, `StoreLayout.tsx` y 3 docs; inerte sin `VITE_GA4_MEASUREMENT_ID`).
+
+**Para publicar el Release A**: `npm run migrate` (109) junto con el deploy del backend; cargar categorías Pádel/Abrigos y tags `Top`/`Selección`; actualizar `store_announcement`/`store_marquee` desde el panel (el valor guardado pisa el texto nuevo de despacho). **Para el Release B**, además: lo listado abajo en la sesión de newsletter (DNS + Resend + variables), actualizar la Política de Privacidad por la captación del pop-up y confirmar con Indians las condiciones de DEC-030.
+
+---
+
+## Imágenes caídas en la tienda + logs del cliente ilegibles — 2026-09-18
+
+**Causa raíz (externa, sigue ABIERTA)**: las imágenes no se ven en indians.com.ar porque **la cuenta de Cloudinary está deshabilitada**. Todo lo que cuelga del cloud responde `HTTP 401 — "cloud_name zudvsibg is disabled"`, incluido el `sample.jpg` de demo y las URLs sin transformaciones. No es un bug nuestro: la API devuelve 200 con las URLs bien armadas y el navegador las pide directo a `res.cloudinary.com`, por eso **no hay ni una línea en los logs de Railway**. Mientras siga así, las subidas nuevas también fallan. Lo resuelve el usuario desde console.cloudinary.com (plan gratuito excedido, pago rechazado o suspensión).
+
+**Corregido en la rama `fix/logs-cliente-legibles`** (ambos repos, creada desde master v1.11.3, SIN pushear ni mergear — back `8be4e45`, front `c8290af`):
+
+- `utils/logger.ts`: `toErrorDetail` sólo contemplaba `instanceof Error`, así que los errores que el frontend reporta por `POST /logs/client` — objetos planos, porque JSON no transporta instancias de `Error` — caían en `String(error)` y el log de producción quedaba en `"[object Object]"`. Eran decenas de líneas por día sin ningún valor diagnóstico. Ahora normaliza el error serializado y, si el objeto no tiene forma de error, lo serializa acotado y a prueba de referencias circulares. Test de regresión: `src/__tests__/unit/logger-error-detail.test.ts`.
+- Frontend: los cuatro puntos de subida de imágenes hacían `catch { toast.error(...) }` sin dejar rastro (el único uso del logger en todo el frontend era el `ErrorBoundary`). Ahora loguean el error real con endpoint, nombre, tamaño y tipo de archivo.
+
+**Validación**: typecheck back y front limpios; Jest unit + `logs-ratelimit` 68/68; Vitest 52/52; lint del frontend sin regresiones (mismos 7 hallazgos preexistentes antes y después). No se corrió `test:full`.
+
+**Propuesto y NO implementado** (requiere OK del usuario, es cambio de UI de la tienda): detectar imágenes rotas en el navegador — listener de `error` en fase de captura, que hoy no las ve — y mostrar un placeholder en lugar del ícono roto cuando el CDN falla.
+
 ## Actualización operativa ARCA — 2026-09-14
 
 Certificado de homologación `IndiansQA` cargado solo en `.env` local mediante variables `_HOMO`; clave y certificado validados sin exponer contenido. CUIT 20-29323025-1, vigencia hasta 13/09/2028. Autorización `wsfe` de homologación confirmada con WSAA real. La constancia aportada confirma titular `CARRILLO LEITO GONZALO SEBASTIAN`, domicilio General Paz 1071 Piso 4 Dpto. C, San Miguel de Tucumán, CP 4000, Monotributo categoría F e inicio 01/08/2026. El usuario confirmó IIBB `No corresponde` y PV productivo 3 exclusivo.
@@ -15,6 +44,45 @@ Fixture lista para la prueba manual: factura borrador ID 392, referencia `ARCA-M
 El generador fiscal se unificó con el formato visual de los demás comprobantes de Indians. Conserva letra/código/numeración oficial, snapshot, impuestos, asociaciones, QR, CAE y vencimiento; reemplaza únicamente la presentación anterior. Factura C y Nota de Crédito C reales de homologación fueron regeneradas e inspeccionadas. También se validó una factura ficticia de 30 renglones en tres páginas. Suite ARCA 26/26 y typecheck aprobados.
 
 > Este documento se actualiza al final de cada sesión de trabajo importante. Refleja SOLO la sesión más reciente — no es un historial acumulado (para eso está `git log` y [08-DECISIONS.md](08-DECISIONS.md)).
+
+---
+
+## Última actualización: 2026-10-07 (4) — Brief de modificaciones web, Entrega 4 de 5
+
+**Pedido 02, video en la página principal** ([DEC-029](08-DECISIONS.md)). Backend: `POST /upload/video` (admin/billing, 60 MB, MP4/WEBM/MOV → Cloudinary), 5 claves `store_home_video_*` (4 públicas + `public_id` interna), validación https en `PUT /settings`, y borrado best-effort del video anterior al reemplazarlo (`updateSettings`). Frontend: `VideoUploadInput` (con barra de progreso y validación previa de tipo/tamaño), sección «Landing — Video» en `EcommerceSettingsPage`, y `HomeVideoSection` en `StoreLandingPage` después de Novedades. Sin migración. Tests: `unit/homeVideo.test.ts` (4/4, sin DB) y `api/store-home-video-settings.test.ts` (**escrito pero NO ejecutado: sin MySQL**). Vitest 62/62, typecheck de ambos repos y build OK, lint sin errores nuevos. Verificado en Chromium con la API simulada: posición, controles, sin autoplay, `preload`, desktop y celular, y que no aparece si está desactivado / sin URL / URL http.
+
+**NO probado**: la subida real a Cloudinary (sin credenciales acá), ni el panel de administración en el navegador, ni la reproducción de un MP4 real en iOS/Android. **Antes de publicar**: subir un video real desde el panel y revisar que cargue, que la portada sea la esperada y que el reemplazo borre el anterior; confirmar con Indians duración/peso del video y si quieren versión vertical para celular.
+
+---
+
+## Última actualización: 2026-10-07 (3) — Brief de modificaciones web, Entrega 3 de 5
+
+**Pedido 04, menú nuevo + Ofertas**, implementado con los supuestos del plan porque Indians todavía no respondió (ver [DEC-028](08-DECISIONS.md)). Backend (aditivo, sin migración): `GET /store/products` con `on_sale=true` y `tag` multivalor; `GET /store/products/filters` con `category_genders|category_tags|category_clients`; lógica pura en `utils/storeNav.ts`. Frontend: `utils/storeNav.ts` (`buildNavLinks`) reemplaza el `NAV_LINKS` fijo de `StoreLayout`; `StoreProductsPage` soporta `on_sale` (título «Ofertas», pill y filtro lateral) y acepta las categorías del menú aunque aún no tengan productos; `SUGGESTED_TAGS` del admin suma `Top` y `Selección`. Tests: `unit/storeNav.test.ts` (7/7, sin DB), `__tests__/storeNav.test.ts` de Vitest (10 casos; Vitest total 62/62) y `api/store-nav-filters.test.ts` (**escrito pero NO ejecutado: sin MySQL**). Verificado en Chromium con la API simulada: orden del menú, clubes dinámicos, Pádel sin Mujer, mobile y llamada `on_sale=true`. Typecheck de ambos repos limpio; lint sin errores nuevos.
+
+**Pendiente / a confirmar con Indians**: (a) cargar las categorías **Pádel** y **Abrigos** y los tags `Top`/`Selección` en los productos — sin eso esas secciones se ven vacías; (b) los 5 supuestos de DEC-028; (c) si la «sección destacada» activa debe seguir entre Hombre y Mujer (rompe el orden pedido); (d) correr `test:full` con MySQL.
+
+---
+
+## Última actualización: 2026-10-07 (2) — Brief de modificaciones web, Entrega 2 de 5
+
+**Pedido 06, Piso y Departamento opcionales** (rama `claude/pensive-brown-georw3`, ambos repos). Checkout y «Mi cuenta» tienen dos campos opcionales; se puede comprar sin completarlos. Backend: `floor`/`apartment` en `ShippingAddress` (JSON del pedido, sin migración), validadores en `store.routes.ts` (máx. 20), normalización `normalizeShippingAddress` en `store.service.ts`, `utils/address.ts` (`streetWithUnit`) usado por los PDFs de comprobante/etiqueta, **migración 109** (`store_addresses.floor|apartment`) + espejo en `ensureSchema.ts`. Frontend: `StoreCheckoutPage` (con autocompletado desde direcciones guardadas), `StoreAccountPage`, y la dirección se ve con piso/depto en «Mis pedidos» y en el detalle del panel (`EcommerceOrdersPage`). Tests: `unit/address.test.ts` (6/6, corrido sin DB) y `api/checkout-floor-apartment.test.ts` (**escrito pero NO ejecutado: no hay MySQL en el entorno**). Typecheck de ambos repos limpio, Vitest 52/52, build OK.
+
+**Corrección de la Entrega 1**: el «typecheck limpio» del backend informado entonces no era válido (el backend no tenía `node_modules` y `npx` bajó otro TypeScript). Ya con dependencias instaladas, `npm run typecheck` pasa para ambas entregas.
+
+**Pendiente**: correr `npm run migrate` (109) en producción antes o junto con el deploy del backend; correr `test:full` con MySQL; probar en navegador. `afip.service.ts` arma el domicilio del receptor sin piso/depto a propósito (campo fiscal: requiere confirmación explícita para tocarlo).
+
+---
+
+## Última actualización: 2026-10-07 — Brief de modificaciones web, Entrega 1 de 5
+
+Brief del cliente (06.10.2026, 6 pedidos) dividido en 5 entregas: **1** fotos + despacho (hecha), **2** piso/depto en checkout (pedido 06), **3** menú nuevo + Ofertas (04), **4** video en inicio (02), **5** pop-up de registro 10% OFF (03, bloqueada por definiciones del cliente: vigencia, usos, acumulación). Rama `claude/pensive-brown-georw3` en ambos repos.
+
+**Entrega 1 (sin migración, sin cambio de contrato):**
+- Pedido 01: máximo de fotos por producto de catálogo 3 → 5 (`MAX_PRODUCT_IMAGES` en `catalog.service.ts`; espejo en `CatalogPage.tsx`). La ficha pública ordena las imágenes por `sort_order, id`. La galería ya soportaba N fotos.
+- Pedido 05: mensaje único en `frontIndians/src/utils/shippingPolicy.ts` («Despachamos tu pedido dentro de las 48 horas hábiles. Envíos a todo el país.») usado en inicio, ficha, carrito (página y drawer), checkout, ayuda, chatbot y barra de anuncio por defecto. La ayuda dejó de prometer «7 a 9 días hábiles».
+- Validación: backend `tsc` limpio; frontend `tsc`, Vitest 52/52 y build OK; lint sin errores nuevos (176 preexistentes). **No corrió `test:full` (no hay MySQL en el entorno) ni se probó en navegador.**
+
+**Pendiente de esta entrega**: probar galería con 5 fotos en celular/PC; **actualizar `store_announcement` y `store_marquee` en producción desde el panel** (si tienen valor guardado pisan el default nuevo); validar con Indians el texto de la ayuda; el chatbot todavía menciona «retirar en el local» (contradice la ayuda: no hay retiro) — no se tocó.
 
 ---
 
@@ -511,7 +579,7 @@ La página `/tienda/ayuda` ya existía, con cuatro bloques (envíos, cambios, ta
 | Solo Mercado Pago | `StoreCheckoutPage.tsx` ofrecía MP + efectivo + transferencia | Se publica "Mercado Pago" y **se ocultó la transferencia** en el checkout (el efectivo ya estaba oculto desde el 2026-08-19) |
 | No hay retiro en local | `shipping_type: 'pickup'` era el **default** del checkout | **Se ocultó el retiro** y el default pasó a `'delivery'` |
 | Cambios: 15 días hábiles | La ayuda publicaba 30 días corridos | Se adoptan los 15 días hábiles |
-| Envío: 7 a 9 días hábiles | La ayuda publicaba 3-7 días + 24-48 h de despacho | Se adoptan los 7 a 9 días hábiles |
+| Envío: 7 a 9 días hábiles | La ayuda publicaba 3-7 días + 24-48 h de despacho | Se adoptan los 7 a 9 días hábiles — **superado el 2026-10-06** por el brief de modificaciones web (despacho en 48 horas hábiles) |
 | Garantía: 6 meses | La ayuda no hablaba de garantía | Se publica la garantía legal de 6 meses (Ley 24.240) |
 | No publicar tabla de talles genérica | Ya había una publicada | Se **mantienen** las tablas y se suma el instructivo de medición |
 
