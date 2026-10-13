@@ -347,7 +347,7 @@ La transacción bloquea la fila del pedido y reúne edición, transición, histo
 
 **Validación:** regresiones API en `factory-designer.test.ts`, reproducción aislada actualizada y E2E `frontIndians/e2e/tests/designer.spec.ts` en escritorio/móvil. Resultado general en el handoff. No cambia la migración 107 ni se ejecuta despliegue.
 
-## DEC-028 — Newsletter propia (lista en nuestra base + Resend batch), doble opt-in y clientes existentes incluidos con baja fácil
+## DEC-031 — Newsletter propia (lista en nuestra base + Resend batch), doble opt-in y clientes existentes incluidos con baja fácil
 
 **Fecha**: 2026-10-07. **Estado**: vigente.
 
@@ -418,4 +418,19 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 
 **Alternativas descartadas**: un cupón genérico compartido; exigir verificación por mail antes de mostrar el código (más fricción); crear una cuenta de comprador.
 
-**Consecuencias**: migración 110 (tabla nueva). La **Política de Privacidad** (`legal/PrivacyPage.tsx`, versionada) todavía no menciona esta captación de emails: hay que actualizarla con Indians. El formulario «Sumate a la lista» del pie de la tienda **no guarda nada** (solo muestra un toast): sigue sin conectarse.
+**Consecuencias**: sin tabla propia — el registro vive en `newsletter_subscribers` ([DEC-032](#dec-032--una-sola-lista-de-suscriptores-el-pop-up-anota-en-la-newsletter)). La **Política de Privacidad** (`legal/PrivacyPage.tsx`, versionada) todavía no menciona esta captación de emails: hay que actualizarla con Indians. El formulario «Sumate a la lista» del pie quedó conectado por la newsletter (DEC-031).
+
+## DEC-032 — Una sola lista de suscriptores: el pop-up anota en la newsletter
+
+**Contexto**: el pop-up de bienvenida (DEC-030) y la newsletter (DEC-031) se desarrollaron en paralelo, en dos ramas, y cada una guardaba emails en su propia tabla (`store_subscribers` / `newsletter_subscribers`) con su propia pantalla. Mergeadas tal cual, quien se anotaba por el pop-up no recibía campañas y el panel mostraba dos listas distintas de «suscriptores».
+
+**Decisión** (2026-10-12, al integrar ambas ramas antes de que ninguna llegara a producción):
+1. La lista es una sola: `newsletter_subscribers`. Se elimina `store_subscribers` (migración, modelo, endpoints y pantalla `/ecommerce/subscribers`).
+2. El cupón personal es un dato del suscriptor (`welcome_coupon_id`, `welcome_coupon_sent_at`) y el origen queda como `welcome_popup`.
+3. **Recibir el cupón no es consentir campañas**: el texto del pop-up ofrece un descuento, no una suscripción. La persona queda `pending` y el link de doble opt-in viaja dentro del mail del cupón (un solo mail). Si no confirma, no se le escribe; el cupón sirve igual.
+4. Estar ya en la lista no impide recibir el cupón; a quien se dio de baja, rebotó o denunció spam no se le ofrece el link (volver a suscribirse es decisión suya, desde el pie de la tienda).
+5. Numeración: la migración 109 es piso/depto (Release A) y la de newsletter pasa a ser la 110; la decisión de la newsletter pasa de DEC-028 (número que también usaba el menú) a DEC-031.
+
+**Alternativas descartadas**: mantener dos tablas y sincronizarlas; suscribir directo a campañas a quien pide el cupón (opt-in simple, contradice DEC-031 y expone a que un tercero anote una dirección ajena); mandar dos mails (cupón + confirmación).
+
+**Consecuencias**: las condiciones del cupón (DEC-030, BR-STORE-015) no cambian. Sí cambia el contrato de admin respecto de la rama del brief (nunca publicado). El pop-up y la newsletter salen juntos, en el mismo release.

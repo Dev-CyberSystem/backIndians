@@ -1,6 +1,43 @@
 # 10 — Entrega entre sesiones
 
-<<<<<<< HEAD
+## Última sesión: 2026-10-12 — Integración de lo pendiente en dos releases
+
+Se revisó todo lo que estaba sin mergear a `master` (v1.11.3) y se armaron dos ramas **locales** de integración en ambos repos. **Nada pusheado, nada mergeado a master, nada desplegado.**
+
+**`integracion/release-a`** = master + `fix/logs-cliente-legibles` + entregas 1–4 del brief (5 fotos y despacho en 48 hs, piso/depto, menú nuevo + Ofertas, video del inicio). Migración **109** (`store_addresses.floor|apartment`, con espejo en `ensureSchema.ts`). Validación: typecheck back/front limpio, **Jest 71/71 suites y 534/534 tests contra MySQL real** (era lo que el brief nunca había podido correr), Vitest 62/62, build del front OK, lint con los mismos 176 hallazgos preexistentes. **Falta**: prueba manual en navegador (panel incluido) y subir un video real — depende de que Cloudinary vuelva a estar habilitado (incidente del 2026-09-18, sin re-verificar).
+
+**`integracion/release-b`** = release-a + newsletter + pop-up de bienvenida (entrega 5), **unificados en una sola lista de suscriptores** ([DEC-032](08-DECISIONS.md)). Migración **110** (3 tablas `newsletter_*`). Validación: typecheck back/front limpio, **Jest 75/75 suites y 576/576 tests** contra MySQL real, Vitest 74/74, build del front OK, lint +4 por el patrón conocido de rutas lazy. **Falta**: prueba en navegador del pop-up unificado y del mail del cupón con el link de confirmación. El pop-up se sacó del Release A a propósito: llevarlo solo habría creado en producción una tabla que después había que migrar.
+
+**Ojo al correr la suite completa en esta máquina**: `npm run test:full` se queda sin memoria (heap de Node por defecto, ~6 min). Corre bien con `NODE_OPTIONS=--max-old-space-size=8192`.
+
+**Descartado**: `integracionarca` (2026-06-29) está íntegramente portada a master (migraciones renumeradas 074–078, mismas funciones, rutas y dependencias) — se puede borrar. **Sin integrar**: `feature/google-analytics-tienda` (46/28 commits atrás, conflictos en `StoreCheckoutPage.tsx`, `StoreLayout.tsx` y 3 docs; inerte sin `VITE_GA4_MEASUREMENT_ID`).
+
+**Para publicar el Release A**: `npm run migrate` (109) junto con el deploy del backend; cargar categorías Pádel/Abrigos y tags `Top`/`Selección`; actualizar `store_announcement`/`store_marquee` desde el panel (el valor guardado pisa el texto nuevo de despacho). **Para el Release B**, además: lo listado abajo en la sesión de newsletter (DNS + Resend + variables), actualizar la Política de Privacidad por la captación del pop-up y confirmar con Indians las condiciones de DEC-030.
+
+---
+
+## Última sesión: 2026-10-07 — Newsletter y campañas de email
+
+Pedido: el formulario "Sumate a la lista" del footer no guardaba nada; guardar esos mails, sumarlos a los clientes registrados, poder mandar campañas y tener una sección para armar la newsletter. Decidido con el usuario: **motor propio + Resend batch**, **clientes existentes incluidos con baja fácil** (Política de Privacidad 1.1), roles **admin/billing/designer** (+ "marketing" futuro vía `NEWSLETTER_ROLES`), **subdominio de envío** (tienen acceso al DNS). Detalle en [DEC-031](08-DECISIONS.md) y [02 módulo 11d](02-FUNCTIONAL-MAP.md).
+
+**Backend**: migración 110 (3 tablas; era la 109 en la rama original), modelos `Newsletter*`, `config/newsletter.ts`, `utils/newsletterRender.ts` (bloques → HTML de mail, puro), `services/newsletter.service.ts` (suscriptores, segmentos, campañas), `services/newsletterSender.service.ts` (job por lotes + webhook Resend), `controllers/newsletter.controller.ts`, `routes/newsletter.routes.ts` + rutas públicas en `store.routes.ts`, job cada minuto en `jobs/scheduler.ts`, `rawBody` para el webhook en `app.ts`, hooks en registro/verificación (`store.auth.service.ts`) y checkout (`store.controller.ts`), `sendNewsletterConfirmationEmail`, `legalDocs` privacy 1.1.
+
+**Frontend**: `api/newsletter.ts`, `pages/ecommerce/newsletter/{NewsletterPage,CampaignEditorPage}.tsx`, `components/store/NewsletterSignup.tsx` (footer real), `pages/store/StoreNewsletterPages.tsx` (confirmar / baja), casilla en registro y checkout, interruptor en "Mis datos", rutas + sidebar, texto de `PrivacyPage`.
+
+**Validación**: typecheck back/front limpio; `newsletter.test.ts` 14/14 + `newsletterRender.test.ts` 5/5; legal/store-public/purchase-flow en verde; suite completa sin regresiones (las 11 suites que fallan en la base local fallan idéntico sin el cambio — ver 09). Vitest 52/52, build OK, lint sin problemas nuevos (salvo el patrón ya existente de rutas lazy). Playwright en navegador: footer → confirmar → baja, panel como diseñador → crear campaña con productos y cupón → vista previa → enviar; vista móvil.
+
+**Para salir a producción** (en este orden):
+1. DNS: crear el subdominio (p. ej. `novedades.indians.com.ar`) en Resend → Domains y cargar sus registros SPF/DKIM (+ DMARC `p=none` como mínimo).
+2. Railway: `NEWSLETTER_FROM_EMAIL="Indians <novedades@novedades.indians.com.ar>"`, opcional `NEWSLETTER_REPLY_TO`; revisar `NEWSLETTER_MAX_PER_RUN` según el plan de Resend.
+3. Resend → Webhooks: endpoint `${BACKEND_PUBLIC_URL}/api/v1/newsletter/webhook/resend`, eventos delivered/opened/clicked/bounced/complained; copiar el secreto a `RESEND_WEBHOOK_SECRET`. (Activar open/click tracking en el dominio si se quieren esas métricas.)
+4. Deploy conjunto back+front + `npm run migrate` (110).
+5. Panel (admin) → Newsletter → Suscriptores → "Importar clientes registrados" (una sola vez).
+6. Primera campaña: enviar prueba a uno mismo, revisar en Gmail y celular, recién después enviar.
+
+**No hecho / ideas siguientes**: segmentos por categoría comprada o por fecha de última compra; plantillas guardadas; A/B de asunto; métricas de ventas atribuidas por UTM (hoy solo quedan en analytics).
+
+---
+
 ## Imágenes caídas en la tienda + logs del cliente ilegibles — 2026-09-18
 
 **Causa raíz (externa, sigue ABIERTA)**: las imágenes no se ven en indians.com.ar porque **la cuenta de Cloudinary está deshabilitada**. Todo lo que cuelga del cloud responde `HTTP 401 — "cloud_name zudvsibg is disabled"`, incluido el `sample.jpg` de demo y las URLs sin transformaciones. No es un bug nuestro: la API devuelve 200 con las URLs bien armadas y el navegador las pide directo a `res.cloudinary.com`, por eso **no hay ni una línea en los logs de Railway**. Mientras siga así, las subidas nuevas también fallan. Lo resuelve el usuario desde console.cloudinary.com (plan gratuito excedido, pago rechazado o suspensión).
@@ -13,29 +50,6 @@
 **Validación**: typecheck back y front limpios; Jest unit + `logs-ratelimit` 68/68; Vitest 52/52; lint del frontend sin regresiones (mismos 7 hallazgos preexistentes antes y después). No se corrió `test:full`.
 
 **Propuesto y NO implementado** (requiere OK del usuario, es cambio de UI de la tienda): detectar imágenes rotas en el navegador — listener de `error` en fase de captura, que hoy no las ve — y mostrar un placeholder en lugar del ícono roto cuando el CDN falla.
-=======
-## Última sesión: 2026-10-07 — Newsletter y campañas de email
-
-Pedido: el formulario "Sumate a la lista" del footer no guardaba nada; guardar esos mails, sumarlos a los clientes registrados, poder mandar campañas y tener una sección para armar la newsletter. Decidido con el usuario: **motor propio + Resend batch**, **clientes existentes incluidos con baja fácil** (Política de Privacidad 1.1), roles **admin/billing/designer** (+ "marketing" futuro vía `NEWSLETTER_ROLES`), **subdominio de envío** (tienen acceso al DNS). Detalle en [DEC-028](08-DECISIONS.md) y [02 módulo 11d](02-FUNCTIONAL-MAP.md).
-
-**Backend**: migración 109 (3 tablas), modelos `Newsletter*`, `config/newsletter.ts`, `utils/newsletterRender.ts` (bloques → HTML de mail, puro), `services/newsletter.service.ts` (suscriptores, segmentos, campañas), `services/newsletterSender.service.ts` (job por lotes + webhook Resend), `controllers/newsletter.controller.ts`, `routes/newsletter.routes.ts` + rutas públicas en `store.routes.ts`, job cada minuto en `jobs/scheduler.ts`, `rawBody` para el webhook en `app.ts`, hooks en registro/verificación (`store.auth.service.ts`) y checkout (`store.controller.ts`), `sendNewsletterConfirmationEmail`, `legalDocs` privacy 1.1.
-
-**Frontend**: `api/newsletter.ts`, `pages/ecommerce/newsletter/{NewsletterPage,CampaignEditorPage}.tsx`, `components/store/NewsletterSignup.tsx` (footer real), `pages/store/StoreNewsletterPages.tsx` (confirmar / baja), casilla en registro y checkout, interruptor en "Mis datos", rutas + sidebar, texto de `PrivacyPage`.
-
-**Validación**: typecheck back/front limpio; `newsletter.test.ts` 14/14 + `newsletterRender.test.ts` 5/5; legal/store-public/purchase-flow en verde; suite completa sin regresiones (las 11 suites que fallan en la base local fallan idéntico sin el cambio — ver 09). Vitest 52/52, build OK, lint sin problemas nuevos (salvo el patrón ya existente de rutas lazy). Playwright en navegador: footer → confirmar → baja, panel como diseñador → crear campaña con productos y cupón → vista previa → enviar; vista móvil.
-
-**Para salir a producción** (en este orden):
-1. DNS: crear el subdominio (p. ej. `novedades.indians.com.ar`) en Resend → Domains y cargar sus registros SPF/DKIM (+ DMARC `p=none` como mínimo).
-2. Railway: `NEWSLETTER_FROM_EMAIL="Indians <novedades@novedades.indians.com.ar>"`, opcional `NEWSLETTER_REPLY_TO`; revisar `NEWSLETTER_MAX_PER_RUN` según el plan de Resend.
-3. Resend → Webhooks: endpoint `${BACKEND_PUBLIC_URL}/api/v1/newsletter/webhook/resend`, eventos delivered/opened/clicked/bounced/complained; copiar el secreto a `RESEND_WEBHOOK_SECRET`. (Activar open/click tracking en el dominio si se quieren esas métricas.)
-4. Deploy conjunto back+front + `npm run migrate` (109).
-5. Panel (admin) → Newsletter → Suscriptores → "Importar clientes registrados" (una sola vez).
-6. Primera campaña: enviar prueba a uno mismo, revisar en Gmail y celular, recién después enviar.
-
-**No hecho / ideas siguientes**: segmentos por categoría comprada o por fecha de última compra; plantillas guardadas; A/B de asunto; métricas de ventas atribuidas por UTM (hoy solo quedan en analytics).
-
----
->>>>>>> origin/claude/stoic-volta-fbfh5t
 
 ## Actualización operativa ARCA — 2026-09-14
 

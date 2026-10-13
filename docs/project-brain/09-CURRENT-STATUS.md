@@ -13,8 +13,8 @@ Implementados R1–R4 de la [revisión](../reviews/2026-09-10-perfil-disenador.m
 
 ## Actualización 2026-10-07 — Newsletter / campañas de email (rama `claude/stoic-volta-fbfh5t`, ambos repos)
 
-- **Implementado**: lista de suscriptores con doble opt-in (footer, registro, checkout, "Mis datos"), baja en un clic (link + RFC 8058), importación única de clientes registrados, editor de campañas por bloques con vista previa en vivo, envío de prueba, programación, envío por lotes durable con Resend batch, métricas por webhook de Resend. Ver [02](02-FUNCTIONAL-MAP.md) módulo 11d y [DEC-028](08-DECISIONS.md).
-- **Pendiente para producción**: subdominio de envío (DNS) verificado en Resend, `NEWSLETTER_FROM_EMAIL`, webhook de Resend + `RESEND_WEBHOOK_SECRET`, migración 109, correr la importación de clientes (admin). Revisar el plan de Resend (cuota mensual/diaria) contra el tamaño de la lista.
+- **Implementado**: lista de suscriptores con doble opt-in (footer, registro, checkout, "Mis datos"), baja en un clic (link + RFC 8058), importación única de clientes registrados, editor de campañas por bloques con vista previa en vivo, envío de prueba, programación, envío por lotes durable con Resend batch, métricas por webhook de Resend. Ver [02](02-FUNCTIONAL-MAP.md) módulo 11d y [DEC-031](08-DECISIONS.md).
+- **Pendiente para producción**: subdominio de envío (DNS) verificado en Resend, `NEWSLETTER_FROM_EMAIL`, webhook de Resend + `RESEND_WEBHOOK_SECRET`, migración 110, correr la importación de clientes (admin). Revisar el plan de Resend (cuota mensual/diaria) contra el tamaño de la lista.
 - **Deuda conocida**: los tests de API de `afip`, `cash-*`, `factory-costs`, `factory-designer`, `reconcile-payments`, `expire-stale-orders`, `checkout-dni`, `mp`, `store-payment-methods` fallan contra una base recién sembrada (dependen de datos/config locales que `npm run seed:test` no crea); idéntico con y sin el cambio de newsletter.
 
 ## Actualización 2026-09-08 — dos módulos internos nuevos (Proveedores, Empleados) — mergeados a `master` LOCAL, sin pushear

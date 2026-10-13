@@ -2,7 +2,7 @@
 
 ## Actualización 2026-10-08 — Suscriptores del pop-up de registro
 
-Migración `20261008-110-create-store-subscribers.js`: tabla **`store_subscribers`** (`email` VARCHAR 254 **único** —constraint `uq_store_subscribers_email`, solo en la migración, como `suppliers`—, `name` nullable, `coupon_id` nullable **sin FK** a propósito, `source`, `consent_at`, `coupon_sent_at`, timestamps). Cada fila apunta al cupón personal que se le creó en `store_coupons`. Tabla nueva: en desarrollo la crea `sequelize.sync()`; `ensureSchema.ts` no necesita parche.
+**No existe una tabla `store_subscribers`** (se diseñó así en la rama del brief y se unificó antes de llegar a producción, [DEC-032](08-DECISIONS.md)). El pop-up anota en `newsletter_subscribers` (migración `20261008-110-create-newsletter.js`) con `source = 'welcome_popup'` y dos columnas propias: `welcome_coupon_id` (nullable, **sin FK** a propósito: borrar el cupón desde el panel no borra a la persona; índice `idx_newsletter_subscribers_welcome_coupon`) y `welcome_coupon_sent_at` (limita los reenvíos del mail). Tablas nuevas: en desarrollo las crea `sequelize.sync()`; `ensureSchema.ts` no necesita parche.
 
 ## Actualización 2026-10-07 — Piso y departamento
 
@@ -66,7 +66,7 @@ Para el detalle migración-por-migración completo (los 91 archivos con su descr
 | Usuarios/Auth | `users`, `password_reset_tokens` |
 | Clientes | `clients` |
 | Proveedores | `suppliers` (directorio autónomo, sin FKs a otros dominios — migración 105) |
-| Newsletter | `newsletter_subscribers`, `newsletter_campaigns`, `newsletter_campaign_recipients` (migración 109; cruces con la tienda por email, sin FK) |
+| Newsletter | `newsletter_subscribers`, `newsletter_campaigns`, `newsletter_campaign_recipients` (migración 110 — la 109 es piso/depto de `store_addresses`; cruces con la tienda por email, sin FK) |
 | Empleados / RRHH | `employees`, `employee_events` (legajo + novedades; solo FK a `users` como autor — migración 106) |
 | Pedidos/producción | `orders`, `order_items`, `order_images`, `order_status_history`, `garment_types`, `fabric_types`, `size_charts` |
 | Checklist de calidad | `order_checklist_checks` (la definición de qué ítems tiene cada checklist vive en código, `src/config/orderChecklists.ts`, no en DB) |

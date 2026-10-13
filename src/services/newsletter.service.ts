@@ -44,7 +44,7 @@ import {
 
 /**
  * Newsletter: lista de suscriptores con constancia de consentimiento + campañas.
- * Ver docs/project-brain/02-FUNCTIONAL-MAP.md (módulo 15) y DEC-028.
+ * Ver docs/project-brain/02-FUNCTIONAL-MAP.md (módulo 15) y DEC-031.
  *
  * El envío en sí (job por lotes contra Resend) vive en `newsletterSender.service.ts`.
  */
@@ -519,7 +519,7 @@ export async function exportSubscribersCsv(f: ListSubscribersFilters): Promise<s
 
 /**
  * Importación ÚNICA de los clientes ya registrados (decisión del 2026-10-07,
- * ver DEC-028): se los suma como suscriptos sobre la base de la relación
+ * ver DEC-031): se los suma como suscriptos sobre la base de la relación
  * comercial previa (Ley 25.326 art. 27), con baja en un clic en cada mail.
  *
  * Solo cuentas activas con email verificado (o alta con Google): una cuenta
