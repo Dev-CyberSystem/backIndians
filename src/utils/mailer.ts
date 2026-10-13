@@ -10,7 +10,7 @@ const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@indians.com.ar';
 // Logo de marca alojado en Cloudinary (mismo servicio que usa el resto del
 // sistema para imágenes). f_auto/q_auto optimizan formato y peso automáticamente;
 // w_200 alcanza para un header de mail sin pesar de más.
-const LOGO_URL =
+export const LOGO_URL =
   'https://res.cloudinary.com/dc1mt6q1u/image/upload/f_auto,q_auto,w_200/v1782950608/indians/branding/logo-mail.png';
 
 interface MailOptions {

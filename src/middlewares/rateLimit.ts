@@ -118,4 +118,18 @@ export const passwordResetLimiter = createLimiter('passwordReset', 60 * 60_000, 
   skip: rateLimitDisabled,
 });
 
+/**
+ * Suscripción a la newsletter desde el footer: 10 por hora por IP. Además del
+ * Turnstile, limita que alguien use el formulario para mandar mails de
+ * confirmación a direcciones ajenas en masa.
+ */
+export const newsletterLimiter = createLimiter('newsletter', 60 * 60_000, 10, {
+  skip: rateLimitDisabled,
+});
+
+/** Baja / confirmación por token (públicos, idempotentes): 60 por minuto por IP. */
+export const newsletterTokenLimiter = createLimiter('newsletterToken', 60_000, 60, {
+  skip: rateLimitDisabled,
+});
+
 export { createLimiter };

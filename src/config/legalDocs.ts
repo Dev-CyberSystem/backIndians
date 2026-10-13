@@ -35,8 +35,10 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentKey, LegalDocumentMeta> = {
     path: '/tienda/legal/terminos',
   },
   privacy: {
-    version: '1.0',
-    effective_date: '2026-08-18',
+    // 1.1 (2026-10-07): newsletter — promociones también a clientes existentes
+    // (relación comercial previa, art. 27 Ley 25.326) con baja en un clic. DEC-028.
+    version: '1.1',
+    effective_date: '2026-10-07',
     title: 'Política de Privacidad',
     path: '/tienda/legal/privacidad',
   },
