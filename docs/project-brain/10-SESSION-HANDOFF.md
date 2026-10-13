@@ -2,11 +2,23 @@
 
 ## Última sesión: 2026-10-13 — Eliminar clientes (archivar / borrar si está vacío)
 
-Rama `feature/eliminar-clientes` en ambos repos (desde master v1.12.0), **sin commitear, sin pushear, sin deployar**. Ver [DEC-033](08-DECISIONS.md) y [BR-CLIENT-001](03-BUSINESS-RULES.md).
+Rama `feature/eliminar-clientes` en ambos repos (desde master v1.12.0), commiteada y **mergeada a `master` local** (sin pushear ni deployar). Ver [DEC-033](08-DECISIONS.md) y [BR-CLIENT-001](03-BUSINESS-RULES.md).
 
 - **Back**: migración **111** (`clients.active`, `archived_at`) + `ensureSchema.ts`; `client.service.ts` (`getClientDependencies`, `archiveClient`, `restoreClient`, `deleteClient` con bloqueo 409, lista blanca en `updateClient`, filtro `status` en el listado); rutas admin `GET /:id/dependencies`, `PATCH /:id/archive|restore`; guardas en `createOrder` y `createProduct` contra clientes archivados. Tests: `factory-clients.test.ts` 9/9 (+ catalog/designer/costs/orders verdes). Typecheck limpio. Script `scripts/sync-client-archive-dev.ts` para agregar las columnas a la DB local.
 - **Front**: `DeleteClientModal.tsx` (dependencias → bloqueo o escribir el nombre + confirmación final), `ClientsPage` con filtro Activos/Archivados/Todos, badge, reactivar y eliminar (solo admin). tsc y eslint limpios. **Probado en navegador por el usuario (2026-10-13): OK.**
 - **Pendiente**: probar en navegador; `npm run migrate` (111) al desplegar; (hecho) archivar oculta los productos en la tienda vía `utils/storeVisibility.ts`; al integrar con `integracion/release-b` verificar que 110 (newsletter) y 111 convivan.
+
+## Última sesión: 2026-10-13 (tarde) — Menú «Deportes» de la tienda
+
+Rama `feature/tienda-deportes` en ambos repos (desde master v1.12.0); mergeada a `master` local junto con `feature/eliminar-clientes`, sin pushear ni deployar. Ver [DEC-034](08-DECISIONS.md) y 02 (módulo 10).
+
+- **Front**: `storeNav.ts` (Deportes de 3 niveles, `parseSports`, `buildSportItems`, `menuCategories`), `StoreLayout.tsx` (flyout desktop + acordeón anidado mobile), `StoreSportsPage.tsx` (`/tienda/deportes`), ruta, `StoreProductsPage` acepta los deportes configurados como categoría, `EcommerceSettingsPage` (campo «Menú Deportes»), sitemap y prerender. Vitest 70/70, tsc limpio, lint sin errores nuevos.
+- **Back**: solo la clave `store_sports` en `VALID_KEYS` y `PUBLIC_SETTING_KEYS`; test `store-sports-setting.test.ts` + guardrail S-01 verdes. Sin migración.
+- **Selector** (`components/ecommerce/SportsPicker.tsx`): lista de categorías del catálogo, no permite texto libre, permite reordenar y quitar (incl. huérfanas).
+- **Base local reseteada** (`npm run db:reset`, 2026-10-13) desde las migraciones de esta rama: no tiene `clients.active`; al volver a `feature/eliminar-clientes` correr `npx ts-node --transpile-only scripts/sync-client-archive-dev.ts`.
+- **Sidebar del panel** (`components/layout/Sidebar.tsx`, misma rama del front): dos grupos desplegables, **Producción** (Pedidos, Clientes, Proveedores, Catálogo, Ventas catálogo, Categorías, Tipos de prenda, Costos) y **Tienda online** (Resumen, Pedidos tienda, Cupones, Legales, Config. tienda); se abren solos si contienen la página activa. Fix: «Categorías» marcaba también «Catálogo» (`/catalog/categories` cumplía el `startsWith('/catalog/')` de Catálogo). El grupo se llamaba Mayoristas y se renombró a Producción por pedido del usuario.
+- **Submenús Hombre/Mujer** reacomodados según el brief del usuario (ver 02, módulo 10). Los productos deben tener el tag EXACTO (`Bolso`/`Mochila` son tags nuevos, ya sugeridos en el catálogo); los que tengan `Buzo` ya no tienen acceso directo desde el menú.
+- **Pendiente**: probar en navegador (desktop flyout, mobile y selector).
 
 ---
 

@@ -394,3 +394,13 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 **Alternativas descartadas**: solo borrado físico con bloqueo (un cliente con historial no se podría quitar nunca); solo archivar (los cargados por error quedarían para siempre); borrado con cascada y confirmación reforzada (el usuario eligió bloquear).
 
 **Consecuencias**: migración aditiva. Archivar oculta también los productos del cliente en la tienda pública (decisión del usuario: ya no es cliente), filtrando por `clients.active` y sin tocar `show_in_store`, por lo que es reversible. `PUT /clients/:id` pasó a lista blanca de campos.
+
+## DEC-034 — Menú «Deportes» de la tienda, configurable desde el panel
+
+**Decisión**: los deportes pasan a colgar de un ítem «Deportes» con tres niveles (Deportes → deporte → Hombre/Mujer) y página propia `/tienda/deportes`. La lista de categorías-deporte y su orden salen de la clave `store_sports` (settings, pública), editable en el panel; Abrigos queda como ítem aparte porque no es un deporte.
+
+**Motivo**: el menú tenía cada deporte como ítem suelto y crecía con cada alta; el usuario pidió una sección que vaya recibiendo deportes nuevos (vóley, pádel, fútbol, lo que sea necesario) sin pedir un cambio de código cada vez.
+
+**Alternativas descartadas**: lista fija en `storeNav.ts` (cada deporte nuevo requiere deploy); detección automática por productos con lista de excluidas (menos control del orden y de qué entra).
+
+**Consecuencias**: sin migración (clave nueva en `VALID_KEYS` y `PUBLIC_SETTING_KEYS`). Fútbol ahora también ofrece Hombre/Mujer. `/tienda/deportes` entra al sitemap y al prerender. Una categoría configurada que aún no tiene productos se acepta igual como ruta (se ve «sin productos»). Las URLs `/tienda/categoria/<deporte>` no cambian.
