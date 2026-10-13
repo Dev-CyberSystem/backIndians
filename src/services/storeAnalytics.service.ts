@@ -1,4 +1,5 @@
 import http from 'http';
+import { activeClientWhere } from '../utils/storeVisibility';
 import { Op, QueryTypes } from 'sequelize';
 import { sequelize } from '../config/db';
 import { StoreEvent } from '../models/StoreEvent';
@@ -210,7 +211,7 @@ export async function getTrendingProducts(options: {
   if (rows.length === 0) {
     // Sin datos: devuelve los más recientes
     return CatalogProduct.findAll({
-      where: { show_in_store: true, active: true },
+      where: { show_in_store: true, active: true, ...activeClientWhere() },
       include: productIncludes,
       order: [['createdAt', 'DESC']],
       limit,
@@ -274,6 +275,7 @@ export async function getProductsByIds(ids: number[]): Promise<CatalogProduct[]>
       id: { [Op.in]: ids },
       show_in_store: true,
       active: true,
+      ...activeClientWhere(),
     },
     include: productIncludes,
   });

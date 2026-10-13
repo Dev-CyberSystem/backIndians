@@ -528,6 +528,7 @@ export async function createOrder(
 
   const client = await Client.findByPk(client_id);
   if (!client) throw new AppError('Cliente no encontrado', 404);
+  if (!client.active) throw new AppError('El cliente está archivado. Reactivalo para cargarle pedidos.', 409);
 
   // El diseñador nunca carga precios: se ignora cualquier unit_price del payload.
   // Billing/admin los completan en la revisión y la factura se recalcula ahí.

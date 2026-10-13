@@ -384,3 +384,13 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 **Alternativas descartadas**: subida directa del navegador a Cloudinary con firma (evita pasar 60 MB por el servidor y sus timeouts, pero suma una superficie de firma y configuración); versión vertical aparte para celular (el brief no lo pide; el video se ve entero con `object-contain`).
 
 **Consecuencias**: sin migración. Con autoplay el video se descarga en cada visita al inicio aunque nadie lo mire (antes no bajaba nada hasta el play): conviene que sea corto y liviano. Si el navegador bloquea la reproducción automática queda la portada fija, sin forma de darle play. Al reemplazar o quitar el video, el anterior se borra de Cloudinary al guardar. Un video de ~60 MB pasa por la memoria del proceso (multer en memoria) durante la subida. **La subida real a Cloudinary no se probó** (sin credenciales en el entorno de desarrollo).
+
+## DEC-033 — Baja de clientes: archivar siempre, borrar solo si está vacío
+
+**Decisión**: la baja de un cliente es lógica (`active`/`archived_at`, migración 111) y reversible; el borrado físico queda reservado a clientes sin ningún dato asociado, solo `admin`, con conteo de dependencias previo y confirmación escribiendo el nombre. Si tiene datos propios (catálogo, costos, tipos de prenda) se bloquea y se muestra el detalle, en vez de borrar en cascada.
+
+**Motivo**: el `DELETE /clients/:id` que existía hacía `destroy()` a ciegas: con pedidos fallaba con un 500 por FK RESTRICT, y sin pedidos borraba en silencio el catálogo y los costos versionados por FK CASCADE.
+
+**Alternativas descartadas**: solo borrado físico con bloqueo (un cliente con historial no se podría quitar nunca); solo archivar (los cargados por error quedarían para siempre); borrado con cascada y confirmación reforzada (el usuario eligió bloquear).
+
+**Consecuencias**: migración aditiva. Archivar oculta también los productos del cliente en la tienda pública (decisión del usuario: ya no es cliente), filtrando por `clients.active` y sin tocar `show_in_store`, por lo que es reversible. `PUT /clients/:id` pasó a lista blanca de campos.

@@ -1,5 +1,15 @@
 # 10 — Entrega entre sesiones
 
+## Última sesión: 2026-10-13 — Eliminar clientes (archivar / borrar si está vacío)
+
+Rama `feature/eliminar-clientes` en ambos repos (desde master v1.12.0), **sin commitear, sin pushear, sin deployar**. Ver [DEC-033](08-DECISIONS.md) y [BR-CLIENT-001](03-BUSINESS-RULES.md).
+
+- **Back**: migración **111** (`clients.active`, `archived_at`) + `ensureSchema.ts`; `client.service.ts` (`getClientDependencies`, `archiveClient`, `restoreClient`, `deleteClient` con bloqueo 409, lista blanca en `updateClient`, filtro `status` en el listado); rutas admin `GET /:id/dependencies`, `PATCH /:id/archive|restore`; guardas en `createOrder` y `createProduct` contra clientes archivados. Tests: `factory-clients.test.ts` 9/9 (+ catalog/designer/costs/orders verdes). Typecheck limpio. Script `scripts/sync-client-archive-dev.ts` para agregar las columnas a la DB local.
+- **Front**: `DeleteClientModal.tsx` (dependencias → bloqueo o escribir el nombre + confirmación final), `ClientsPage` con filtro Activos/Archivados/Todos, badge, reactivar y eliminar (solo admin). tsc y eslint limpios. **Probado en navegador por el usuario (2026-10-13): OK.**
+- **Pendiente**: probar en navegador; `npm run migrate` (111) al desplegar; (hecho) archivar oculta los productos en la tienda vía `utils/storeVisibility.ts`; al integrar con `integracion/release-b` verificar que 110 (newsletter) y 111 convivan.
+
+---
+
 ## Última sesión: 2026-10-12 — Integración de lo pendiente en dos releases
 
 Se revisó todo lo que estaba sin mergear a `master` (v1.11.3) y se armaron dos ramas **locales** de integración en ambos repos. **Nada pusheado, nada mergeado a master, nada desplegado.**

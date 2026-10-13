@@ -64,6 +64,12 @@ router.put(
   ctrl.updateClient
 );
 
+const idParam = [param('id').isInt({ min: 1 }).withMessage('ID inválido'), validate];
+
+router.get('/:id/dependencies', authorize('admin'), idParam, ctrl.getClientDependencies);
+router.patch('/:id/archive', authorize('admin'), idParam, ctrl.archiveClient);
+router.patch('/:id/restore', authorize('admin'), idParam, ctrl.restoreClient);
+
 router.delete(
   '/:id',
   authorize('admin'),

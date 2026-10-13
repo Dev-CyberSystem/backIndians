@@ -17,6 +17,21 @@ export async function ensureSchema(): Promise<void> {
     if (!fiscalIndexes.some(index=>index.name===name)) await qi.addIndex('afip_documents',[...fields],{name});
   }
 
+  // Migración 111: baja lógica de clientes (sync() no altera tablas existentes).
+  try {
+    const clientCols = await qi.describeTable('clients');
+    if (!clientCols.active) {
+      await qi.addColumn('clients', 'active', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'clients', column: 'active' } });
+    }
+    if (!clientCols.archived_at) {
+      await qi.addColumn('clients', 'archived_at', { type: DataTypes.DATE, allowNull: true, defaultValue: null });
+      logger.info('ensureSchema.addColumn', { meta: { table: 'clients', column: 'archived_at' } });
+    }
+  } catch (err) {
+    logger.error('ensureSchema.failed', err, { meta: { fatal: false, table: 'clients' } });
+  }
+
   try {
     const garmentTypes = await qi.describeTable('garment_types');
 

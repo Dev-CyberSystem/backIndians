@@ -208,6 +208,12 @@ BR-AFIP-001 y 002 siguen vigentes: gate y emisión manual admin/billing. Homolog
 **Fuente**: `backIndians/src/routes/employee.routes.ts`. [DEC-024](08-DECISIONS.md).
 **Estado**: Vigente (2026-09-08).
 
+### BR-CLIENT-001 — Un cliente se archiva; solo se borra si está vacío (solo `admin`)
+**Descripción**: dar de baja un cliente es una **baja lógica** (`clients.active=false`, `archived_at`): desaparece de listados y selectores, no admite pedidos ni productos de catálogo nuevos (409), y conserva todo su historial; es reversible (`restore`). El **borrado físico** solo procede si `getClientDependencies` da `total = 0` (sin `orders`, `catalog_orders`, `catalog_products`, `garment_types` ni `garment_costs`); si no, **409** con el detalle. Motivo: `catalog_products` y `garment_costs` tienen FK `ON DELETE CASCADE`, así que borrar sin mirar se llevaría catálogo y costos versionados en silencio, y `orders`/`catalog_orders` son `RESTRICT`. La UI exige escribir el nombre exacto + confirmación final para borrar. Archivar un cliente **también oculta sus productos de la tienda pública** (listado, filtros, menú, detalle por id y checkout) mediante `utils/storeVisibility.ts`, sin tocar `show_in_store`: al reactivarlo vuelven solos. La tienda cachea ~30 s, así que el cambio puede tardar ese tiempo en verse.
+**Módulo**: Clientes.
+**Fuente**: `services/client.service.ts` (`archiveClient`, `restoreClient`, `deleteClient`, `getClientDependencies`), `routes/client.routes.ts`, `frontIndians/src/components/clients/DeleteClientModal.tsx`. [DEC-033](08-DECISIONS.md), migración 111.
+**Estado**: Vigente (2026-10-13).
+
 ---
 
 ## Caja
