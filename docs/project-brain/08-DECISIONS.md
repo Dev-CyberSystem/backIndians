@@ -375,12 +375,12 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 
 **Consecuencias**: aditivo, sin migración. Se quitó del menú el ítem «Ver todo» suelto y los submenús viejos (Camperas, Pantalones, Camisetas, Medias, Botines, Pelotas, Rodilleras, Zapatillas). Si hay una «sección destacada» activa, sigue mostrándose segunda en el menú (queda entre Hombre y Mujer).
 
-## DEC-029 — Video del inicio: subida desde el servidor, un solo video, sin autoplay
+## DEC-029 — Video del inicio: subida desde el servidor, un solo video, autoplay sin sonido
 
-**Decisión**: el video se sube por el backend (`POST /upload/video`) a Cloudinary, como el resto de las imágenes, con tope de 60 MB y solo para `admin`/`billing`. Un único video para escritorio y celular. Se reproduce solo con la acción del visitante (controles, sin autoplay ni sonido automático), con portada y `preload="none"`.
+**Decisión**: el video se sube por el backend (`POST /upload/video`) a Cloudinary, como el resto de las imágenes, con tope de 60 MB y solo para `admin`/`billing`. Un único video para escritorio y celular. Se reproduce solo, en bucle y siempre sin sonido (`autoPlay muted loop playsInline`, sin controles), con portada mientras carga. **Revisado el 2026-10-13 por pedido de Indians**: la versión original era sin autoplay y con controles (lectura del brief: «controles y sin sonido automático»); al verlo funcionando pidieron que arranque solo y que nunca tenga sonido, por eso se quitaron los controles (con ellos se podría activar el audio).
 
 **Motivo**: es el mismo patrón que ya usa el panel (sin firmas ni CORS nuevos) y el brief pide «controles y sin sonido automático». El tope deja margen bajo el límite de 100 MB por video del plan gratis de Cloudinary.
 
 **Alternativas descartadas**: subida directa del navegador a Cloudinary con firma (evita pasar 60 MB por el servidor y sus timeouts, pero suma una superficie de firma y configuración); versión vertical aparte para celular (el brief no lo pide; el video se ve entero con `object-contain`).
 
-**Consecuencias**: sin migración. Al reemplazar o quitar el video, el anterior se borra de Cloudinary al guardar. Un video de ~60 MB pasa por la memoria del proceso (multer en memoria) durante la subida. **La subida real a Cloudinary no se probó** (sin credenciales en el entorno de desarrollo).
+**Consecuencias**: sin migración. Con autoplay el video se descarga en cada visita al inicio aunque nadie lo mire (antes no bajaba nada hasta el play): conviene que sea corto y liviano. Si el navegador bloquea la reproducción automática queda la portada fija, sin forma de darle play. Al reemplazar o quitar el video, el anterior se borra de Cloudinary al guardar. Un video de ~60 MB pasa por la memoria del proceso (multer en memoria) durante la subida. **La subida real a Cloudinary no se probó** (sin credenciales en el entorno de desarrollo).
