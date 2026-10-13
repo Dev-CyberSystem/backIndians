@@ -18,6 +18,8 @@ export class StoreAddress extends Model<
   declare city: string;
   declare state: CreationOptional<string | null>;
   declare zip_code: CreationOptional<string | null>;
+  declare floor: CreationOptional<string | null>;
+  declare apartment: CreationOptional<string | null>;
   declare country: CreationOptional<string>;
   declare is_default: CreationOptional<boolean>;
   declare createdAt: CreationOptional<Date>;
@@ -33,6 +35,8 @@ StoreAddress.init(
     city: { type: DataTypes.STRING(100), allowNull: false },
     state: { type: DataTypes.STRING(100), allowNull: true },
     zip_code: { type: DataTypes.STRING(20), allowNull: true },
+    floor: { type: DataTypes.STRING(20), allowNull: true },
+    apartment: { type: DataTypes.STRING(20), allowNull: true },
     country: { type: DataTypes.STRING(100), allowNull: false, defaultValue: 'Argentina' },
     is_default: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     createdAt: DataTypes.DATE,

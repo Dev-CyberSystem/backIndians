@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import { drawIndiansLogo } from './logo';
 import { drawIndiansLogoImage } from './indiansLogoImage';
 import { formatPriceNumber } from './money';
+import { streetWithUnit } from './address';
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   mercadopago: 'Mercado Pago',
@@ -32,6 +33,8 @@ export interface InvoiceData {
     city?: string;
     state?: string;
     zip_code?: string;
+    floor?: string;
+    apartment?: string;
   } | null;
   couponCode?: string | null;
   items: InvoiceItem[];
@@ -132,7 +135,7 @@ export function generateInvoicePdf(data: InvoiceData): Promise<Buffer> {
     const colLX = 55, colLW = 235, colRX = 310, colRW = 235;
     let fy = clientTop + 28;
     formField('Razón Social / Nombre y Apellido', data.customerName, colLX, fy, colLW);
-    formField('Domicilio', data.shippingType === 'delivery' ? addr.street : 'Retiro en tienda', colRX, fy, colRW);
+    formField('Domicilio', data.shippingType === 'delivery' ? streetWithUnit(addr) : 'Retiro en tienda', colRX, fy, colRW);
     fy += 22;
     formField('Email', data.customerEmail, colLX, fy, colLW);
     formField('Localidad', addr.city, colRX, fy, colRW);
@@ -280,6 +283,8 @@ export interface ReceiptLabelData {
     city?: string;
     state?: string;
     zip_code?: string;
+    floor?: string;
+    apartment?: string;
   } | null;
   couponCode?: string | null;
   items: InvoiceItem[];
@@ -417,7 +422,7 @@ export function generateReceiptLabelPdf(data: ReceiptLabelData): Promise<Buffer>
     const cuitDniW = CW * 0.45;
     const telX = L + CW * 0.5;
     const domicilio = data.shippingType === 'delivery'
-      ? [addr.street, addr.city, addr.state, addr.zip_code].filter(Boolean).join(', ')
+      ? [streetWithUnit(addr), addr.city, addr.state, addr.zip_code].filter(Boolean).join(', ')
       : 'Retiro en tienda';
     y = renderSection('DATOS DEL CLIENTE', 'Canal: Tienda Online', [
       [{ label: 'Nombre', value: data.customerName, x: L, w: CW, bold: true }],

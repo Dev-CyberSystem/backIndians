@@ -9,6 +9,7 @@ import {
   sendPasswordResetEmailStore,
 } from '../utils/email.service';
 import { recordLegalAcceptance } from './legal.service';
+import { optionalUnit } from '../utils/address';
 
 /** Datos del request que quedan en la constancia de aceptación de términos. */
 export interface RequestMeta {
@@ -257,6 +258,8 @@ export async function storeUpsertAddressService(
     city: string;
     state?: string;
     zip_code?: string;
+    floor?: string;
+    apartment?: string;
     country?: string;
     is_default?: boolean;
   }
@@ -278,6 +281,9 @@ export async function storeUpsertAddressService(
     city:       data.city,
     state:      data.state,
     zip_code:   data.zip_code,
+    // Opcionales: vacío → NULL (no se guarda un string vacío).
+    floor:      optionalUnit(data.floor) ?? null,
+    apartment:  optionalUnit(data.apartment) ?? null,
     country:    data.country,
     is_default: data.is_default,
   };
