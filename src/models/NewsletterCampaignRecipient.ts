@@ -15,7 +15,7 @@ export type NewsletterRecipientStatus = 'queued' | 'sent' | 'failed' | 'skipped'
  * sobrevive a un reinicio del proceso. Los eventos del webhook de Resend
  * (entregado, abierto, clic, rebote, spam) se cruzan por `resend_email_id`.
  *
- * El único (`campaign_id`, `subscriber_id`) vive solo en la migración 109.
+ * El único (`campaign_id`, `subscriber_id`) vive solo en la migración 110.
  */
 export class NewsletterCampaignRecipient extends Model<
   InferAttributes<NewsletterCampaignRecipient>,

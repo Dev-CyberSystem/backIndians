@@ -1,11 +1,12 @@
 import crypto from 'crypto';
-import { Op, QueryTypes, WhereOptions } from 'sequelize';
+import { Op, QueryTypes, Transaction, WhereOptions } from 'sequelize';
 import { sequelize } from '../config/db';
 import {
   NewsletterSubscriber,
   NewsletterCampaign,
   NewsletterCampaignRecipient,
   StoreCustomer,
+  StoreCoupon,
   CatalogProduct,
   CatalogProductImage,
   Settings,
@@ -259,6 +260,46 @@ export async function onCustomerEmailVerified(customerId: number, email: string)
   await sub.save();
 }
 
+/**
+ * Pop-up de bienvenida («Sumate a Indians»): deja a la persona en la lista.
+ *
+ * El pop-up entrega un cupón, no pide permiso para mandar campañas, así que la
+ * suscripción queda `pending` y el link de confirmación viaja DENTRO del mail
+ * del cupón (un solo mail, no dos). Devuelve ese link, o `null` si no
+ * corresponde ofrecerlo: ya está suscripta, se dio de baja (volver es decisión
+ * suya, desde el pie de la tienda) o la dirección rebotó / denunció spam.
+ */
+export async function welcomePopupOptIn(
+  input: { email: string; name?: string | null },
+  meta: RequestMeta = {},
+  transaction?: Transaction,
+): Promise<{ subscriber: NewsletterSubscriber; confirmUrl: string | null }> {
+  const email = normalizeEmail(input.email);
+  const name = input.name?.trim().slice(0, 200) || null;
+  const now = new Date();
+
+  let sub = await NewsletterSubscriber.findOne({ where: { email }, transaction });
+  if (sub && sub.status !== 'pending') {
+    if (!sub.name && name) { sub.name = name; await sub.save({ transaction }); }
+    return { subscriber: sub, confirmUrl: null };
+  }
+
+  const token = newToken();
+  if (!sub) {
+    sub = NewsletterSubscriber.build({ email, source: 'welcome_popup', unsubscribe_token: newToken() });
+  }
+  sub.set({
+    name: sub.name ?? name,
+    status: 'pending',
+    confirm_token_hash: hashToken(token),
+    confirm_token_expires_at: new Date(now.getTime() + NEWSLETTER_CONFIRM_TTL_MS),
+    confirmation_sent_at: now,
+    ...consentFields(meta),
+  });
+  await sub.save({ transaction });
+  return { subscriber: sub, confirmUrl: confirmUrl(token) };
+}
+
 // ─── Baja ────────────────────────────────────────────────────────────────────
 
 export async function getUnsubscribeInfo(token: string): Promise<{ email: string; subscribed: boolean }> {
@@ -360,12 +401,21 @@ const SUBSCRIBER_PUBLIC_ATTRS = [
   'subscribed_at', 'unsubscribed_at', 'unsubscribe_reason', 'createdAt',
 ];
 
+/** Cupón de bienvenida del pop-up, si la persona se registró ahí. */
+const WELCOME_COUPON_INCLUDE = {
+  model: StoreCoupon,
+  as: 'welcome_coupon',
+  attributes: ['code', 'used_count', 'max_uses', 'expires_at', 'active'],
+  required: false,
+};
+
 export async function listSubscribers(f: ListSubscribersFilters) {
   const page = Math.max(1, f.page ?? 1);
   const limit = Math.min(200, Math.max(1, f.limit ?? 50));
   return NewsletterSubscriber.findAndCountAll({
     where: subscriberWhere(f),
     attributes: SUBSCRIBER_PUBLIC_ATTRS,
+    include: [WELCOME_COUPON_INCLUDE],
     order: [['createdAt', 'DESC'], ['id', 'DESC']],
     limit,
     offset: (page - 1) * limit,
@@ -453,13 +503,17 @@ export async function exportSubscribersCsv(f: ListSubscribersFilters): Promise<s
   const rows = await NewsletterSubscriber.findAll({
     where: subscriberWhere(f),
     attributes: SUBSCRIBER_PUBLIC_ATTRS,
+    include: [WELCOME_COUPON_INCLUDE],
     order: [['createdAt', 'DESC']],
   });
-  const header = ['email', 'nombre', 'estado', 'origen', 'suscripto_el', 'baja_el', 'motivo_baja', 'alta'];
-  const lines = rows.map((r) =>
-    [r.email, r.name, r.status, r.source, r.subscribed_at, r.unsubscribed_at, r.unsubscribe_reason, r.createdAt]
-      .map(csvCell).join(',')
-  );
+  const header = ['email', 'nombre', 'estado', 'origen', 'suscripto_el', 'baja_el', 'motivo_baja', 'alta', 'cupon_bienvenida', 'cupon_usado', 'cupon_vence'];
+  const lines = rows.map((r) => {
+    const c = (r as NewsletterSubscriber & { welcome_coupon?: StoreCoupon | null }).welcome_coupon;
+    return [
+      r.email, r.name, r.status, r.source, r.subscribed_at, r.unsubscribed_at, r.unsubscribe_reason, r.createdAt,
+      c?.code, c ? (c.used_count > 0 ? 'si' : 'no') : '', c?.expires_at,
+    ].map(csvCell).join(',');
+  });
   return [header.join(','), ...lines].join('\n');
 }
 

@@ -285,8 +285,6 @@ const updateStatusValidators = [
   validate,
 ];
 
-router.get('/admin/subscribers', authenticate, authorize('admin', 'billing'), ctrl.listSubscribers);
-router.get('/admin/subscribers/export', authenticate, authorize('admin', 'billing'), ctrl.exportSubscribers);
 router.get('/admin/orders', authenticate, authorize('admin', 'billing'), ctrl.listOrders);
 router.get('/admin/orders/:id', authenticate, authorize('admin', 'billing'), ctrl.getOrder);
 router.patch('/admin/orders/:id/status', authenticate, authorize('admin', 'billing'), updateStatusValidators, ctrl.updateOrderStatus);

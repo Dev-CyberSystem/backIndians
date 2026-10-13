@@ -478,8 +478,18 @@ export async function sendWelcomeCouponEmail(params: {
   code: string;
   percent: number;
   expiresAt?: Date | null;
+  /** Link de doble opt-in a las novedades. `null` si no corresponde ofrecerlo. */
+  confirmUrl?: string | null;
 }) {
-  const { email, name, code, percent, expiresAt } = params;
+  const { email, name, code, percent, expiresAt, confirmUrl } = params;
+  // El cupón no depende de esto: es una invitación aparte, con su propio clic.
+  const newsletterInvite = confirmUrl
+    ? `<div style="border-top:1px solid #e5e7eb;margin:24px 0 0;padding:16px 0 0;">
+        <p style="margin:0 0 8px;font-size:14px;">¿Querés enterarte de lanzamientos y ofertas? Confirmá tu suscripción a nuestras novedades:</p>
+        <p style="margin:0;"><a href="${confirmUrl}" style="color:#1d4ed8;font-weight:600;">Sí, quiero recibir novedades</a></p>
+        <p style="color:#9ca3af;font-size:12px;margin:8px 0 0;">Si no confirmás, no te vamos a escribir. Tu cupón sirve igual.</p>
+      </div>`
+    : '';
   const greeting = name ? `¡Hola ${escapeHtml(name)}!` : '¡Hola!';
   const validUntil = expiresAt
     ? `<p style="color:#6b7280;font-size:13px;margin:0 0 4px;">Válido hasta el ${expiresAt.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Tucuman' })}, por única vez.</p>`
@@ -504,6 +514,7 @@ export async function sendWelcomeCouponEmail(params: {
           Ir a la tienda
         </a>
       </div>
+      ${newsletterInvite}
       <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;">Si no pediste este cupón, podés ignorar este mensaje.</p>
     `, 520),
   });

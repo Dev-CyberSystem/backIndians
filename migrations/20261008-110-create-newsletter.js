@@ -12,6 +12,12 @@
  *    Hace el envío reanudable (el job toma las filas `queued`) y guarda el id de
  *    Resend para cruzar los eventos del webhook (entregado, abierto, rebote...).
  *
+ * El pop-up de bienvenida («Sumate a Indians») anota en la MISMA lista: no hay
+ * una tabla aparte de suscriptores. `welcome_coupon_id` apunta al cupón personal
+ * de un solo uso que recibió esa dirección (sin FK a propósito: borrar el cupón
+ * desde el panel no debe borrar a la persona) y `welcome_coupon_sent_at` limita
+ * los reenvíos del mail.
+ *
  * Los índices únicos viven SOLO acá (no en los modelos) para no repetir el caso
  * de índices duplicados bajo `sequelize.sync()` (ver CLAUDE.md).
  *
@@ -37,7 +43,7 @@ module.exports = {
           defaultValue: 'pending',
         },
         source: {
-          type: Sequelize.ENUM('footer', 'register', 'checkout', 'account', 'admin', 'existing_customer'),
+          type: Sequelize.ENUM('footer', 'register', 'checkout', 'account', 'admin', 'existing_customer', 'welcome_popup'),
           allowNull: false,
         },
         // Hash SHA-256 del token de confirmación (doble opt-in): el token en
@@ -53,6 +59,9 @@ module.exports = {
         unsubscribe_reason:       { type: Sequelize.STRING(30), allowNull: true, defaultValue: null },
         consent_ip:               { type: Sequelize.STRING(64), allowNull: true, defaultValue: null },
         consent_user_agent:       { type: Sequelize.STRING(255), allowNull: true, defaultValue: null },
+        // Cupón personal del pop-up de bienvenida (NULL si no se registró ahí).
+        welcome_coupon_id:        { type: Sequelize.INTEGER.UNSIGNED, allowNull: true, defaultValue: null },
+        welcome_coupon_sent_at:   { type: Sequelize.DATE, allowNull: true, defaultValue: null },
         createdAt:                { type: Sequelize.DATE, allowNull: false },
         updatedAt:                { type: Sequelize.DATE, allowNull: false },
       });
@@ -64,6 +73,7 @@ module.exports = {
       });
       await queryInterface.addIndex('newsletter_subscribers', ['status'], { name: 'idx_newsletter_subscribers_status' });
       await queryInterface.addIndex('newsletter_subscribers', ['confirm_token_hash'], { name: 'idx_newsletter_subscribers_confirm' });
+      await queryInterface.addIndex('newsletter_subscribers', ['welcome_coupon_id'], { name: 'idx_newsletter_subscribers_welcome_coupon' });
     }
 
     if (!tables.includes('newsletter_campaigns')) {

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as storeAuth from '../services/store.auth.service';
-import * as subscribers from '../services/storeSubscriber.service';
+import * as welcomeCoupon from '../services/welcomeCoupon.service';
 import * as store from '../services/store.service';
 import * as storeReturns from '../services/storeReturns.service';
 import * as analytics from '../services/storeAnalytics.service';
@@ -763,34 +763,11 @@ export function sseStoreEvents(req: Request, res: Response) {
 
 export async function subscribeWelcome(req: Request, res: Response, next: NextFunction) {
   try {
-    const result = await subscribers.subscribeWelcome({ email: req.body.email, name: req.body.name });
+    const result = await welcomeCoupon.subscribeWelcome(
+      { email: req.body.email, name: req.body.name },
+      { ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null }
+    );
     res.status(result.status === 'created' ? 201 : 200).json({ success: true, data: result });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function listSubscribers(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { search, page, limit } = req.query;
-    const result = await subscribers.listSubscribers({
-      search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
-    });
-    res.json({ success: true, data: result.data, meta: result.meta });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function exportSubscribers(_req: Request, res: Response, next: NextFunction) {
-  try {
-    const csv = await subscribers.exportSubscribersCsv();
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="suscriptores-indians.csv"');
-    // BOM para que Excel reconozca los acentos.
-    res.send('\uFEFF' + csv);
   } catch (err) {
     next(err);
   }

@@ -6,7 +6,6 @@ import { StoreWishlist } from './StoreWishlist';
 import { StoreCustomer } from './StoreCustomer';
 import { StoreAddress } from './StoreAddress';
 import { StoreCoupon } from './StoreCoupon';
-import { StoreSubscriber } from './StoreSubscriber';
 import { StoreOrder } from './StoreOrder';
 import { StoreOrderItem } from './StoreOrderItem';
 import { StoreOrderStatusHistory } from './StoreOrderStatusHistory';
@@ -227,9 +226,6 @@ CatalogProduct.hasMany(StoreOrderItem, { foreignKey: 'catalog_product_id', as: '
 // StoreOrderItem ↔ CatalogProductSize
 StoreOrderItem.belongsTo(CatalogProductSize, { foreignKey: 'catalog_product_size_id', as: 'size' });
 
-// StoreSubscriber ↔ StoreCoupon (el cupón personal de bienvenida)
-StoreSubscriber.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon', constraints: false });
-
 // StoreOrder ↔ StoreCoupon
 StoreCoupon.hasMany(StoreOrder, { foreignKey: 'coupon_id', as: 'orders' });
 StoreOrder.belongsTo(StoreCoupon, { foreignKey: 'coupon_id', as: 'coupon' });
@@ -319,10 +315,12 @@ InvoicePayment.belongsTo(Invoice, { foreignKey: 'invoice_id', as: 'invoice' });
 CatalogInvoice.hasMany(CatalogInvoicePayment, { foreignKey: 'catalog_invoice_id', as: 'payments', onDelete: 'CASCADE' });
 CatalogInvoicePayment.belongsTo(CatalogInvoice, { foreignKey: 'catalog_invoice_id', as: 'invoice' });
 
-// ─── Newsletter (migración 109) ─────────────────────────────────────────────
+// ─── Newsletter (migración 110) ─────────────────────────────────────────────
 NewsletterCampaign.hasMany(NewsletterCampaignRecipient, { foreignKey: 'campaign_id', as: 'recipients', onDelete: 'CASCADE' });
 NewsletterCampaignRecipient.belongsTo(NewsletterCampaign, { foreignKey: 'campaign_id', as: 'campaign' });
 NewsletterCampaignRecipient.belongsTo(NewsletterSubscriber, { foreignKey: 'subscriber_id', as: 'subscriber', constraints: false });
+// Cupón personal del pop-up de bienvenida (sin FK: borrar el cupón no borra al suscriptor)
+NewsletterSubscriber.belongsTo(StoreCoupon, { foreignKey: 'welcome_coupon_id', as: 'welcome_coupon', constraints: false });
 NewsletterCampaign.belongsTo(User, { foreignKey: 'created_by_user_id', as: 'author', constraints: false });
 
 export {
@@ -330,7 +328,6 @@ export {
   StoreCustomer,
   StoreAddress,
   StoreCoupon,
-  StoreSubscriber,
   StoreOrder,
   StoreOrderItem,
   StoreOrderSequence,

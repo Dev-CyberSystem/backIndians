@@ -62,29 +62,50 @@ describe('POST /store/subscribe — cupón de bienvenida', () => {
     expect(res.status).toBe(422);
   });
 
-  it('el registro aparece en el panel y el cupón personal no inunda la lista de cupones', async () => {
-    const list = await api().get(`${API}/store/admin/subscribers?search=${encodeURIComponent(stamp)}`).set(...auth(admin));
+  // No hay lista propia del pop-up: la persona queda en la de la newsletter.
+  it('el registro aparece en Newsletter → Suscriptores, pendiente de confirmar, con su cupón', async () => {
+    const list = await api().get(`${API}/newsletter/subscribers?search=${encodeURIComponent(stamp)}`).set(...auth(admin));
     expect(list.status).toBe(200);
     expect(list.body.data).toHaveLength(1);
-    expect(list.body.data[0].email).toBe(email);
-    const code = list.body.data[0].coupon.code as string;
+    const row = list.body.data[0];
+    expect(row.email).toBe(email);
+    expect(row.source).toBe('welcome_popup');
+    // El pop-up entrega un cupón, no un permiso: no recibe campañas hasta confirmar desde el mail.
+    expect(row.status).toBe('pending');
+    expect(row.welcome_coupon.code).toMatch(/^BIENVENIDA-[A-Z0-9]{6}$/);
 
+    // El cupón personal no inunda la lista de cupones que carga el admin a mano.
     const coupons = await api().get(`${API}/store/admin/coupons`).set(...auth(admin));
     expect(coupons.status).toBe(200);
-    expect((coupons.body.data as Array<{ code: string }>).some((c) => c.code === code)).toBe(false);
+    expect((coupons.body.data as Array<{ code: string }>).some((c) => c.code === row.welcome_coupon.code)).toBe(false);
   });
 
-  it('exporta los registros en CSV', async () => {
-    const res = await api().get(`${API}/store/admin/subscribers/export`).set(...auth(admin));
+  it('el CSV de suscriptores incluye el cupón de bienvenida', async () => {
+    const res = await api().get(`${API}/newsletter/subscribers/export?search=${encodeURIComponent(stamp)}`).set(...auth(admin));
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
     expect(res.text).toContain(email);
+    expect(res.text).toMatch(/BIENVENIDA-[A-Z0-9]{6}/);
   });
 
-  it('los endpoints de admin exigen sesión de admin/billing', async () => {
-    expect((await api().get(`${API}/store/admin/subscribers`)).status).toBe(401);
-    const seller = await loginAs('seller');
-    expect((await api().get(`${API}/store/admin/subscribers`).set(...auth(seller))).status).toBe(403);
+  it('quien ya estaba suscripto por otra vía igual recibe su cupón, y sigue suscripto', async () => {
+    const other = `qa-sub-prev+${stamp}@qa-indians.com.ar`;
+    const added = await api().post(`${API}/newsletter/subscribers`).set(...auth(admin)).send({ email: other });
+    expect(added.status).toBeLessThan(300);
+
+    const res = await api().post(`${API}/store/subscribe`).send({ email: other });
+    expect(res.status).toBe(201);
+    expect(res.body.data.status).toBe('created');
+
+    const list = await api().get(`${API}/newsletter/subscribers?search=${encodeURIComponent(other)}`).set(...auth(admin));
+    expect(list.body.data).toHaveLength(1);
+    expect(list.body.data[0].status).toBe('subscribed');
+    expect(list.body.data[0].source).toBe('admin');
+    expect(list.body.data[0].welcome_coupon.code).toBe(res.body.data.code);
+  });
+
+  it('los endpoints viejos del pop-up ya no existen', async () => {
+    expect((await api().get(`${API}/store/admin/subscribers`).set(...auth(admin))).status).toBe(404);
   });
 
   it('los valores de configuración fuera de rango se rechazan con 422', async () => {

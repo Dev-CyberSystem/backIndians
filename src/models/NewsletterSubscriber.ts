@@ -20,13 +20,14 @@ export type NewsletterSubscriberSource =
   | 'checkout'
   | 'account'
   | 'admin'
-  | 'existing_customer';
+  | 'existing_customer'
+  | 'welcome_popup';   // pop-up «Sumate a Indians» (recibe además un cupón personal)
 
 /**
  * Suscriptor de la newsletter de la tienda — y constancia de su consentimiento.
  *
  * Los índices únicos (`email`, `unsubscribe_token`) viven SOLO en la migración
- * 109: declararlos acá los duplicaría bajo `sequelize.sync()` (ver CLAUDE.md).
+ * 110: declararlos acá los duplicaría bajo `sequelize.sync()` (ver CLAUDE.md).
  * En dev la unicidad se apoya en el chequeo explícito del servicio.
  */
 export class NewsletterSubscriber extends Model<
@@ -48,6 +49,10 @@ export class NewsletterSubscriber extends Model<
   declare unsubscribe_reason: CreationOptional<string | null>;
   declare consent_ip: CreationOptional<string | null>;
   declare consent_user_agent: CreationOptional<string | null>;
+  /** Cupón personal del pop-up de bienvenida (uno por dirección). */
+  declare welcome_coupon_id: CreationOptional<number | null>;
+  /** Último envío del mail con ese cupón (limita los reenvíos). */
+  declare welcome_coupon_sent_at: CreationOptional<Date | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -64,7 +69,7 @@ NewsletterSubscriber.init(
       defaultValue: 'pending',
     },
     source: {
-      type: DataTypes.ENUM('footer', 'register', 'checkout', 'account', 'admin', 'existing_customer'),
+      type: DataTypes.ENUM('footer', 'register', 'checkout', 'account', 'admin', 'existing_customer', 'welcome_popup'),
       allowNull: false,
     },
     confirm_token_hash: { type: DataTypes.STRING(64), allowNull: true, defaultValue: null },
@@ -76,6 +81,8 @@ NewsletterSubscriber.init(
     unsubscribe_reason: { type: DataTypes.STRING(30), allowNull: true, defaultValue: null },
     consent_ip: { type: DataTypes.STRING(64), allowNull: true, defaultValue: null },
     consent_user_agent: { type: DataTypes.STRING(255), allowNull: true, defaultValue: null },
+    welcome_coupon_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true, defaultValue: null },
+    welcome_coupon_sent_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
   },

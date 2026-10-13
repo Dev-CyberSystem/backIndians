@@ -35,7 +35,7 @@ import { recordLegalAcceptance } from './legal.service';
 import { StoreOrderStatus, type ShippingAddress } from '../models/StoreOrder';
 import { optionalUnit } from '../utils/address';
 import { parseTagFilter, buildNavAvailability, type NavProductRow } from '../utils/storeNav';
-import { WELCOME_COUPON_EXCLUSION } from './storeSubscriber.service';
+import { WELCOME_COUPON_EXCLUSION } from './welcomeCoupon.service';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
 import { CashTransaction } from '../models/CashTransaction';
 import { CashAccount } from '../models/CashAccount';
