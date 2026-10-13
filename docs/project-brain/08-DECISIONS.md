@@ -384,3 +384,13 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 **Alternativas descartadas**: subida directa del navegador a Cloudinary con firma (evita pasar 60 MB por el servidor y sus timeouts, pero suma una superficie de firma y configuración); versión vertical aparte para celular (el brief no lo pide; el video se ve entero con `object-contain`).
 
 **Consecuencias**: sin migración. Con autoplay el video se descarga en cada visita al inicio aunque nadie lo mire (antes no bajaba nada hasta el play): conviene que sea corto y liviano. Si el navegador bloquea la reproducción automática queda la portada fija, sin forma de darle play. Al reemplazar o quitar el video, el anterior se borra de Cloudinary al guardar. Un video de ~60 MB pasa por la memoria del proceso (multer en memoria) durante la subida. **La subida real a Cloudinary no se probó** (sin credenciales en el entorno de desarrollo).
+
+## DEC-034 — Menú «Deportes» de la tienda, configurable desde el panel
+
+**Decisión**: los deportes pasan a colgar de un ítem «Deportes» con tres niveles (Deportes → deporte → Hombre/Mujer) y página propia `/tienda/deportes`. La lista de categorías-deporte y su orden salen de la clave `store_sports` (settings, pública), editable en el panel; Abrigos queda como ítem aparte porque no es un deporte.
+
+**Motivo**: el menú tenía cada deporte como ítem suelto y crecía con cada alta; el usuario pidió una sección que vaya recibiendo deportes nuevos (vóley, pádel, fútbol, lo que sea necesario) sin pedir un cambio de código cada vez.
+
+**Alternativas descartadas**: lista fija en `storeNav.ts` (cada deporte nuevo requiere deploy); detección automática por productos con lista de excluidas (menos control del orden y de qué entra).
+
+**Consecuencias**: sin migración (clave nueva en `VALID_KEYS` y `PUBLIC_SETTING_KEYS`). Fútbol ahora también ofrece Hombre/Mujer. `/tienda/deportes` entra al sitemap y al prerender. Una categoría configurada que aún no tiene productos se acepta igual como ruta (se ve «sin productos»). Las URLs `/tienda/categoria/<deporte>` no cambian.

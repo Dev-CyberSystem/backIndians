@@ -69,6 +69,10 @@ export const VALID_KEYS: string[] = [
   // "Despedida del Pulga", mañana otra). Landing propia en
   // /tienda/coleccion/:slug que lista los productos con el tag configurado.
   // Sin migración: son claves de la tabla key-value de settings.
+  // Tienda — menú «Deportes»: categorías del catálogo que cuelgan de Deportes,
+  // separadas por coma y en el orden del menú (ej. "Fútbol, Vóley, Pádel").
+  // Sin la clave → Fútbol, Vóley, Pádel, Running; vacía → Deportes no se muestra.
+  'store_sports',
   'store_collection_enabled', 'store_collection_label', 'store_collection_slug',
   'store_collection_tag', 'store_collection_kicker',
   'store_collection_title', 'store_collection_subtitle', 'store_collection_description',
@@ -164,6 +168,10 @@ export const PUBLIC_SETTING_KEYS: string[] = [
   // Tienda — video de la página principal
   'store_home_video_enabled', 'store_home_video_url', 'store_home_video_poster_url', 'store_home_video_title',
   // Tienda — "sección destacada / lanzamiento" genérica (la tienda la renderiza públicamente)
+  // Tienda — menú «Deportes»: categorías del catálogo que cuelgan de Deportes,
+  // separadas por coma y en el orden del menú (ej. "Fútbol, Vóley, Pádel").
+  // Sin la clave → Fútbol, Vóley, Pádel, Running; vacía → Deportes no se muestra.
+  'store_sports',
   'store_collection_enabled', 'store_collection_label', 'store_collection_slug',
   'store_collection_tag', 'store_collection_kicker',
   'store_collection_title', 'store_collection_subtitle', 'store_collection_description',

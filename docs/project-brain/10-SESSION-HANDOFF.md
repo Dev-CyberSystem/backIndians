@@ -1,5 +1,19 @@
 # 10 — Entrega entre sesiones
 
+## Última sesión: 2026-10-13 (tarde) — Menú «Deportes» de la tienda
+
+Rama `feature/tienda-deportes` en ambos repos (desde master v1.12.0; **no** incluye `feature/eliminar-clientes`, que sigue sin mergear). Ver [DEC-034](08-DECISIONS.md) y 02 (módulo 10).
+
+- **Front**: `storeNav.ts` (Deportes de 3 niveles, `parseSports`, `buildSportItems`, `menuCategories`), `StoreLayout.tsx` (flyout desktop + acordeón anidado mobile), `StoreSportsPage.tsx` (`/tienda/deportes`), ruta, `StoreProductsPage` acepta los deportes configurados como categoría, `EcommerceSettingsPage` (campo «Menú Deportes»), sitemap y prerender. Vitest 70/70, tsc limpio, lint sin errores nuevos.
+- **Back**: solo la clave `store_sports` en `VALID_KEYS` y `PUBLIC_SETTING_KEYS`; test `store-sports-setting.test.ts` + guardrail S-01 verdes. Sin migración.
+- **Selector** (`components/ecommerce/SportsPicker.tsx`): lista de categorías del catálogo, no permite texto libre, permite reordenar y quitar (incl. huérfanas).
+- **Base local reseteada** (`npm run db:reset`, 2026-10-13) desde las migraciones de esta rama: no tiene `clients.active`; al volver a `feature/eliminar-clientes` correr `npx ts-node --transpile-only scripts/sync-client-archive-dev.ts`.
+- **Sidebar del panel** (`components/layout/Sidebar.tsx`, misma rama del front): dos grupos desplegables, **Producción** (Pedidos, Clientes, Proveedores, Catálogo, Ventas catálogo, Categorías, Tipos de prenda, Costos) y **Tienda online** (Resumen, Pedidos tienda, Cupones, Legales, Config. tienda); se abren solos si contienen la página activa. Fix: «Categorías» marcaba también «Catálogo» (`/catalog/categories` cumplía el `startsWith('/catalog/')` de Catálogo). El grupo se llamaba Mayoristas y se renombró a Producción por pedido del usuario.
+- **Submenús Hombre/Mujer** reacomodados según el brief del usuario (ver 02, módulo 10). Los productos deben tener el tag EXACTO (`Bolso`/`Mochila` son tags nuevos, ya sugeridos en el catálogo); los que tengan `Buzo` ya no tienen acceso directo desde el menú.
+- **Pendiente**: probar en navegador (desktop flyout, mobile y selector).
+
+---
+
 ## Última sesión: 2026-10-12 — Integración de lo pendiente en dos releases
 
 Se revisó todo lo que estaba sin mergear a `master` (v1.11.3) y se armaron dos ramas **locales** de integración en ambos repos. **Nada pusheado, nada mergeado a master, nada desplegado.**
