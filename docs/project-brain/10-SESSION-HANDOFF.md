@@ -1,5 +1,21 @@
 # 10 — Entrega entre sesiones
 
+## Última sesión: 2026-10-12 — Integración de lo pendiente en dos releases
+
+Se revisó todo lo que estaba sin mergear a `master` (v1.11.3) y se armaron dos ramas **locales** de integración en ambos repos. **Nada pusheado, nada mergeado a master, nada desplegado.**
+
+**`integracion/release-a`** = master + `fix/logs-cliente-legibles` + entregas 1–4 del brief (5 fotos y despacho en 48 hs, piso/depto, menú nuevo + Ofertas, video del inicio). Migración **109** (`store_addresses.floor|apartment`, con espejo en `ensureSchema.ts`). Validación: typecheck back/front limpio, **Jest 71/71 suites y 534/534 tests contra MySQL real** (era lo que el brief nunca había podido correr), Vitest 62/62, build del front OK, lint con los mismos 176 hallazgos preexistentes. **Falta**: prueba manual en navegador (panel incluido) y subir un video real — depende de que Cloudinary vuelva a estar habilitado (incidente del 2026-09-18, sin re-verificar).
+
+**`integracion/release-b`** = release-a + newsletter + pop-up de bienvenida (entrega 5), **unificados en una sola lista de suscriptores** ([DEC-032](08-DECISIONS.md)). Migración **110** (3 tablas `newsletter_*`). Validación: typecheck back/front limpio, **Jest 75/75 suites y 576/576 tests** contra MySQL real, Vitest 74/74, build del front OK, lint +4 por el patrón conocido de rutas lazy. **Falta**: prueba en navegador del pop-up unificado y del mail del cupón con el link de confirmación. El pop-up se sacó del Release A a propósito: llevarlo solo habría creado en producción una tabla que después había que migrar.
+
+**Ojo al correr la suite completa en esta máquina**: `npm run test:full` se queda sin memoria (heap de Node por defecto, ~6 min). Corre bien con `NODE_OPTIONS=--max-old-space-size=8192`.
+
+**Descartado**: `integracionarca` (2026-06-29) está íntegramente portada a master (migraciones renumeradas 074–078, mismas funciones, rutas y dependencias) — se puede borrar. **Sin integrar**: `feature/google-analytics-tienda` (46/28 commits atrás, conflictos en `StoreCheckoutPage.tsx`, `StoreLayout.tsx` y 3 docs; inerte sin `VITE_GA4_MEASUREMENT_ID`).
+
+**Para publicar el Release A**: `npm run migrate` (109) junto con el deploy del backend; cargar categorías Pádel/Abrigos y tags `Top`/`Selección`; actualizar `store_announcement`/`store_marquee` desde el panel (el valor guardado pisa el texto nuevo de despacho). **Para el Release B**, además: lo listado abajo en la sesión de newsletter (DNS + Resend + variables), actualizar la Política de Privacidad por la captación del pop-up y confirmar con Indians las condiciones de DEC-030.
+
+---
+
 ## Imágenes caídas en la tienda + logs del cliente ilegibles — 2026-09-18
 
 **Causa raíz (externa, sigue ABIERTA)**: las imágenes no se ven en indians.com.ar porque **la cuenta de Cloudinary está deshabilitada**. Todo lo que cuelga del cloud responde `HTTP 401 — "cloud_name zudvsibg is disabled"`, incluido el `sample.jpg` de demo y las URLs sin transformaciones. No es un bug nuestro: la API devuelve 200 con las URLs bien armadas y el navegador las pide directo a `res.cloudinary.com`, por eso **no hay ni una línea en los logs de Railway**. Mientras siga así, las subidas nuevas también fallan. Lo resuelve el usuario desde console.cloudinary.com (plan gratuito excedido, pago rechazado o suspensión).
