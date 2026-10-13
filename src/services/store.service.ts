@@ -35,6 +35,7 @@ import { recordLegalAcceptance } from './legal.service';
 import { StoreOrderStatus, type ShippingAddress } from '../models/StoreOrder';
 import { optionalUnit } from '../utils/address';
 import { parseTagFilter, buildNavAvailability, type NavProductRow } from '../utils/storeNav';
+import { WELCOME_COUPON_EXCLUSION } from './storeSubscriber.service';
 import { CashTransactionCategory } from '../models/CashTransactionCategory';
 import { CashTransaction } from '../models/CashTransaction';
 import { CashAccount } from '../models/CashAccount';
@@ -573,7 +574,11 @@ export async function getPromoPopupCoupon() {
 // ─── Admin: gestión de cupones ───────────────────────────────────────────────
 
 export async function listCoupons() {
-  return StoreCoupon.findAll({ order: [['createdAt', 'DESC']] });
+  // Los cupones personales de bienvenida (uno por suscriptor) tienen su propia pantalla: no inundan esta lista.
+  return StoreCoupon.findAll({
+    where: { id: { [Op.notIn]: WELCOME_COUPON_EXCLUSION } },
+    order: [['createdAt', 'DESC']],
+  });
 }
 
 export async function createCoupon(data: {

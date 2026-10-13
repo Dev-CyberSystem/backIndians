@@ -97,6 +97,13 @@ export const withdrawalLimiter = createLimiter('withdrawal', 60 * 60_000, 10, {
   skip: rateLimitDisabled,
 });
 
+/**
+ * Pop-up de registro con descuento: 5 registros por hora por IP. Cada registro crea
+ * un cupón, así que acá el límite es de abuso económico (no solo de spam); sumado
+ * a Turnstile y a que cada email solo puede registrarse una vez.
+ */
+export const subscribeLimiter = createLimiter('subscribe', 60 * 60_000, 5, { skip: rateLimitDisabled });
+
 /** Tracking de analítica (fire & forget, dispara en cada interacción): 240/min por IP. */
 export const trackLimiter = createLimiter('track', 60_000, 240, { skip: rateLimitDisabled });
 

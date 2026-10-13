@@ -56,6 +56,12 @@ router.put(
       .isLength({ max: 500 }),
     body('store_home_video_title').optional().trim().isLength({ max: 120 }).withMessage('Título demasiado largo (máx. 120 caracteres)'),
     body('store_home_video_enabled').optional().isIn(['true', 'false']).withMessage('Valor inválido'),
+    // Pop-up de registro con descuento.
+    body('store_welcome_popup_enabled').optional().isIn(['true', 'false']).withMessage('Valor inválido'),
+    body('store_welcome_discount_percent').optional({ checkFalsy: true })
+      .isInt({ min: 1, max: 100 }).withMessage('El descuento debe ser un entero entre 1 y 100'),
+    body('store_welcome_valid_days').optional({ checkFalsy: true })
+      .isInt({ min: 1, max: 365 }).withMessage('La vigencia debe ser un entero entre 1 y 365 días'),
     body('store_home_video_public_id').optional().trim().isLength({ max: 200 }),
     validate,
   ],
