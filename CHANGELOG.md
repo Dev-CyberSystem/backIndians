@@ -3,6 +3,23 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.13.0 — 2026-10-13
+
+### backIndians (1d5902c)
+
+- feat(store): clave store_sports para el menú Deportes de la tienda
+- feat(clients): baja lógica de clientes y borrado físico solo si está vacío
+
+### frontIndians (ed7bd23)
+
+- feat(store): menú Deportes de tres niveles, submenús Hombre/Mujer y menú lateral agrupado
+- feat(clients): archivar y eliminar clientes desde el panel
+
+# Changelog
+
+Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
+Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
+
 ## v1.12.0 — 2026-10-13
 
 ### backIndians (2e12885)
