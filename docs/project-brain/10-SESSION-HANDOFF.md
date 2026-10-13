@@ -1,5 +1,18 @@
 # 10 — Entrega entre sesiones
 
+## Imágenes caídas en la tienda + logs del cliente ilegibles — 2026-09-18
+
+**Causa raíz (externa, sigue ABIERTA)**: las imágenes no se ven en indians.com.ar porque **la cuenta de Cloudinary está deshabilitada**. Todo lo que cuelga del cloud responde `HTTP 401 — "cloud_name zudvsibg is disabled"`, incluido el `sample.jpg` de demo y las URLs sin transformaciones. No es un bug nuestro: la API devuelve 200 con las URLs bien armadas y el navegador las pide directo a `res.cloudinary.com`, por eso **no hay ni una línea en los logs de Railway**. Mientras siga así, las subidas nuevas también fallan. Lo resuelve el usuario desde console.cloudinary.com (plan gratuito excedido, pago rechazado o suspensión).
+
+**Corregido en la rama `fix/logs-cliente-legibles`** (ambos repos, creada desde master v1.11.3, SIN pushear ni mergear — back `8be4e45`, front `c8290af`):
+
+- `utils/logger.ts`: `toErrorDetail` sólo contemplaba `instanceof Error`, así que los errores que el frontend reporta por `POST /logs/client` — objetos planos, porque JSON no transporta instancias de `Error` — caían en `String(error)` y el log de producción quedaba en `"[object Object]"`. Eran decenas de líneas por día sin ningún valor diagnóstico. Ahora normaliza el error serializado y, si el objeto no tiene forma de error, lo serializa acotado y a prueba de referencias circulares. Test de regresión: `src/__tests__/unit/logger-error-detail.test.ts`.
+- Frontend: los cuatro puntos de subida de imágenes hacían `catch { toast.error(...) }` sin dejar rastro (el único uso del logger en todo el frontend era el `ErrorBoundary`). Ahora loguean el error real con endpoint, nombre, tamaño y tipo de archivo.
+
+**Validación**: typecheck back y front limpios; Jest unit + `logs-ratelimit` 68/68; Vitest 52/52; lint del frontend sin regresiones (mismos 7 hallazgos preexistentes antes y después). No se corrió `test:full`.
+
+**Propuesto y NO implementado** (requiere OK del usuario, es cambio de UI de la tienda): detectar imágenes rotas en el navegador — listener de `error` en fase de captura, que hoy no las ve — y mostrar un placeholder en lugar del ícono roto cuando el CDN falla.
+
 ## Actualización operativa ARCA — 2026-09-14
 
 Certificado de homologación `IndiansQA` cargado solo en `.env` local mediante variables `_HOMO`; clave y certificado validados sin exponer contenido. CUIT 20-29323025-1, vigencia hasta 13/09/2028. Autorización `wsfe` de homologación confirmada con WSAA real. La constancia aportada confirma titular `CARRILLO LEITO GONZALO SEBASTIAN`, domicilio General Paz 1071 Piso 4 Dpto. C, San Miguel de Tucumán, CP 4000, Monotributo categoría F e inicio 01/08/2026. El usuario confirmó IIBB `No corresponde` y PV productivo 3 exclusivo.
