@@ -57,9 +57,10 @@ router.post(
         return;
       }
 
-      // upload_large_stream sube en partes: un video de decenas de MB no entra bien en una sola request.
+      // upload_chunked_stream sube en partes: un video de decenas de MB no entra bien en una sola request.
+      // (upload_large_stream figura en los tipos del SDK pero la API v2 no lo expone: falla en ejecución.)
       const result = await new Promise<{ public_id: string }>((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_large_stream(
+        const stream = cloudinary.uploader.upload_chunked_stream(
           {
             folder: 'indians/home-video',
             resource_type: 'video',
