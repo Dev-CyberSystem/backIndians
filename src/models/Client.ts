@@ -21,6 +21,8 @@ export class Client extends Model<
   declare notes: CreationOptional<string | null>;
   declare logo_url: CreationOptional<string | null>;
   declare condicion_iva: CreationOptional<number | null>;
+  declare active: CreationOptional<boolean>;
+  declare archived_at: CreationOptional<Date | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -67,6 +69,15 @@ Client.init(
     },
     condicion_iva: {
       type: DataTypes.TINYINT.UNSIGNED,
+      allowNull: true,
+    },
+    active: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+    archived_at: {
+      type: DataTypes.DATE,
       allowNull: true,
     },
     createdAt: DataTypes.DATE,

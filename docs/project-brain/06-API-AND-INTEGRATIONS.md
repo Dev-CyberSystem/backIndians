@@ -27,7 +27,7 @@ Todos los endpoints internos cuelgan de `/api/v1` (montaje en `backIndians/src/r
 CRUD de usuarios internos: `GET /`, `POST /`, `PUT /:id`, `PATCH /:id/toggle`, `POST /:id/resend-welcome`, `PATCH /:id/password`, `DELETE /:id`.
 
 ### `/clients` — `client.routes.ts`
-`GET /`, `GET /:id` → `admin,billing,seller,designer`. `POST /`, `PUT /:id` → `admin,billing,seller,designer`. `DELETE /:id` → `admin`.
+`GET /`, `GET /:id` → `admin,billing,seller,designer`. `POST /`, `PUT /:id` → `admin,billing,seller,designer`. `GET /` acepta `status=active|archived|all` (default `active`: los archivados no salen en listados ni selectores). Solo `admin`: `GET /:id/dependencies` (conteo de pedidos, pedidos de catálogo, productos, tipos de prenda y costos del cliente), `PATCH /:id/archive`, `PATCH /:id/restore`, `DELETE /:id` (**409** con `errors[0].dependencies` si el cliente tiene cualquier dato asociado; solo borra clientes vacíos). `PUT` ya no acepta `active`/`archived_at` (lista blanca). Los productos de clientes archivados desaparecen de `/store/*` (listado, filtros, detalle, checkout). Ver [BR-CLIENT-001](03-BUSINESS-RULES.md).
 
 ### `/suppliers` — `supplier.routes.ts` — todo `authorize('admin','billing')` salvo `DELETE`
 Directorio autónomo de proveedores (no toca stock/costos/pedidos). `GET /` (filtros `search`, `category`, `include_inactive`, `page`, `limit`; paginación backend por `meta`), `GET /categories` (rubros distintos ya cargados, para el filtro del frontend), `GET /:id`, `POST /`, `PUT /:id`, `PATCH /:id/status` (baja/alta lógica por `active`). `DELETE /:id` → **solo `admin`** (borrado real irreversible). CUIT normalizado a 11 dígitos y único cuando está informado (chequeo explícito en el service → 409). Migración `105` (`suppliers`).

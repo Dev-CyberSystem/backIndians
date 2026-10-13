@@ -1,5 +1,9 @@
 # 00 — Índice del cerebro documental (Indians)
 
+## Actualización 2026-10-13 — Eliminar clientes
+
+Rama `feature/eliminar-clientes` (ambos repos, sin commitear): baja lógica de clientes + borrado físico solo si está vacío, solo admin. Ver [DEC-033](08-DECISIONS.md), [BR-CLIENT-001](03-BUSINESS-RULES.md), migración 111 y [handoff](10-SESSION-HANDOFF.md).
+
 ## Actualización 2026-09-11 — Integración ARCA
 
 Branch `fix/arca-facturacion-segura` en ambos repos. Correcciones de autenticación, diario fiscal durable, recuperación sin duplicar, ambientes separados, PDF con QR y notas de crédito. La afirmación histórica «solo falta certificado» queda reemplazada por el estado de [operación ARCA](../ARCA-OPERACION.md): falta homologación real y puesta en marcha. Ver DEC-027 y handoff.

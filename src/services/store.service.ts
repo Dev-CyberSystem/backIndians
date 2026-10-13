@@ -1,3 +1,4 @@
+import { ACTIVE_CLIENT_IDS_SQL, activeClientWhere } from '../utils/storeVisibility';
 import { randomBytes, createHash } from 'crypto';
 import { Op, col, literal, UniqueConstraintError, Transaction, QueryTypes } from 'sequelize';
 import { sequelize } from '../config/db';
@@ -214,6 +215,7 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
   const conditions: unknown[] = [
     { show_in_store: true },
     { active: true },
+    activeClientWhere(),
   ];
 
   if (filters.search) {
@@ -323,14 +325,14 @@ async function computeStoreFilterOptions() {
   const [categories] = await sequelize.query(`
     SELECT DISTINCT category
     FROM catalog_products
-    WHERE show_in_store = 1 AND active = 1 AND category IS NOT NULL AND category != ''
+    WHERE show_in_store = 1 AND active = 1 AND client_id IN (${ACTIVE_CLIENT_IDS_SQL}) AND category IS NOT NULL AND category != ''
     ORDER BY category
   `);
 
   const [genders] = await sequelize.query(`
     SELECT DISTINCT gender
     FROM catalog_products
-    WHERE show_in_store = 1 AND active = 1 AND gender IS NOT NULL
+    WHERE show_in_store = 1 AND active = 1 AND client_id IN (${ACTIVE_CLIENT_IDS_SQL}) AND gender IS NOT NULL
     ORDER BY gender
   `);
 
@@ -338,7 +340,7 @@ async function computeStoreFilterOptions() {
     SELECT cps.size_name, MIN(cps.sort_order) AS min_order
     FROM catalog_product_sizes cps
     JOIN catalog_products cp ON cp.id = cps.product_id
-    WHERE cp.show_in_store = 1 AND cp.active = 1 AND (cps.stock_quantity - cps.stock_reserved) > 0
+    WHERE cp.show_in_store = 1 AND cp.active = 1 AND cp.client_id IN (${ACTIVE_CLIENT_IDS_SQL}) AND (cps.stock_quantity - cps.stock_reserved) > 0
     GROUP BY cps.size_name
     ORDER BY min_order, cps.size_name
   `);
@@ -348,14 +350,14 @@ async function computeStoreFilterOptions() {
       FLOOR(MIN(COALESCE(public_price, price))) AS min_price,
       CEIL(MAX(COALESCE(public_price, price)))  AS max_price
     FROM catalog_products
-    WHERE show_in_store = 1 AND active = 1
+    WHERE show_in_store = 1 AND active = 1 AND client_id IN (${ACTIVE_CLIENT_IDS_SQL})
   `);
 
   const [clients] = await sequelize.query(`
     SELECT DISTINCT c.id, c.name, c.logo_url
     FROM clients c
     JOIN catalog_products cp ON cp.client_id = c.id
-    WHERE cp.show_in_store = 1 AND cp.active = 1
+    WHERE cp.show_in_store = 1 AND cp.active = 1 AND cp.client_id IN (${ACTIVE_CLIENT_IDS_SQL})
     ORDER BY c.name
   `);
 
@@ -365,7 +367,7 @@ async function computeStoreFilterOptions() {
   // categoría que usa el menú (géneros, tags y clubes con productos).
   const productRows = await CatalogProduct.findAll({
     attributes: ['tags', 'category', 'gender', 'client_id'],
-    where: { show_in_store: true, active: true },
+    where: { show_in_store: true, active: true, ...activeClientWhere() },
     raw: true,
   });
   const allTags = new Set<string>();
@@ -383,7 +385,7 @@ async function computeStoreFilterOptions() {
     SELECT DISTINCT gt.id, gt.name, gt.sort_order
     FROM garment_types gt
     JOIN catalog_products cp ON cp.garment_type_id = gt.id
-    WHERE cp.show_in_store = 1 AND cp.active = 1 AND gt.active = 1
+    WHERE cp.show_in_store = 1 AND cp.active = 1 AND cp.client_id IN (${ACTIVE_CLIENT_IDS_SQL}) AND gt.active = 1
     ORDER BY gt.sort_order, gt.name
   `);
 
@@ -437,7 +439,7 @@ export async function getPublicStoreSettings(): Promise<Record<string, string>> 
 
 export async function getStoreProduct(id: number) {
   const product = await CatalogProduct.findOne({
-    where: { id, show_in_store: true, active: true },
+    where: { id, show_in_store: true, active: true, ...activeClientWhere() },
     attributes: [...PUBLIC_PRODUCT_ATTRIBUTES],
     include: [
       { model: CatalogProductImage, as: 'images', attributes: ['id', 'url', 'sort_order'] },
@@ -819,7 +821,7 @@ async function computeOrderTotals(input: {
   // 1. Resolver productos
   const productIds = [...new Set(input.items.map((i) => i.catalog_product_id))];
   const products = await CatalogProduct.findAll({
-    where: { id: productIds, show_in_store: true, active: true },
+    where: { id: productIds, show_in_store: true, active: true, ...activeClientWhere() },
     include: [{ model: CatalogProductSize, as: 'sizes' }],
   });
   const productMap = new Map(products.map((p) => [p.id, p]));

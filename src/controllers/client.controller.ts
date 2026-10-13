@@ -10,7 +10,10 @@ export async function listClients(req: AuthRequest, res: Response, next: NextFun
       100
     );
     const search = (req.query.search as string) || undefined;
-    const result = await clientService.listClients(page, limit, search);
+    const rawStatus = req.query.status as string;
+    const status: clientService.ClientStatusFilter =
+      rawStatus === 'archived' || rawStatus === 'all' ? rawStatus : 'active';
+    const result = await clientService.listClients(page, limit, search, status);
     res.json({
       success: true,
       data: result.clients,
@@ -44,5 +47,28 @@ export async function deleteClient(req: AuthRequest, res: Response, next: NextFu
   try {
     await clientService.deleteClient(parseInt(req.params.id));
     res.json({ success: true, data: { message: 'Cliente eliminado' } });
+  } catch (err) { next(err); }
+}
+
+export async function getClientDependencies(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = parseInt(req.params.id);
+    await clientService.getClientById(id);
+    const deps = await clientService.getClientDependencies(id);
+    res.json({ success: true, data: deps });
+  } catch (err) { next(err); }
+}
+
+export async function archiveClient(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const client = await clientService.archiveClient(parseInt(req.params.id));
+    res.json({ success: true, data: client });
+  } catch (err) { next(err); }
+}
+
+export async function restoreClient(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const client = await clientService.restoreClient(parseInt(req.params.id));
+    res.json({ success: true, data: client });
   } catch (err) { next(err); }
 }

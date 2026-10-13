@@ -170,6 +170,7 @@ export async function getProduct(id: number) {
 export async function createProduct(input: ProductInput): Promise<CatalogProduct> {
   const client = await Client.findByPk(input.client_id);
   if (!client) throw new AppError('Cliente no encontrado', 404);
+  if (!client.active) throw new AppError('El cliente está archivado. Reactivalo para cargarle productos.', 409);
 
   const t = await sequelize.transaction();
   try {
