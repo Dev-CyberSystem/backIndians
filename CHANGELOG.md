@@ -3,6 +3,30 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.12.0 — 2026-10-13
+
+### backIndians (2e12885)
+
+- docs(brain): el video del inicio pasa a autoplay sin sonido (DEC-029)
+- fix(upload): subir el video con upload_chunked_stream
+- docs(brain): handoff de la integración de lo pendiente en dos releases
+- feat(tienda): video en la página principal (subida, configuración y borrado del anterior)
+- feat(tienda): filtros del menú nuevo (Ofertas, tags múltiples, disponibilidad por categoría)
+- feat(tienda): piso y departamento opcionales en la dirección de envío
+- feat(catalogo): hasta 5 fotos por producto + docs de despacho en 48 hs hábiles
+- docs(brain): registrar la caida de Cloudinary y el fix de logs del cliente
+- fix(logs): dejar de perder el detalle de los errores del cliente
+
+### frontIndians (f5b77a5)
+
+- feat(tienda): el video del inicio se reproduce solo, en bucle y sin sonido
+- fix(tienda): al reemplazar el video del inicio se actualiza la portada
+- feat(tienda): bloque de video en el inicio con administración desde el panel
+- feat(tienda): menú nuevo (Hombre, Mujer, Fútbol, Vóley, Running, Pádel, Abrigos, Ofertas)
+- feat(tienda): campos opcionales Piso y Departamento en checkout y Mi cuenta
+- feat(tienda): 5 fotos por producto y mensaje único de despacho en 48 hs hábiles
+- fix(logs): reportar los errores de subida de imagenes
+
 ## v1.11.3 — 2026-09-15
 
 ### backIndians (a1061f7)
