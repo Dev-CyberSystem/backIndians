@@ -1,5 +1,16 @@
 # 10 — Entrega entre sesiones
 
+## Última sesión: 2026-10-14 — Pérdida de datos al cargar costos (sesión que expulsa al login)
+
+Reporte: un usuario llega al último paso de la carga de costos y lo mandan al login. Causa más probable (no reproducida): `login` incrementa `session_version` (una sola sesión por usuario); si la cuenta se usa en otro lugar, el refresh falla y `axios.ts` redirige a `/login` sin explicación, perdiendo lo tipeado. Cambios **solo en frontend** (sin commitear, sin probar en navegador):
+
+- `api/axios.ts`: al fallar el refresh guarda el motivo en `sessionStorage` (`indians_logout_reason`: `replaced` / `expired`); `LoginPage` lo muestra y lo limpia.
+- `GarmentCostEditor.tsx`: borrador local en `localStorage` (`indians_cost_draft:<cliente>:<prenda>`), se restaura solo si la hoja guardada no cambió (misma versión), con botón «Descartar»; se borra al guardar.
+- `hooks/useIdleTimeout.ts`: inactividad de 10 → **30 min**. El access token (15 min, `JWT_EXPIRES_IN`) y el refresh (7 d) no se tocaron: el access se renueva solo.
+- **Diagnóstico**: el usuario trabaja en una **tablet**, el logout ocurre al confirmar el modal de Guardar y dice que no hay otra sesión abierta. La causa NO está confirmada. Se agregó log WARN a `/logs/client`: `auth.forcedLogout` (en `axios.ts`; `stage` = `refresh_fallido`|`sin_refresh`, `refreshStatus`, `refreshMessage`, `networkCode`, `pageHidden`, `userAgent`) y `auth.idleLogout` (en `useIdleTimeout.ts`; `elapsedMs` vs `limitMs` para detectar timers que saltan al despertar la tablet). Nunca se loguean valores de tokens.
+- **Cómo leerlo**: «otro dispositivo» = sesión pisada; «Refresh token inválido o expirado» = la tablet perdió/venció el refresh token; `sin_refresh` = se perdió `localStorage`; `networkCode` = falló la red al renovar.
+- **Pendiente**: desplegar el front (`npm run deploy`), esperar el próximo caso y leer el log en Railway; probar en navegador el aviso del login y el borrador.
+
 ## Última sesión: 2026-10-13 — Eliminar clientes (archivar / borrar si está vacío)
 
 Rama `feature/eliminar-clientes` en ambos repos (desde master v1.12.0), commiteada y **mergeada a `master` local** (sin pushear ni deployar). Ver [DEC-033](08-DECISIONS.md) y [BR-CLIENT-001](03-BUSINESS-RULES.md).
