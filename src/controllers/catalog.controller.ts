@@ -4,6 +4,8 @@ import * as catalogService from '../services/catalog.service';
 import { storeEvents } from '../events/storeEvents';
 import { verifyWebhookSignature } from '../services/mercadopago.service';
 import { productsForRole } from '../services/pricingVisibility';
+import { buildCatalogBrochure } from '../services/catalogBrochure.service';
+import type { BrochureVersion } from '../utils/catalogBrochure.pdf';
 
 // ─── Productos ────────────────────────────────────────────────────────────────
 
@@ -307,5 +309,17 @@ export async function deleteCategory(req: AuthRequest, res: Response, next: Next
   try {
     await catalogService.deleteProductCategory(parseInt(req.params.id));
     res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
+// ─── Catálogo PDF (presentación a clientes / inversionistas) ──────────────────
+
+export async function downloadBrochure(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const version = (req.query.version as BrochureVersion | undefined) ?? 'commercial';
+    const { buffer, filename } = await buildCatalogBrochure(version);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
   } catch (err) { next(err); }
 }

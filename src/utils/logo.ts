@@ -13,6 +13,28 @@ const MARK_PATHS = [
 ].join(' ');
 
 /**
+ * Dibuja solo el isotipo (molinete) como vector en un cuadro size x size. El
+ * color es configurable para usarlo también como reemplazo de una foto que no
+ * cargó (catálogo PDF).
+ */
+export function drawIndiansMark(
+  doc: PDFKit.PDFDocument,
+  x: number,
+  y: number,
+  size: number,
+  color = '#000000',
+): void {
+  doc.save();
+  doc.translate(x, y)
+    .scale(size / 2000)
+    .translate(0, 2000)
+    .scale(0.1, -0.1)
+    .path(MARK_PATHS)
+    .fill(color);
+  doc.restore();
+}
+
+/**
  * Dibuja el logo "indians" (isotipo + wordmark) en la posición indicada.
  * @param x        borde izquierdo del logo
  * @param y        borde superior del logo
@@ -26,15 +48,7 @@ export function drawIndiansLogo(
   y: number,
   markSize = 30,
 ): number {
-  // Isotipo (molinete) — vector escalado al cuadro markSize x markSize.
-  doc.save();
-  doc.translate(x, y)
-    .scale(markSize / 2000)
-    .translate(0, 2000)
-    .scale(0.1, -0.1)
-    .path(MARK_PATHS)
-    .fill('#000000');
-  doc.restore();
+  drawIndiansMark(doc, x, y, markSize);
 
   // Wordmark "indians" a la derecha del isotipo.
   const fontSize = markSize * 0.9;

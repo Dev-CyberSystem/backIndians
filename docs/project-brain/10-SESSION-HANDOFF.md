@@ -1,5 +1,15 @@
 # 10 — Entrega entre sesiones
 
+## Última sesión: 2026-10-19 — Catálogo PDF para clientes e inversionistas
+
+Pedido: un PDF con fotos, descripción y precio de los productos de la tienda online, para presentar a clientes e inversionistas. Decisiones del usuario: **precio de la tienda**; **todo lo publicado** (con o sin stock); **solo admin y billing**; **dos versiones**; si no hay foto, **logo de Indians**; **fecha de generación sí, leyenda "precios vigentes" no**. Detalle funcional en 02 (módulo 9) y endpoint en 06.
+
+Rama `feature/catalogo-pdf` en ambos repos (desde master), **sin commitear, sin pushear ni deployar**.
+
+- **Back**: `utils/catalogBrochure.pdf.ts` (dibujo con pdfkit, dos versiones), `services/catalogBrochure.service.ts` (productos + `storeDisplayPrice` + descarga de fotos en JPEG), `GET /catalog/brochure` en `catalog.routes.ts`/`catalog.controller.ts`; `utils/logo.ts` ahora exporta `drawIndiansMark` (isotipo solo, con color) y `drawIndiansLogo` lo reutiliza sin cambiar su resultado. Test `api/catalog-brochure.test.ts` 10/10 (con `fetch` simulado caído → isotipo). Typecheck limpio. Con 188 productos de dev: clientes ~1 s / 540 KB, inversionistas ~0,7 s / 410 KB (sin contar la descarga de fotos).
+- **Front**: `components/catalog/CatalogBrochureModal.tsx`, botón "Catálogo PDF" en `CatalogBrowserPage.tsx`, `catalogApi.brochure`. tsc y eslint limpios. E2E `e2e/tests/catalog-brochure.spec.ts` (descarga las dos versiones en Chromium): **pasa**.
+- **Pendiente**: que el usuario revise un PDF con datos reales (en dev casi no hay fotos: 3 de 186) y ajuste diseño/textos; commit + merge + release. En producción la generación depende de bajar ~190 fotos de Cloudinary (6 en paralelo): estimado 10–30 s; si se vuelve lento, cachear el PDF.
+
 ## Última sesión: 2026-10-19 — Consumo de Cloudinary (optimización de imágenes)
 
 Diagnóstico con el reporte de uso del usuario: ciclo 18/09–17/10 = 141 créditos (≈ USD 74 con el excedente), **98 % ancho de banda de imágenes**. Causa: las imágenes del landing cargadas por `POST /upload` se servían originales (PNG de hasta 8,8 MB). Ver [DEC-035](08-DECISIONS.md) y 06 (Cloudinary).
