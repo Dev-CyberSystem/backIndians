@@ -404,3 +404,15 @@ Se tome una decisión técnica o funcional nueva con impacto duradero, o se revi
 **Alternativas descartadas**: lista fija en `storeNav.ts` (cada deporte nuevo requiere deploy); detección automática por productos con lista de excluidas (menos control del orden y de qué entra).
 
 **Consecuencias**: sin migración (clave nueva en `VALID_KEYS` y `PUBLIC_SETTING_KEYS`). Fútbol ahora también ofrece Hombre/Mujer. `/tienda/deportes` entra al sitemap y al prerender. Una categoría configurada que aún no tiene productos se acepta igual como ruta (se ve «sin productos»). Las URLs `/tienda/categoria/<deporte>` no cambian.
+
+## DEC-035 — Imágenes de Cloudinary: optimización al mostrar, no al guardar
+
+**Contexto**: el ciclo de Cloudinary del 18/09 al 17/10/2026 consumió 141 créditos (60 del plan + 81 extra, ≈ USD 74); el 98 % fue ancho de banda de imágenes. Las imágenes que se cargan desde el panel (hero, sección destacada, spotlights, promo, logos) se guardaban con la URL cruda del original: un hero PNG de 8,3 MB se entregaba entero en cada visita. Una visita al inicio bajaba ~25 MB y la página de la colección ~35 MB.
+
+**Decisión**: (1) el frontend reescribe toda URL de Cloudinary al mostrarla (`utils/cloudinary.ts` + `components/ui/CldImage.tsx`): formato y calidad automáticos, ancho según dónde se muestra, con `srcset` y una escala fija de anchos; (2) los carruseles montan la slide visible y, al cargarla, la siguiente; la segunda foto de las cards se pide recién al pasar el mouse; lo que está abajo del pliegue va con `loading="lazy"`; (3) `POST /upload` devuelve la URL optimizada y guarda el original con tope de 2560 px (también fotos de pedidos, tablas de talles y fotos del catálogo).
+
+**Motivo**: reescribir al mostrar arregla también las URLs ya guardadas, sin migración ni volver a subir nada, y permite elegir el ancho por contexto. La escala fija de anchos acota las transformaciones (cada imagen+ancho+formato se genera y se cobra una sola vez).
+
+**Alternativas descartadas**: migración que reescriba las URLs guardadas (no resuelve el ancho por contexto); guardar varias variantes por imagen en la base (más esquema para lo mismo); bajar de plan antes de medir un ciclo con los cambios.
+
+**Consecuencias**: medido con Playwright contra las imágenes reales de producción: inicio de 25,9 → 3,4 MB en escritorio y 24,1 → 2,5 MB en celular (scrolleando todo); hero 8,3 MB → 330–450 KB. Las transformaciones suben un poco al principio (variantes nuevas), muy por debajo del ahorro. Comprobantes firmados, video y URLs con alto fijo (og:image) quedan como estaban. Una imagen nueva de Cloudinary en el front que no pase por el helper vuelve a entregar el original.

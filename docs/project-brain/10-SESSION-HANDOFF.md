@@ -1,5 +1,16 @@
 # 10 — Entrega entre sesiones
 
+## Última sesión: 2026-10-19 — Consumo de Cloudinary (optimización de imágenes)
+
+Diagnóstico con el reporte de uso del usuario: ciclo 18/09–17/10 = 141 créditos (≈ USD 74 con el excedente), **98 % ancho de banda de imágenes**. Causa: las imágenes del landing cargadas por `POST /upload` se servían originales (PNG de hasta 8,8 MB). Ver [DEC-035](08-DECISIONS.md) y 06 (Cloudinary).
+
+Rama `feature/optimizacion-cloudinary` en ambos repos (desde master v1.13.0), **sin commitear, sin pushear ni deployar**.
+
+- **Front**: `utils/cloudinary.ts` (`cldUrl`, `cldSrcSet`, `CLD_WIDTHS`) + test `__tests__/cloudinary.test.ts` 9/9; `components/ui/CldImage.tsx` (`CldImg`, `CldPicture`). Aplicado en `StoreLandingPage` (hero y banners con slides montadas a demanda, spotlight, sección destacada, promo), `StoreCollectionPage`, `ProductCard` (srcset 320–960, 2ª foto solo en hover), `StoreProductDetailPage` (lazy para no bajar las dos variantes desktop/mobile), `StoreLayout` (logos, popup), carritos, cuenta, login, y en el panel (miniaturas de catálogo, stock, pedidos, taller, comprobantes, lightbox a 2560).
+- **Back**: `config/cloudinary.ts` (`UPLOAD_IMAGE_LIMIT`, `webImageUrl`); `POST /upload` devuelve la URL optimizada; tope de 2560 px al subir en `/upload`, fotos de pedidos, tablas de talles y catálogo. Test `unit/webImageUrl.test.ts`.
+- **Validación**: `npm run test:full` 73/73 suites y 547/547 tests (MySQL real), typecheck back/front limpio, Vitest 80/80, build OK, lint sin hallazgos nuevos. Playwright contra imágenes reales de prod (API simulada con el JSON de prod): inicio 25,9 → 3,4 MB desktop, 24,1 → 2,5 MB mobile, sin errores; capturas revisadas (hero, cards, detalle).
+- **Pendiente**: probar una subida real desde el panel (cuenta de dev) y que la imagen guardada se vea; mergear y releasear (front por FTP + back Railway); al cierre del ciclo (18/11) comparar créditos. Operativo: no hace falta volver a subir las imágenes, el helper las optimiza igual.
+
 ## Última sesión: 2026-10-14 — Pérdida de datos al cargar costos (sesión que expulsa al login)
 
 Reporte: un usuario llega al último paso de la carga de costos y lo mandan al login. Causa más probable (no reproducida): `login` incrementa `session_version` (una sola sesión por usuario); si la cuenta se usa en otro lugar, el refresh falla y `axios.ts` redirige a `/login` sin explicación, perdiendo lo tipeado. Cambios **solo en frontend** (sin commitear, sin probar en navegador):

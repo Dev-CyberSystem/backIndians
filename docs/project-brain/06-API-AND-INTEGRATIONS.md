@@ -91,7 +91,7 @@ Lectura abierta a todo rol autenticado; escritura `admin` (cost-category tambié
 `POST /client` (rate limit 60/min) — ingesta de logs del frontend.
 
 ### `/upload` — `upload.routes.ts` — autenticado
-`POST /` — sube a Cloudinary.
+`POST /` — sube a Cloudinary. Desde el 2026-10-19 ([DEC-035](08-DECISIONS.md)) el original se guarda con tope de 2560 px de lado (`UPLOAD_IMAGE_LIMIT`, transformación de entrada) y la respuesta `{ url, public_id }` trae en `url` la URL **optimizada** (`/image/upload/f_auto,q_auto/v1/…`, `webImageUrl` en `config/cloudinary.ts`), no `secure_url`. Misma forma de respuesta; solo cambia el valor de `url`.
 
 ### `/products` — `product.routes.ts` — autenticado, escritura `admin`
 CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso funcional confirmado en el resto de la app**, ver [05-DATABASE.md](05-DATABASE.md) inconsistencia #1.
@@ -131,7 +131,9 @@ CRUD del catálogo genérico legado (`Product`/`ProductCategory`) — **sin uso 
 - **Estado**: Implementado y verificado.
 - **Uso**: imágenes de pedidos, tabla de talles, productos de catálogo (hasta 5 por producto, `MAX_PRODUCT_IMAGES` en `catalog.service.ts`; antes 3, normalizadas a 3:4 / 1200x1600), comprobantes de transferencia (URLs **firmadas/autenticadas**, no públicas), logos.
 - **Config**: `backIndians/src/config/cloudinary.ts`.
-- **Env vars**: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
+- **Env vars**: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`. Desarrollo usa una cuenta distinta de la de producción (`zudvsibg`).
+- **Plan y costo** (2026-10-19): Small PAYG, USD 29 / 60 créditos por mes + USD 0,55 por crédito extra; ciclo del 18 de cada mes. En el ciclo 18/09–17/10 se usaron 141 créditos (≈ USD 74), **98 % ancho de banda de imágenes**. Ver [DEC-035](08-DECISIONS.md).
+- **Entrega optimizada**: el frontend nunca muestra una URL de Cloudinary cruda: `frontIndians/src/utils/cloudinary.ts` (`cldUrl`, `cldSrcSet`) y `components/ui/CldImage.tsx` (`CldImg`, `CldPicture`) agregan `c_limit,w_N/f_auto,q_auto` con anchos de una escala fija (`CLD_WIDTHS`). Reconocen tres formas: original crudo, la URL de `POST /upload` y el recorte 3:4 del catálogo (le bajan el `w_`); cualquier otra (alto fijo, firmada, video) la dejan intacta. **Toda imagen nueva de Cloudinary en el front tiene que pasar por ahí.**
 
 ### Google OAuth (login social de tienda)
 - **Estado**: Implementado y verificado, opcional (si no hay `client_id` configurado, el botón no aparece).
