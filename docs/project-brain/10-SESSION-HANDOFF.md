@@ -2,7 +2,7 @@
 
 ## Última sesión: 2026-10-19 (tarde) — Sección «Bolsos y Mochilas» + regla de ramas
 
-Rama `feature/tienda-bolsos-mochilas` en ambos repos (commiteada, sin mergear ni deployar). Front: ítem propio «Bolsos y Mochilas» en el menú (sin género, tag `Bolso,Mochila`), título/SEO y link en footer; tests `storeNav` 19/19. Sin backend. Falta: probar en navegador, cargar productos con tag `Bolso`/`Mochila`, decidir si se siembra un tipo de prenda «Bolso / Mochila». **Regla nueva**: en `master` nunca se trabaja; cada sesión arranca en rama `feature|fix|hotfix|chore/<tema>` (ver CLAUDE.md y 07).
+Rama `feature/tienda-bolsos-mochilas` en ambos repos (commiteada, sin mergear ni deployar). Front: ítem propio «Bolsos y Mochilas» en el menú (sin género, tag `Bolso,Mochila`), título/SEO y link en footer; tests `storeNav` 19/19. Sin backend. Migración 112 siembra el tipo de prenda «Bolso / Mochila» por cliente (escrita, NO ejecutada: correr `npm run migrate` en dev y en producción con el flujo de release). Falta: probar en navegador y cargar productos con tag `Bolso`/`Mochila`. **Regla nueva**: en `master` nunca se trabaja; cada sesión arranca en rama `feature|fix|hotfix|chore/<tema>` (ver CLAUDE.md y 07).
 
 ## Sesión: 2026-10-19 — Consumo de Cloudinary (optimización de imágenes)
 
