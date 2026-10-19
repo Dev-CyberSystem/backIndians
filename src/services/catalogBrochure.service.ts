@@ -13,8 +13,9 @@ import {
 
 // Catálogo PDF para presentar a clientes e inversionistas. Toma exactamente lo
 // que la tienda publica (mismo filtro que listStoreProducts: show_in_store,
-// active y cliente activo) con el precio que figura en la tienda. No usa la
-// ficha técnica ni el precio mayorista: es material para mandar afuera.
+// active y cliente activo). El precio principal es el MAYORISTA (`price`) y el
+// de la tienda online va como "Precio sugerido de venta al público". No usa la
+// ficha técnica: es material para mandar afuera.
 
 export const BROCHURE_VERSIONS: BrochureVersion[] = ['commercial', 'investor'];
 
@@ -36,20 +37,22 @@ const MONTHS = [
 ];
 
 /**
- * Precio de lista y precio final tal como los muestra la tienda: precio
- * público (o el mayorista si no tiene), descuento válido entre 1 y 100 y la
- * regla de redondeo. MISMO cálculo que `effectivePrice` de
+ * Precio mayorista (`price`, redondeado) y precio de la tienda: de lista
+ * (`base`) y final (`final`, el "sugerido al público"). El de la tienda usa el
+ * precio público (o el mayorista si no tiene), descuento válido entre 1 y 100 y
+ * la regla de redondeo: MISMO cálculo que `effectivePrice` de
  * frontIndians/src/utils/price.ts.
  */
 export function storeDisplayPrice(p: {
   price: number | string;
   public_price: number | string | null;
   discount_percentage: number | null;
-}): { base: number; final: number; discount: number } {
+}): { wholesale: number; base: number; final: number; discount: number } {
   const base = Number(p.public_price ?? p.price);
   const d = Number(p.discount_percentage ?? 0);
   const discount = d > 0 && d <= 100 ? d : 0;
   return {
+    wholesale: roundPrice(p.price),
     base: roundPrice(base),
     final: roundPrice(discount > 0 ? (base * (100 - discount)) / 100 : base),
     discount,
@@ -134,6 +137,7 @@ export async function buildCatalogBrochure(version: BrochureVersion): Promise<{ 
       description: p.description,
       category: (p.category ?? '').trim() || UNCATEGORIZED,
       genderLabel: p.gender ? GENDER_LABELS[p.gender] ?? null : null,
+      wholesalePrice: price.wholesale,
       basePrice: price.base,
       finalPrice: price.final,
       discount: price.discount,

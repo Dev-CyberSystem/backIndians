@@ -94,12 +94,14 @@ describe('Catálogo PDF — API', () => {
 });
 
 describe('Catálogo PDF — precio y fotos', () => {
-  it('usa el precio de la tienda: público con descuento y redondeo', () => {
+  it('muestra el mayorista y, como sugerido, el precio de la tienda (público con descuento y redondeo)', () => {
     expect(storeDisplayPrice({ price: 8000, public_price: 12000, discount_percentage: 25 }))
-      .toEqual({ base: 12000, final: 9000, discount: 25 });
-    // Sin precio público cae al mayorista; descuento fuera de rango no aplica.
+      .toEqual({ wholesale: 8000, base: 12000, final: 9000, discount: 25 });
+    // Sin precio público la tienda cobra el mayorista; descuento fuera de rango no aplica.
     expect(storeDisplayPrice({ price: '8000.00', public_price: null, discount_percentage: 0 }))
-      .toEqual({ base: 8000, final: 8000, discount: 0 });
+      .toEqual({ wholesale: 8000, base: 8000, final: 8000, discount: 0 });
+    // El descuento es del precio de la tienda: el mayorista no se toca.
+    expect(storeDisplayPrice({ price: 999, public_price: 2000, discount_percentage: 50 }).wholesale).toBe(999);
     expect(storeDisplayPrice({ price: 1000, public_price: null, discount_percentage: 150 }).final).toBe(1000);
     // Redondeo del negocio: ,50 abajo / ,51 arriba (999 * 0.85 = 849,15 → 849).
     expect(storeDisplayPrice({ price: 999, public_price: null, discount_percentage: 15 }).final).toBe(849);

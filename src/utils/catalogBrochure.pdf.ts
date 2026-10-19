@@ -21,9 +21,11 @@ export interface BrochureProduct {
   description: string | null;
   category: string;
   genderLabel: string | null;
+  /** Precio de venta mayorista: el principal del catálogo. */
+  wholesalePrice: number;
   /** Precio de lista de la tienda (antes del descuento). */
   basePrice: number;
-  /** Precio que cobra la tienda (con descuento y redondeo). */
+  /** Precio que cobra la tienda (con descuento y redondeo): el "sugerido al público". */
   finalPrice: number;
   discount: number;
   sizes: string[];
@@ -193,16 +195,18 @@ function drawPhoto(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: nu
     drawIndiansMark(doc, x + (w - size) / 2, y + (h - size) / 2, size, MARK_PLACEHOLDER);
   }
 
-  if (p.discount > 0) {
-    const label = `-${p.discount}%`;
-    doc.font('Helvetica-Bold').fontSize(8);
-    const bw = doc.widthOfString(label) + 10;
-    doc.rect(x + 6, y + 6, bw, 15).fill(CLAY);
-    doc.fillColor('#FFFFFF').text(label, x + 6, y + 10, { width: bw, align: 'center', lineBreak: false });
-  }
 }
 
-/** Precio final + precio de lista tachado si tiene descuento. */
+/** Precio mayorista (el principal) seguido de la etiqueta "mayorista". */
+function drawWholesale(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: number, size: number) {
+  const amount = money(p.wholesalePrice);
+  doc.fillColor(INK).font('Helvetica-Bold').fontSize(size).text(amount, x, y, { lineBreak: false });
+  const w = doc.widthOfString(amount);
+  doc.fillColor(LIGHT).font('Helvetica').fontSize(size * 0.68)
+    .text('mayorista', x + w + 5, y + size * 0.26, { lineBreak: false });
+}
+
+/** Precio de la tienda: final + precio de lista tachado si tiene descuento. */
 function drawPrice(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: number, size: number) {
   const final = money(p.finalPrice);
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(size).text(final, x, y, { lineBreak: false });
@@ -226,7 +230,7 @@ const C_GAP = 14;
 const C_ROW_GAP = 18;
 const C_CARD_W = (CONTENT_W - C_GAP * (C_COLS - 1)) / C_COLS;
 const C_PHOTO_H = C_CARD_W * (4 / 3);
-const C_CARD_H = C_PHOTO_H + 100;
+const C_CARD_H = C_PHOTO_H + 108;
 const C_QR = 38;
 
 function drawCommercialCard(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: number) {
@@ -238,17 +242,21 @@ function drawCommercialCard(doc: PDFKit.PDFDocument, p: BrochureProduct, x: numb
 
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(9)
     .text(oneLine(p.title), x, ty, { width: textW, height: 22, ellipsis: true });
-  drawPrice(doc, p, x, ty + 24, 10.5);
+  drawWholesale(doc, p, x, ty + 24, 10.5);
+  // Debajo del QR (termina en ty + C_QR): ancho completo de la tarjeta.
+  doc.fillColor(GRAY).font('Helvetica').fontSize(6.5)
+    .text('Precio sugerido de venta al público', x, ty + 40, { width: C_CARD_W, lineBreak: false });
+  drawPrice(doc, p, x, ty + 49, 9);
 
   if (p.sizes.length > 0) {
     doc.fillColor(GRAY).font('Helvetica').fontSize(7)
-      .text(`Talles: ${p.sizes.join(' · ')}`, x, ty + 40, { width: textW, height: 9, ellipsis: true, lineBreak: false });
+      .text(`Talles: ${p.sizes.join(' · ')}`, x, ty + 62, { width: C_CARD_W, height: 9, ellipsis: true, lineBreak: false });
   }
 
   const desc = oneLine(p.description);
   if (desc) {
     doc.fillColor(GRAY).font('Helvetica').fontSize(7)
-      .text(desc, x, ty + 54, { width: C_CARD_W, height: 34, ellipsis: true, lineGap: 1 });
+      .text(desc, x, ty + 73, { width: C_CARD_W, height: 27, ellipsis: true, lineGap: 1 });
   }
 }
 
@@ -278,7 +286,7 @@ const I_GAP = 20;
 const I_ROW_GAP = 22;
 const I_CARD_W = (CONTENT_W - I_GAP) / I_COLS;
 const I_PHOTO_H = 256;
-const I_CARD_H = I_PHOTO_H + 64;
+const I_CARD_H = I_PHOTO_H + 74;
 
 function drawInvestorCard(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: number) {
   drawPhoto(doc, p, x, y, I_CARD_W, I_PHOTO_H);
@@ -287,22 +295,27 @@ function drawInvestorCard(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(11)
     .text(oneLine(p.title), x, ty, { width: I_CARD_W * 0.62, height: 14, ellipsis: true, lineBreak: false });
 
-  // Precio alineado a la derecha del título.
+  // Precio mayorista alineado a la derecha del título.
   doc.font('Helvetica-Bold').fontSize(11);
-  const priceW = doc.widthOfString(money(p.finalPrice));
-  drawPrice(doc, { ...p, discount: 0 }, x + I_CARD_W - priceW, ty, 11);
+  const wholesaleW = doc.widthOfString(money(p.wholesalePrice));
+  doc.fillColor(INK).text(money(p.wholesalePrice), x + I_CARD_W - wholesaleW, ty, { lineBreak: false });
+  doc.fillColor(LIGHT).font('Helvetica').fontSize(7).text('PRECIO MAYORISTA', x + I_CARD_W - 80, ty + 14, { width: 80, align: 'right', lineBreak: false });
 
   // La categoría suele coincidir con el género ("Hombre" / masculino): no repetirlo.
   const sameAsCategory = p.genderLabel?.toLowerCase() === p.category.toLowerCase();
   const meta = [p.category, sameAsCategory ? null : p.genderLabel].filter(Boolean).join(' · ');
-  const metaLine = p.discount > 0 ? `${meta}  ·  antes ${money(p.basePrice)}` : meta;
   doc.fillColor(CLAY).font('Helvetica').fontSize(7.5)
-    .text(metaLine.toUpperCase(), x, ty + 17, { width: I_CARD_W, lineBreak: false, ellipsis: true, characterSpacing: 0.6 });
+    .text(meta.toUpperCase(), x, ty + 17, { width: I_CARD_W - 90, lineBreak: false, ellipsis: true, characterSpacing: 0.6 });
+
+  // Precio de la tienda online como sugerido al público.
+  const label = 'Precio sugerido de venta al público: ';
+  doc.fillColor(GRAY).font('Helvetica').fontSize(7.5).text(label, x, ty + 31, { lineBreak: false });
+  drawPrice(doc, p, x + doc.widthOfString(label), ty + 30, 8.5);
 
   const desc = oneLine(p.description);
   if (desc) {
     doc.fillColor(GRAY).font('Helvetica').fontSize(7.5)
-      .text(desc, x, ty + 31, { width: I_CARD_W, height: 21, ellipsis: true, lineGap: 1 });
+      .text(desc, x, ty + 46, { width: I_CARD_W, height: 21, ellipsis: true, lineGap: 1 });
   }
 }
 
@@ -353,14 +366,14 @@ function drawBrandAndNumbers(doc: PDFKit.PDFDocument, data: BrochureData) {
 
   const products = data.products;
   const groups = groupByCategory(products);
-  const prices = products.map((p) => p.finalPrice);
+  const prices = products.map((p) => p.wholesalePrice);
   const priceRange = prices.length
     ? `${money(Math.min(...prices))} – ${money(Math.max(...prices))}`
     : '—';
   const statW = (CONTENT_W - 2 * 12) / 3;
   drawStat(doc, String(products.length), 'Productos publicados', MARGIN, y, statW);
   drawStat(doc, String(groups.length), 'Categorías', MARGIN + statW + 12, y, statW);
-  drawStat(doc, priceRange, 'Rango de precios', MARGIN + 2 * (statW + 12), y, statW);
+  drawStat(doc, priceRange, 'Rango de precios mayoristas', MARGIN + 2 * (statW + 12), y, statW);
   y += 100;
 
   // Tabla por categoría: cantidad de productos y rango de precios.
@@ -385,7 +398,7 @@ function drawBrandAndNumbers(doc: PDFKit.PDFDocument, data: BrochureData) {
       y = 80;
       header();
     }
-    const ps = list.map((p) => p.finalPrice);
+    const ps = list.map((p) => p.wholesalePrice);
     const values = [category, String(list.length), money(Math.min(...ps)), money(Math.max(...ps))];
     doc.fillColor(INK).font('Helvetica').fontSize(9.5);
     values.forEach((v, k) => doc.text(v, cols[k].x, y, { width: cols[k].w, align: cols[k].align, lineBreak: false, ellipsis: true }));

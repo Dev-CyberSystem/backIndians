@@ -4,7 +4,11 @@
 
 Rama `feature/tienda-bolsos-mochilas` en ambos repos (commiteada, sin mergear ni deployar). Front: ítem propio «Bolsos y Mochilas» en el menú (sin género, tag `Bolso,Mochila`), título/SEO y link en footer; tests `storeNav` 19/19. Sin backend. Migración 112 siembra el tipo de prenda «Bolso / Mochila» por cliente (escrita, NO ejecutada: correr `npm run migrate` en dev y en producción con el flujo de release). Falta: probar en navegador y cargar productos con tag `Bolso`/`Mochila`. **Regla nueva**: en `master` nunca se trabaja; cada sesión arranca en rama `feature|fix|hotfix|chore/<tema>` (ver CLAUDE.md y 07).
 
-## Última sesión: 2026-10-19 — Catálogo PDF para clientes e inversionistas
+## Última sesión: 2026-10-19 (noche) — Catálogo PDF: precio mayorista + sugerido al público
+
+Cambio pedido por el usuario sobre el catálogo PDF (sección de abajo): el precio principal pasa a ser el **mayorista** (`price`) y el precio de la tienda online se muestra como **"Precio sugerido de venta al público"** (antes se mostraba solo el de la tienda). Rama `feature/catalogo-pdf-precio-mayorista` en ambos repos (desde `master` con Bolsos y Mochilas + catálogo PDF ya mergeados, v1.13.0 + local), **sin mergear ni deployar**. Back: `storeDisplayPrice` devuelve además `wholesale`; `BrochureProduct.wholesalePrice`; ambas tarjetas rediseñadas; se quitó el badge de descuento de la foto; resumen de inversionistas en precio mayorista. Front: solo textos del modal. Test `catalog-brochure.test.ts` actualizado. Decisión de borde: sin `public_price` el sugerido coincide con el mayorista y se muestra igual.
+
+## Sesión: 2026-10-19 — Catálogo PDF para clientes e inversionistas
 
 Pedido: un PDF con fotos, descripción y precio de los productos de la tienda online, para presentar a clientes e inversionistas. Decisiones del usuario: **precio de la tienda**; **todo lo publicado** (con o sin stock); **solo admin y billing**; **dos versiones**; si no hay foto, **logo de Indians**; **fecha de generación sí, leyenda "precios vigentes" no**. Detalle funcional en 02 (módulo 9) y endpoint en 06.
 
