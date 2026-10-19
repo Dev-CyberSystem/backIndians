@@ -124,6 +124,10 @@ El release **no deploya**: al terminar imprime los comandos de push y de subida 
 | Envío a AFIP falla siempre | `afip_enabled` no está en `'true'` en `settings`, o faltan `AFIP_CERT_BASE64`/`AFIP_KEY_BASE64` | esperado sin certificado real cargado — ver [BR-AFIP-001](03-BUSINESS-RULES.md) |
 | Refresh de sesión falla tras editar el usuario en DB directamente | `session_version` desincronizado | volver a loguear |
 
+## Ramas (regla obligatoria)
+
+En `master` nunca se trabaja. Cada sesión nueva crea primero una rama desde `master` en cada repo que toque: `feature/<tema>` (o `feat/`), `fix/<tema>`, `hotfix/<tema>` o `chore/<tema>`, según el tipo de tarea; mismo nombre en back y front. Se integra a `master` solo por merge, con confirmación del usuario.
+
 ## Convenciones de nombres y estructura
 
 - **Idioma**: comentarios y documentación en español; identificadores de código (variables, funciones, tablas, columnas) en inglés.

@@ -1,6 +1,10 @@
 # 10 — Entrega entre sesiones
 
-## Última sesión: 2026-10-19 — Consumo de Cloudinary (optimización de imágenes)
+## Última sesión: 2026-10-19 (tarde) — Sección «Bolsos y Mochilas» + regla de ramas
+
+Rama `feature/tienda-bolsos-mochilas` en ambos repos (commiteada, sin mergear ni deployar). Front: ítem propio «Bolsos y Mochilas» en el menú (sin género, tag `Bolso,Mochila`), título/SEO y link en footer; tests `storeNav` 19/19. Sin backend. Falta: probar en navegador, cargar productos con tag `Bolso`/`Mochila`, decidir si se siembra un tipo de prenda «Bolso / Mochila». **Regla nueva**: en `master` nunca se trabaja; cada sesión arranca en rama `feature|fix|hotfix|chore/<tema>` (ver CLAUDE.md y 07).
+
+## Sesión: 2026-10-19 — Consumo de Cloudinary (optimización de imágenes)
 
 Diagnóstico con el reporte de uso del usuario: ciclo 18/09–17/10 = 141 créditos (≈ USD 74 con el excedente), **98 % ancho de banda de imágenes**. Causa: las imágenes del landing cargadas por `POST /upload` se servían originales (PNG de hasta 8,8 MB). Ver [DEC-035](08-DECISIONS.md) y 06 (Cloudinary).
 

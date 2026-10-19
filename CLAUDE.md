@@ -22,6 +22,12 @@ REST JSON bajo `/api/v1`. Dos JWT completamente independientes (staff vs. compra
 - **Nunca leer ni volcar a documentación/commits** el contenido de `.env`, `.env.bak`, `.env.deploy`, `.env.production`, ni `backIndians/documentos/Users.txt` — contienen secretos reales.
 - **`STORE_ORDER_TRANSITIONS` está duplicado** entre `backIndians/src/config/storeOrderFlow.ts` y `frontIndians/src/api/store.ts` — si se toca uno, hay que tocar el otro (deuda técnica conocida, no una decisión a repetir en código nuevo).
 
+## Ramas: en `master` nunca se trabaja
+
+- **Toda sesión nueva arranca creando una rama aparte desde `master`**, en cada repo que se vaya a tocar, antes de editar nada. Si al empezar ya estás en `master` con cambios sin commitear, creá la rama (`git checkout -b`) antes de commitear: los cambios viajan con vos.
+- Nombre según el tipo de tarea: `feature/<tema>` (o `feat/`) funcionalidad nueva, `fix/<tema>` bug, `hotfix/<tema>` urgencia en producción, `chore/<tema>` mantenimiento/infra. Minúsculas con guiones, mismo nombre en ambos repos cuando la tarea toca los dos.
+- Nada se commitea directo a `master`; entra por merge de la rama, con confirmación del usuario (ver release en `docs/project-brain/11-RELEASE-Y-ROLLBACK.md`).
+
 ## Convenciones de desarrollo
 
 Comentarios/documentación en español, identificadores de código en inglés. Lógica de negocio en `services/`, no en `controllers/`. Getters DECIMAL→number en todo modelo con campos monetarios. `createdAt`/`updatedAt` camelCase (no repetir la excepción de `store_wishlist`). Detalle completo en `backIndians/docs/project-brain/07-DEVELOPMENT-GUIDE.md`.
