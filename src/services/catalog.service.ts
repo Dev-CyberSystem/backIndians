@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { v2 as cloudinary } from 'cloudinary';
+import { UPLOAD_IMAGE_LIMIT } from '../config/cloudinary';
 import { type Includeable, Op, Transaction, UniqueConstraintError } from 'sequelize';
 import { AppError } from '../middlewares/errorHandler';
 import { invalidateCache } from '../utils/cache';
@@ -423,7 +424,7 @@ export async function addProductImage(
 
   const result = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
     cloudinary.uploader.upload_stream(
-      { folder: 'indians/catalog', resource_type: 'image' },
+      { folder: 'indians/catalog', resource_type: 'image', transformation: [UPLOAD_IMAGE_LIMIT] },
       (err, res) => {
         if (err || !res) return reject(err || new Error('Upload fallido'));
         resolve({ secure_url: res.secure_url, public_id: res.public_id });

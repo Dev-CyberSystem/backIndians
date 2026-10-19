@@ -23,7 +23,7 @@ import {
   OrderStatus, JwtPayload, SizesMap,
   CollarType, SleeveType, Sponsor, Customization,
 } from '../types';
-import { cloudinary, deleteImage } from '../config/cloudinary';
+import { cloudinary, deleteImage, UPLOAD_IMAGE_LIMIT } from '../config/cloudinary';
 import { getIO } from '../config/socket';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -747,7 +747,7 @@ export async function uploadOrderImage(
     const result = await new Promise<{ secure_url: string; public_id: string }>(
       (resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
-          { folder: `textil/orders/${orderId}` },
+          { folder: `textil/orders/${orderId}`, transformation: [UPLOAD_IMAGE_LIMIT] },
           (error, result) => {
             if (error || !result) return reject(error || new Error('Upload fallido'));
             resolve({ secure_url: result.secure_url, public_id: result.public_id });
@@ -802,7 +802,7 @@ export async function uploadItemSizeChart(
     const result = await new Promise<{ secure_url: string; public_id: string }>(
       (resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
-          { folder: `textil/orders/${orderId}/size-charts` },
+          { folder: `textil/orders/${orderId}/size-charts`, transformation: [UPLOAD_IMAGE_LIMIT] },
           (error, res) => {
             if (error || !res) return reject(error || new Error('Upload fallido'));
             resolve({ secure_url: res.secure_url, public_id: res.public_id });

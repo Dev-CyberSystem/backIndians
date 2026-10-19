@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { upload, uploadVideo } from '../middlewares/upload';
-import { cloudinary, WEB_VIDEO_TRANSFORMATION, homeVideoUrls } from '../config/cloudinary';
+import { cloudinary, WEB_VIDEO_TRANSFORMATION, homeVideoUrls, UPLOAD_IMAGE_LIMIT, webImageUrl } from '../config/cloudinary';
 import type { AuthRequest } from '../types';
 
 const router = Router();
@@ -23,7 +23,7 @@ router.post(
 
       const result = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
         cloudinary.uploader.upload_stream(
-          { folder, resource_type: 'image' },
+          { folder, resource_type: 'image', transformation: [UPLOAD_IMAGE_LIMIT] },
           (err, res) => {
             if (err || !res) return reject(err || new Error('Upload fallido'));
             resolve({ secure_url: res.secure_url, public_id: res.public_id });
@@ -31,7 +31,9 @@ router.post(
         ).end(req.file!.buffer);
       });
 
-      res.status(201).json({ success: true, data: { url: result.secure_url, public_id: result.public_id } });
+      // URL optimizada, no `secure_url` (el original crudo): es lo que se guarda en
+      // la configuración de la tienda y se entrega en cada visita.
+      res.status(201).json({ success: true, data: { url: webImageUrl(result.public_id), public_id: result.public_id } });
     } catch (err) {
       next(err);
     }
