@@ -3,6 +3,27 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.13.1 — 2026-10-20
+
+### backIndians (058d878)
+
+- feat(catalogo): catalogo PDF de una sola version y fix de texto superpuesto
+- feat(catalogo): PDF con precio mayorista y precio sugerido al publico
+- feat(catalogo): catalogo PDF para clientes e inversionistas
+- feat(sistema): siembra tipo de prenda Bolso / Mochila por cliente (migracion 112)
+- docs: seccion Bolsos y Mochilas y regla de ramas (master no se toca)
+- perf(cloudinary): /upload devuelve URL optimizada y achica el original al subir
+- docs(handoff): sesión expulsada al guardar costos (tablet), logs de diagnóstico
+
+### frontIndians (73abfeb)
+
+- feat(catalogo): el boton Catalogo PDF descarga directo (una sola version)
+- feat(catalogo): textos del modal del catalogo PDF con precio mayorista y sugerido
+- feat(catalogo): boton y modal para descargar el catalogo PDF
+- feat(tienda): seccion propia Bolsos y Mochilas en el menu
+- perf(cloudinary): entrega optimizada de imagenes en tienda y panel
+- fix(auth): avisar motivo del cierre de sesión, borrador de costos, log de logout forzado, inactividad 30 min
+
 ## v1.13.0 — 2026-10-13
 
 ### backIndians (1d5902c)
