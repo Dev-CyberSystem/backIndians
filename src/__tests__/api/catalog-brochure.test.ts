@@ -1,6 +1,8 @@
 import { api, API, loginAs, auth } from './helpers';
 import { CatalogProductImage } from '../../models';
+import PDFDocument from 'pdfkit';
 import { brochureImageUrl, storeDisplayPrice } from '../../services/catalogBrochure.service';
+import { fitText } from '../../utils/catalogBrochure.pdf';
 
 /*
  * Catálogo PDF (GET /catalog/brochure): presentación para clientes e
@@ -26,10 +28,13 @@ describe('Catálogo PDF — API', () => {
     const clients = await api().get(`${API}/clients`).set(...auth(admin));
     const clientId = (clients.body.data?.rows ?? clients.body.data)[0].id;
 
-    // Al menos un producto publicado, con descuento y con una foto.
+    // Al menos un producto publicado, con descuento y con una foto. Título y
+    // categoría largos a propósito: antes pisaban la línea del precio sugerido.
     const create = await api().post(`${API}/catalog/products`).set(...auth(admin)).send({
       client_id: clientId,
-      title: `Producto Catálogo PDF QA ${Date.now()}`,
+      title: `Producto Catálogo PDF QA con un nombre bastante largo ${Date.now()}`,
+      category: `Categoría QA con un nombre muy largo ${Date.now()}`,
+      gender: 'femenino',
       price: 8000,
       public_price: 12000,
       discount_percentage: 25,
@@ -51,17 +56,16 @@ describe('Catálogo PDF — API', () => {
 
   afterEach(() => fetchSpy.mockRestore());
 
-  it.each(['commercial', 'investor'])('admin descarga la versión %s aunque las fotos no carguen', async (version) => {
+  it('admin descarga el catálogo aunque las fotos no carguen', async () => {
     const res = await api()
-      .get(`${API}/catalog/brochure?version=${version}`)
+      .get(`${API}/catalog/brochure`)
       .set(...auth(admin))
       .buffer(true)
       .parse(binaryParser);
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('application/pdf');
-    const suffix = version === 'investor' ? 'inversionistas' : 'clientes';
-    expect(res.headers['content-disposition']).toMatch(new RegExp(`catalogo-indians-${suffix}-\\d{4}-\\d{2}-\\d{2}\\.pdf`));
+    expect(res.headers['content-disposition']).toMatch(/catalogo-indians-\d{4}-\d{2}-\d{2}\.pdf/);
     expect((res.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
     // Las fotos se piden en JPEG (pdfkit no lee WebP/AVIF de f_auto).
     const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
@@ -69,15 +73,9 @@ describe('Catálogo PDF — API', () => {
     expect(urls.every((u) => !u.includes('f_auto'))).toBe(true);
   });
 
-  it('sin versión usa la de clientes', async () => {
-    const res = await api().get(`${API}/catalog/brochure`).set(...auth(admin));
-    expect(res.status).toBe(200);
-    expect(res.headers['content-disposition']).toContain('catalogo-indians-clientes-');
-  });
-
   it('facturación también puede descargarlo', async () => {
     const billing = await loginAs('billing');
-    const res = await api().get(`${API}/catalog/brochure?version=investor`).set(...auth(billing));
+    const res = await api().get(`${API}/catalog/brochure`).set(...auth(billing));
     expect(res.status).toBe(200);
   });
 
@@ -86,20 +84,29 @@ describe('Catálogo PDF — API', () => {
     const res = await api().get(`${API}/catalog/brochure`).set(...auth(token));
     expect(res.status).toBe(403);
   });
-
-  it('rechaza una versión inexistente', async () => {
-    const res = await api().get(`${API}/catalog/brochure?version=otra`).set(...auth(admin));
-    expect(res.status).toBe(422);
-  });
 });
 
-describe('Catálogo PDF — precio y fotos', () => {
-  it('usa el precio de la tienda: público con descuento y redondeo', () => {
+describe('Catálogo PDF — precio, fotos y texto', () => {
+  it('recorta el texto a una línea que entra en el ancho (no pisa lo de abajo)', () => {
+    const doc = new PDFDocument({ size: 'A4', margin: 0 });
+    doc.font('Helvetica').fontSize(7.5);
+    const long = 'NAVQA 1791910667654-134181 · MUJER';
+    const fitted = fitText(doc, long, 120, 0.6);
+    expect(fitted.endsWith('…')).toBe(true);
+    expect(doc.widthOfString(fitted, { characterSpacing: 0.6 })).toBeLessThanOrEqual(120);
+    // Si entra, queda tal cual.
+    expect(fitText(doc, 'Hombre', 120, 0.6)).toBe('Hombre');
+    doc.end();
+  });
+
+  it('muestra el mayorista y, como sugerido, el precio de la tienda (público con descuento y redondeo)', () => {
     expect(storeDisplayPrice({ price: 8000, public_price: 12000, discount_percentage: 25 }))
-      .toEqual({ base: 12000, final: 9000, discount: 25 });
-    // Sin precio público cae al mayorista; descuento fuera de rango no aplica.
+      .toEqual({ wholesale: 8000, base: 12000, final: 9000, discount: 25 });
+    // Sin precio público la tienda cobra el mayorista; descuento fuera de rango no aplica.
     expect(storeDisplayPrice({ price: '8000.00', public_price: null, discount_percentage: 0 }))
-      .toEqual({ base: 8000, final: 8000, discount: 0 });
+      .toEqual({ wholesale: 8000, base: 8000, final: 8000, discount: 0 });
+    // El descuento es del precio de la tienda: el mayorista no se toca.
+    expect(storeDisplayPrice({ price: 999, public_price: 2000, discount_percentage: 50 }).wholesale).toBe(999);
     expect(storeDisplayPrice({ price: 1000, public_price: null, discount_percentage: 150 }).final).toBe(1000);
     // Redondeo del negocio: ,50 abajo / ,51 arriba (999 * 0.85 = 849,15 → 849).
     expect(storeDisplayPrice({ price: 999, public_price: null, discount_percentage: 15 }).final).toBe(849);

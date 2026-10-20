@@ -4,7 +4,16 @@
 
 Rama `feature/tienda-bolsos-mochilas` en ambos repos (commiteada, sin mergear ni deployar). Front: ítem propio «Bolsos y Mochilas» en el menú (sin género, tag `Bolso,Mochila`), título/SEO y link en footer; tests `storeNav` 19/19. Sin backend. Migración 112 siembra el tipo de prenda «Bolso / Mochila» por cliente (escrita, NO ejecutada: correr `npm run migrate` en dev y en producción con el flujo de release). Falta: probar en navegador y cargar productos con tag `Bolso`/`Mochila`. **Regla nueva**: en `master` nunca se trabaja; cada sesión arranca en rama `feature|fix|hotfix|chore/<tema>` (ver CLAUDE.md y 07).
 
-## Última sesión: 2026-10-19 — Catálogo PDF para clientes e inversionistas
+## Última sesión: 2026-10-19 (noche) — Catálogo PDF: precio mayorista + sugerido, una sola versión
+
+Cambios pedidos por el usuario sobre el catálogo PDF (sección de abajo), en la rama `feature/catalogo-pdf-precio-mayorista` (ambos repos, desde `master` con Bolsos y Mochilas + catálogo PDF ya mergeados), **sin mergear ni deployar**:
+1. El precio principal pasa a ser el **mayorista** (`price`) y el de la tienda online va como **"Precio sugerido de venta al público"** (antes solo se mostraba el de la tienda). `storeDisplayPrice` devuelve además `wholesale`; se quitó el badge "-x%" de la foto; el resumen de la colección está en precio mayorista. Sin `public_price` el sugerido coincide con el mayorista y se muestra igual.
+2. **Bug de diseño**: la categoría/título largos se partían en dos líneas y pisaban el precio sugerido. Causa: pdfkit con `lineBreak:false` + `ellipsis` igual envuelve. Se resolvió con `fitText` (recorta midiendo el ancho) + test unitario.
+3. **Se eliminó la versión "para clientes"** (QR por producto, talles): queda **una sola versión** (la de inversionistas, titulada "Catálogo de productos"). `GET /catalog/brochure` ya no recibe `version`; el archivo es `catalogo-indians-YYYY-MM-DD.pdf`; en el front se borró `CatalogBrochureModal.tsx` y el botón "Catálogo PDF" descarga directo.
+
+Validación: typecheck back/front limpio, eslint front limpio, `catalog-brochure.test.ts` 8/8, E2E `catalog-brochure.spec.ts` pasa, muestra revisada con nombres largos. Falta correr la suite completa antes de mergear.
+
+## Sesión: 2026-10-19 — Catálogo PDF para clientes e inversionistas
 
 Pedido: un PDF con fotos, descripción y precio de los productos de la tienda online, para presentar a clientes e inversionistas. Decisiones del usuario: **precio de la tienda**; **todo lo publicado** (con o sin stock); **solo admin y billing**; **dos versiones**; si no hay foto, **logo de Indians**; **fecha de generación sí, leyenda "precios vigentes" no**. Detalle funcional en 02 (módulo 9) y endpoint en 06.
 
