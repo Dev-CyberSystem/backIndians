@@ -30,6 +30,11 @@ describe('parseTagFilter', () => {
 describe('buildNavAvailability', () => {
   const names = new Map([[1, 'River'], [2, 'Boca'], [3, 'Argentina']]);
 
+  it('unisex cuenta como Hombre y como Mujer', () => {
+    const out = buildNavAvailability([{ category: 'Pádel', gender: 'unisex', client_id: 1, tags: [] }], names);
+    expect(out.category_genders['Pádel']).toEqual(['femenino', 'masculino', 'unisex']);
+  });
+
   it('agrupa géneros y clubes por categoría, ordenados por nombre', () => {
     const out = buildNavAvailability([
       { category: 'Fútbol', gender: 'masculino', client_id: 2, tags: ['Camiseta'] },
