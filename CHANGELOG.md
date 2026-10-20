@@ -3,6 +3,16 @@
 Releases coordinados de `backIndians` + `frontIndians`. Generado por `npm run release`.
 Cada versión corresponde a un tag `vX.Y.Z` presente en **ambos** repos.
 
+## v1.13.2 — 2026-10-20
+
+### backIndians (c695ed7)
+
+- fix(tienda): el filtro de genero incluye unisex en Hombre y Mujer
+
+### frontIndians (dab9ed1)
+
+- fix(tienda): el menu Deportes no lista clientes, solo categorias
+
 ## v1.13.1 — 2026-10-20
 
 ### backIndians (058d878)
