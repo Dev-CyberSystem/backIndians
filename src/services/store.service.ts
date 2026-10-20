@@ -232,7 +232,8 @@ export async function listStoreProducts(filters: StoreProductFilters = {}) {
   }
 
   if (filters.gender) {
-    conditions.push({ gender: filters.gender });
+    // Unisex sirve para Hombre y para Mujer: se incluye en ambos filtros.
+    conditions.push({ gender: ['masculino', 'femenino'].includes(filters.gender) ? { [Op.in]: [filters.gender, 'unisex'] } : filters.gender });
   }
 
   if (filters.size) {

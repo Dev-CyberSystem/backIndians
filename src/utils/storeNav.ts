@@ -67,7 +67,10 @@ export function buildNavAvailability(
 
     if (row.gender) {
       if (!genders.has(category)) genders.set(category, new Set());
-      genders.get(category)!.add(row.gender);
+      // Unisex cuenta como Hombre y como Mujer (el filtro de la tienda lo incluye en ambos).
+      const set = genders.get(category)!;
+      if (row.gender === 'unisex') { set.add('masculino'); set.add('femenino'); }
+      set.add(row.gender);
     }
     if (productTags.length > 0) {
       if (!tags.has(category)) tags.set(category, new Set());
