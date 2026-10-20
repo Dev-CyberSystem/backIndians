@@ -5,15 +5,11 @@ import { drawIndiansLogoImage, INDIANS_LOGO_ASPECT_RATIO } from './indiansLogoIm
 import { formatPriceNumber } from './money';
 
 // ─── Catálogo PDF de la tienda (presentación a clientes e inversionistas) ────
-// Dos versiones del mismo contenido (los productos publicados en la tienda, con
-// el precio que figura en la tienda):
-//   - commercial: para clientes. Grilla de 6 por página con talles,
-//     descripción y un QR por producto que abre su ficha en la tienda.
-//   - investor:   para inversionistas. Página de la marca + la colección en
-//     números, y una galería de 4 por página con fotos más grandes.
-// Si la foto de un producto no se pudo descargar, en su lugar va el isotipo.
-
-export type BrochureVersion = 'commercial' | 'investor';
+// Portada, página de la marca + la colección en números, y una galería de 4
+// productos por página con foto grande. Los productos son los publicados en la
+// tienda: el precio principal es el mayorista y el de la tienda online va debajo
+// como "Precio sugerido de venta al público". Si la foto de un producto no se
+// pudo descargar, en su lugar va el isotipo.
 
 export interface BrochureProduct {
   id: number;
@@ -28,15 +24,11 @@ export interface BrochureProduct {
   /** Precio que cobra la tienda (con descuento y redondeo): el "sugerido al público". */
   finalPrice: number;
   discount: number;
-  sizes: string[];
   /** JPEG/PNG listo para incrustar, o null si no hay foto o no se pudo bajar. */
   image: Buffer | null;
-  /** Ficha del producto en la tienda (destino del QR). */
-  url: string;
 }
 
 export interface BrochureData {
-  version: BrochureVersion;
   /** Fecha de generación, ya en formato dd/mm/aaaa (zona horaria del negocio). */
   generatedOn: string;
   /** "Octubre 2026" para la portada. */
@@ -73,10 +65,7 @@ const FOOTER_Y = 806;
 
 const money = (n: number) => `$ ${formatPriceNumber(n)}`;
 
-const TITLES: Record<BrochureVersion, string> = {
-  commercial: 'Catálogo de productos',
-  investor: 'Presentación de productos',
-};
+const TITLE = 'Catálogo de productos';
 
 const MANIFESTO = [
   'En Indians creemos en el esfuerzo de cada día, en la pasión que nos mueve y en la fuerza de '
@@ -93,6 +82,20 @@ const oneLine = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ')
 /** "https://indians.com.ar/tienda" → "indians.com.ar/tienda" (para mostrar). */
 const displayUrl = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
+/**
+ * Recorta `text` a una sola línea de a lo sumo `maxW` puntos, con "…". Mide con
+ * la fuente y el tamaño que tenga el documento en ese momento: setearlos antes.
+ * Hace falta porque pdfkit, con `lineBreak: false` + `ellipsis`, igual parte el
+ * texto en una segunda línea cuando no entra y pisa lo que haya debajo.
+ */
+export function fitText(doc: PDFKit.PDFDocument, text: string, maxW: number, characterSpacing = 0): string {
+  const width = (t: string) => doc.widthOfString(t, { characterSpacing });
+  if (width(text) <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && width(`${t}…`) > maxW) t = t.slice(0, -1);
+  return `${t.trimEnd()}…`;
+}
+
 function groupByCategory(products: BrochureProduct[]): Array<[string, BrochureProduct[]]> {
   const groups = new Map<string, BrochureProduct[]>();
   for (const p of products) {
@@ -104,9 +107,8 @@ function groupByCategory(products: BrochureProduct[]): Array<[string, BrochurePr
 }
 
 /**
- * QR dibujado como vector (rectángulos por tramos de módulos oscuros) en vez
- * de PNG: con un QR por producto, codificar y volver a decodificar cientos de
- * PNG era lo más lento del PDF. Además sale nítido al imprimir.
+ * QR dibujado como vector (rectángulos por tramos de módulos oscuros): sale
+ * nítido al imprimir y no pasa por codificar/decodificar un PNG.
  */
 function drawQr(doc: PDFKit.PDFDocument, url: string, x: number, y: number, size: number) {
   const { modules } = QRCode.create(url, { errorCorrectionLevel: 'M' });
@@ -139,7 +141,7 @@ function drawCover(doc: PDFKit.PDFDocument, data: BrochureData) {
   doc.moveTo(PAGE_W / 2 - 30, 380).lineTo(PAGE_W / 2 + 30, 380).lineWidth(1.5).stroke(CLAY);
 
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(26)
-    .text(TITLES[data.version], MARGIN, 404, { width: CONTENT_W, align: 'center' });
+    .text(TITLE, MARGIN, 404, { width: CONTENT_W, align: 'center' });
   doc.fillColor(GRAY).font('Helvetica').fontSize(12)
     .text(data.monthLabel, MARGIN, 442, { width: CONTENT_W, align: 'center' });
 
@@ -154,7 +156,7 @@ function drawCover(doc: PDFKit.PDFDocument, data: BrochureData) {
 function drawHeader(doc: PDFKit.PDFDocument, data: BrochureData) {
   drawIndiansLogoImage(doc, MARGIN, 28, 20);
   doc.fillColor(LIGHT).font('Helvetica').fontSize(8)
-    .text(`${TITLES[data.version]} · ${data.monthLabel}`, PAGE_W / 2, 35, { width: CONTENT_W / 2, align: 'right', lineBreak: false });
+    .text(`${TITLE} · ${data.monthLabel}`, PAGE_W / 2, 35, { width: CONTENT_W / 2, align: 'right', lineBreak: false });
   doc.moveTo(MARGIN, 60).lineTo(PAGE_W - MARGIN, 60).lineWidth(0.5).stroke(RULE);
 }
 
@@ -194,16 +196,6 @@ function drawPhoto(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: nu
     const size = Math.min(w, h) * 0.34;
     drawIndiansMark(doc, x + (w - size) / 2, y + (h - size) / 2, size, MARK_PLACEHOLDER);
   }
-
-}
-
-/** Precio mayorista (el principal) seguido de la etiqueta "mayorista". */
-function drawWholesale(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: number, size: number) {
-  const amount = money(p.wholesalePrice);
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(size).text(amount, x, y, { lineBreak: false });
-  const w = doc.widthOfString(amount);
-  doc.fillColor(LIGHT).font('Helvetica').fontSize(size * 0.68)
-    .text('mayorista', x + w + 5, y + size * 0.26, { lineBreak: false });
 }
 
 /** Precio de la tienda: final + precio de lista tachado si tiene descuento. */
@@ -223,63 +215,7 @@ function drawPrice(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: nu
   }
 }
 
-// ─── Versión clientes: grilla 3×2 con talles, descripción y QR ──────────────
-
-const C_COLS = 3;
-const C_GAP = 14;
-const C_ROW_GAP = 18;
-const C_CARD_W = (CONTENT_W - C_GAP * (C_COLS - 1)) / C_COLS;
-const C_PHOTO_H = C_CARD_W * (4 / 3);
-const C_CARD_H = C_PHOTO_H + 108;
-const C_QR = 38;
-
-function drawCommercialCard(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: number) {
-  drawPhoto(doc, p, x, y, C_CARD_W, C_PHOTO_H);
-
-  const ty = y + C_PHOTO_H + 8;
-  const textW = C_CARD_W - C_QR - 6;
-  drawQr(doc, p.url, x + C_CARD_W - C_QR, ty, C_QR);
-
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(9)
-    .text(oneLine(p.title), x, ty, { width: textW, height: 22, ellipsis: true });
-  drawWholesale(doc, p, x, ty + 24, 10.5);
-  // Debajo del QR (termina en ty + C_QR): ancho completo de la tarjeta.
-  doc.fillColor(GRAY).font('Helvetica').fontSize(6.5)
-    .text('Precio sugerido de venta al público', x, ty + 40, { width: C_CARD_W, lineBreak: false });
-  drawPrice(doc, p, x, ty + 49, 9);
-
-  if (p.sizes.length > 0) {
-    doc.fillColor(GRAY).font('Helvetica').fontSize(7)
-      .text(`Talles: ${p.sizes.join(' · ')}`, x, ty + 62, { width: C_CARD_W, height: 9, ellipsis: true, lineBreak: false });
-  }
-
-  const desc = oneLine(p.description);
-  if (desc) {
-    doc.fillColor(GRAY).font('Helvetica').fontSize(7)
-      .text(desc, x, ty + 73, { width: C_CARD_W, height: 27, ellipsis: true, lineGap: 1 });
-  }
-}
-
-function drawCommercialProducts(doc: PDFKit.PDFDocument, data: BrochureData) {
-  const perPage = C_COLS * 2;
-  for (const [category, products] of groupByCategory(data.products)) {
-    for (let i = 0; i < products.length; i += perPage) {
-      doc.addPage();
-      drawHeader(doc, data);
-      drawSectionTitle(doc, category);
-      const page = products.slice(i, i + perPage);
-      for (let j = 0; j < page.length; j++) {
-        const col = j % C_COLS;
-        const row = Math.floor(j / C_COLS);
-        const x = MARGIN + col * (C_CARD_W + C_GAP);
-        const y = GRID_TOP + row * (C_CARD_H + C_ROW_GAP);
-        drawCommercialCard(doc, page[j], x, y);
-      }
-    }
-  }
-}
-
-// ─── Versión inversionistas: marca + números + galería 2×2 ──────────────────
+// ─── Galería de productos: 2×2 por página ───────────────────────────────────
 
 const I_COLS = 2;
 const I_GAP = 20;
@@ -288,24 +224,23 @@ const I_CARD_W = (CONTENT_W - I_GAP) / I_COLS;
 const I_PHOTO_H = 256;
 const I_CARD_H = I_PHOTO_H + 74;
 
-function drawInvestorCard(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: number) {
+function drawProductCard(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number, y: number) {
   drawPhoto(doc, p, x, y, I_CARD_W, I_PHOTO_H);
   const ty = y + I_PHOTO_H + 9;
 
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(11)
-    .text(oneLine(p.title), x, ty, { width: I_CARD_W * 0.62, height: 14, ellipsis: true, lineBreak: false });
-
-  // Precio mayorista alineado a la derecha del título.
+  // Precio mayorista alineado a la derecha; el título ocupa el resto de la línea.
   doc.font('Helvetica-Bold').fontSize(11);
   const wholesaleW = doc.widthOfString(money(p.wholesalePrice));
   doc.fillColor(INK).text(money(p.wholesalePrice), x + I_CARD_W - wholesaleW, ty, { lineBreak: false });
+  doc.text(fitText(doc, oneLine(p.title), I_CARD_W - wholesaleW - 12), x, ty, { lineBreak: false });
   doc.fillColor(LIGHT).font('Helvetica').fontSize(7).text('PRECIO MAYORISTA', x + I_CARD_W - 80, ty + 14, { width: 80, align: 'right', lineBreak: false });
 
   // La categoría suele coincidir con el género ("Hombre" / masculino): no repetirlo.
   const sameAsCategory = p.genderLabel?.toLowerCase() === p.category.toLowerCase();
   const meta = [p.category, sameAsCategory ? null : p.genderLabel].filter(Boolean).join(' · ');
-  doc.fillColor(CLAY).font('Helvetica').fontSize(7.5)
-    .text(meta.toUpperCase(), x, ty + 17, { width: I_CARD_W - 90, lineBreak: false, ellipsis: true, characterSpacing: 0.6 });
+  // A la izquierda de "PRECIO MAYORISTA" (que ocupa 80 pt a la derecha): una sola línea.
+  doc.fillColor(CLAY).font('Helvetica').fontSize(7.5);
+  doc.text(fitText(doc, meta.toUpperCase(), I_CARD_W - 90, 0.6), x, ty + 17, { lineBreak: false, characterSpacing: 0.6 });
 
   // Precio de la tienda online como sugerido al público.
   const label = 'Precio sugerido de venta al público: ';
@@ -319,7 +254,7 @@ function drawInvestorCard(doc: PDFKit.PDFDocument, p: BrochureProduct, x: number
   }
 }
 
-function drawInvestorProducts(doc: PDFKit.PDFDocument, data: BrochureData) {
+function drawProducts(doc: PDFKit.PDFDocument, data: BrochureData) {
   const perPage = I_COLS * 2;
   for (const [category, products] of groupByCategory(data.products)) {
     for (let i = 0; i < products.length; i += perPage) {
@@ -330,7 +265,7 @@ function drawInvestorProducts(doc: PDFKit.PDFDocument, data: BrochureData) {
       for (let j = 0; j < page.length; j++) {
         const x = MARGIN + (j % I_COLS) * (I_CARD_W + I_GAP);
         const y = GRID_TOP + Math.floor(j / I_COLS) * (I_CARD_H + I_ROW_GAP);
-        drawInvestorCard(doc, page[j], x, y);
+        drawProductCard(doc, page[j], x, y);
       }
     }
   }
@@ -344,7 +279,7 @@ function drawStat(doc: PDFKit.PDFDocument, value: string, label: string, x: numb
     .text(label.toUpperCase(), x + 14, y + 50, { width: w - 28, lineBreak: false, characterSpacing: 0.8 });
 }
 
-/** Página de la marca + resumen de la colección (solo versión inversionistas). */
+/** Página de la marca + resumen de la colección. */
 function drawBrandAndNumbers(doc: PDFKit.PDFDocument, data: BrochureData) {
   doc.addPage();
   drawHeader(doc, data);
@@ -406,20 +341,16 @@ function drawBrandAndNumbers(doc: PDFKit.PDFDocument, data: BrochureData) {
   }
 }
 
-// ─── Cierre: dónde comprar / contacto ────────────────────────────────────────
+// ─── Cierre: contacto ────────────────────────────────────────
 
 function drawContact(doc: PDFKit.PDFDocument, data: BrochureData) {
   doc.addPage();
   drawHeader(doc, data);
-  drawSectionTitle(doc, data.version === 'commercial' ? '¿Cómo comprar?' : 'Contacto');
+  drawSectionTitle(doc, 'Contacto');
 
   let y = 124;
-  const intro = data.version === 'commercial'
-    ? 'Todos los productos de este catálogo están disponibles en nuestra tienda online. '
-      + 'Escaneá el código QR de cada producto para ver su ficha completa y comprarlo, '
-      + 'o entrá a la tienda con el código de abajo.'
-    : 'Todos los productos de esta presentación están publicados en nuestra tienda online. '
-      + 'Escaneá el código para recorrerla.';
+  const intro = 'Todos los productos de este catálogo están publicados en nuestra tienda online. '
+    + 'Escaneá el código para recorrerla.';
   doc.fillColor(GRAY).font('Helvetica').fontSize(10.5).text(intro, MARGIN, y, { width: CONTENT_W, lineGap: 3 });
   y = doc.y + 24;
 
@@ -458,7 +389,7 @@ export async function generateCatalogBrochurePdf(data: BrochureData): Promise<Bu
     margin: 0,
     autoFirstPage: false,
     bufferPages: true,
-    info: { Title: `${TITLES[data.version]} — ${data.company.name}`, Author: data.company.name },
+    info: { Title: `${TITLE} — ${data.company.name}`, Author: data.company.name },
   });
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => {
@@ -472,11 +403,9 @@ export async function generateCatalogBrochurePdf(data: BrochureData): Promise<Bu
 
   if (data.products.length === 0) {
     drawEmpty(doc, data);
-  } else if (data.version === 'investor') {
-    drawBrandAndNumbers(doc, data);
-    drawInvestorProducts(doc, data);
   } else {
-    drawCommercialProducts(doc, data);
+    drawBrandAndNumbers(doc, data);
+    drawProducts(doc, data);
   }
   drawContact(doc, data);
   drawFooters(doc, data);

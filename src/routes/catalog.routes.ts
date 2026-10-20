@@ -25,14 +25,9 @@ router.delete('/categories/:id', authorize('admin', 'billing'), [param('id').isI
 
 // ─── Catálogo PDF (presentación a clientes / inversionistas) ──────────────────
 
-// GET /catalog/brochure?version=commercial|investor — productos publicados en la
-// tienda con el precio de la tienda, en PDF. Solo admin y facturación.
-router.get(
-  '/brochure',
-  authorize('admin', 'billing'),
-  [query('version').optional().isIn(['commercial', 'investor']).withMessage('Versión inválida'), validate],
-  ctrl.downloadBrochure
-);
+// GET /catalog/brochure — productos publicados en la tienda, con precio mayorista
+// y precio sugerido al público (el de la tienda), en PDF. Solo admin y facturación.
+router.get('/brochure', authorize('admin', 'billing'), ctrl.downloadBrochure);
 
 // ─── Productos del catálogo ───────────────────────────────────────────────────
 

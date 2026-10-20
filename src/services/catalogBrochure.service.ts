@@ -1,23 +1,17 @@
-import { CatalogProduct, CatalogProductImage, CatalogProductSize } from '../models';
+import { CatalogProduct, CatalogProductImage } from '../models';
 import { cloudinary } from '../config/cloudinary';
 import { activeClientWhere } from '../utils/storeVisibility';
 import { roundPrice } from '../utils/money';
 import { businessDate } from '../utils/helpers';
 import { logger } from '../utils/logger';
 import { getAllSettings } from './settings.service';
-import {
-  generateCatalogBrochurePdf,
-  type BrochureProduct,
-  type BrochureVersion,
-} from '../utils/catalogBrochure.pdf';
+import { generateCatalogBrochurePdf, type BrochureProduct } from '../utils/catalogBrochure.pdf';
 
 // Catálogo PDF para presentar a clientes e inversionistas. Toma exactamente lo
 // que la tienda publica (mismo filtro que listStoreProducts: show_in_store,
 // active y cliente activo). El precio principal es el MAYORISTA (`price`) y el
 // de la tienda online va como "Precio sugerido de venta al público". No usa la
 // ficha técnica: es material para mandar afuera.
-
-export const BROCHURE_VERSIONS: BrochureVersion[] = ['commercial', 'investor'];
 
 const STORE_URL = process.env.STORE_URL || 'http://localhost:5173/tienda';
 const UNCATEGORIZED = 'Otros';
@@ -107,13 +101,12 @@ async function downloadAll(urls: Array<string | null>): Promise<Array<Buffer | n
   return out;
 }
 
-export async function buildCatalogBrochure(version: BrochureVersion): Promise<{ buffer: Buffer; filename: string }> {
+export async function buildCatalogBrochure(): Promise<{ buffer: Buffer; filename: string }> {
   const rows = await CatalogProduct.findAll({
     where: { show_in_store: true, active: true, ...activeClientWhere() },
     attributes: ['id', 'title', 'description', 'price', 'public_price', 'discount_percentage', 'category', 'gender'],
     include: [
       { model: CatalogProductImage, as: 'images', attributes: ['url', 'cloudinary_public_id', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
-      { model: CatalogProductSize, as: 'sizes', attributes: ['size_name', 'sort_order'], separate: true, order: [['sort_order', 'ASC']] },
     ],
     order: [['title', 'ASC'], ['id', 'ASC']],
   });
@@ -126,7 +119,7 @@ export async function buildCatalogBrochure(version: BrochureVersion): Promise<{ 
   const missing = images.filter((img, i) => !img && firstImages[i]).length;
   if (missing > 0) {
     // Las fotos que no se pudieron bajar van con el isotipo en su lugar.
-    logger.warn('catalog.brochure.imagesMissing', { meta: { missing, total: products.length, version } });
+    logger.warn('catalog.brochure.imagesMissing', { meta: { missing, total: products.length } });
   }
 
   const items: BrochureProduct[] = products.map((p, i) => {
@@ -141,7 +134,6 @@ export async function buildCatalogBrochure(version: BrochureVersion): Promise<{ 
       basePrice: price.base,
       finalPrice: price.final,
       discount: price.discount,
-      sizes: (p.sizes ?? []).map((s: { size_name: string }) => s.size_name),
       image: images[i],
       url: `${STORE_URL}/productos/${p.id}`,
     };
@@ -162,7 +154,6 @@ export async function buildCatalogBrochure(version: BrochureVersion): Promise<{ 
   const [yyyy, mm, dd] = today.split('-');
 
   const buffer = await generateCatalogBrochurePdf({
-    version,
     generatedOn: `${dd}/${mm}/${yyyy}`,
     monthLabel: `${MONTHS[Number(mm) - 1]} ${yyyy}`,
     storeUrl: STORE_URL,
@@ -176,6 +167,5 @@ export async function buildCatalogBrochure(version: BrochureVersion): Promise<{ 
     products: items,
   });
 
-  const suffix = version === 'investor' ? 'inversionistas' : 'clientes';
-  return { buffer, filename: `catalogo-indians-${suffix}-${today}.pdf` };
+  return { buffer, filename: `catalogo-indians-${today}.pdf` };
 }

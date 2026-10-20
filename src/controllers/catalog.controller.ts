@@ -5,7 +5,6 @@ import { storeEvents } from '../events/storeEvents';
 import { verifyWebhookSignature } from '../services/mercadopago.service';
 import { productsForRole } from '../services/pricingVisibility';
 import { buildCatalogBrochure } from '../services/catalogBrochure.service';
-import type { BrochureVersion } from '../utils/catalogBrochure.pdf';
 
 // ─── Productos ────────────────────────────────────────────────────────────────
 
@@ -316,8 +315,7 @@ export async function deleteCategory(req: AuthRequest, res: Response, next: Next
 
 export async function downloadBrochure(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const version = (req.query.version as BrochureVersion | undefined) ?? 'commercial';
-    const { buffer, filename } = await buildCatalogBrochure(version);
+    const { buffer, filename } = await buildCatalogBrochure();
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buffer);
